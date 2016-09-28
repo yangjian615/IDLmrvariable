@@ -454,7 +454,7 @@ _REF_EXTRA=extra
 	self -> SetURI, uri, success
 	
 	;Success status
-	if ~success then message, 'Cannot change directories.'
+	if ~success && ~arg_present(success) then message, 'Cannot change directories.'
 end
 
 
@@ -689,7 +689,8 @@ end
 ;       COUNT:          out, optional, type=integer
 ;                       Number of files that pass the filter.
 ;       LATEST_VERSION: in, optional, type=boolean, default=0
-;                       If set, only the newest version of the files is returned.
+;                       If set, only the newest version of the files is returned. This
+;                           is the default if `MIN_VERSION` and `VERSION` are not set.
 ;       MIN_VERSION:    in, optional, type=string, default=''
 ;                       A version number formatted as 'X.Y.Z'. Files with
 ;                           versions smaller this version will be filtered out.
@@ -712,6 +713,7 @@ VERSION=version
 	tf_latest = keyword_set(latest_version)
 	tf_checkv = n_elements(version)     gt 0
 	tf_minv   = n_elements(min_version) gt 0
+	if tf_checkv + tf_minv + tf_latest  eq 0 then tf_latest = 1B
 	if tf_checkv + tf_minv + tf_latest  gt 1 $
 		then message, 'VERSION, MIN_VERSION and LATEST_VERSION are mutually exclusive.'
 
@@ -720,7 +722,7 @@ VERSION=version
 	count     = n_elements(filenames)
 
 	;Extract X, Y, Z version numbers from file
-	fversion = stregex(files_out, 'v([0-9]+)\.([0-9]+)\.([0-9])\.cdf$', /SUBEXP, /EXTRACT)
+	fversion = stregex(files_out, 'v([0-9]+)\.([0-9]+)\.([0-9]+)\.cdf$', /SUBEXP, /EXTRACT)
 	fv = fix(fversion[1:3,*])
 
 ;------------------------------------;
@@ -823,7 +825,6 @@ COUNT=count
 ;---------------------------------------------------------------------
 ; Filter Files ///////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	
 	files = self -> FilterFiles(files, COUNT=count)
 	if count eq 0 then message, 'No files remain after time and version filters.'
 	
@@ -1410,27 +1411,22 @@ SORT=tf_sort
 ; Create Local File Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
-	;Root directory
-	local_root = filepath( '', $
-	                       ROOT_DIR     = self.local_root, $
-	                       SUBDIRECTORY = [self.scheme, self.host, 'mms'] )
-
 	;Directories from field-value pairs
 	;   - TSTART will be made from MrTokens
 	;   - VERSION will be the asterisk
-	if (*self.field_values).file[0] ne '' then begin
+	if (*self.field_values).file[0] eq '' then begin
 		uri = MrMMS_Build_Filename( (*self.field_values).sc_id, $
 		                            (*self.field_values).instrument_id, $
 		                            (*self.field_values).data_rate_mode, $
 		                            (*self.field_values).data_level, $
 		                            OPTDESC  = (*self.field_values).descriptor, $
-		                            SDC_ROOT = local_root )
+		                            SDC_ROOT = self.local_root )
 		
 	;Directories from file names
 	endif else begin
-		ftemp     = strsplit((*self.field_values).file, ',', /EXTRACT)
-		uri_root  = MrMMS_Build_Path( ftemp, SDC_ROOT=local_root )
-		uri_local = uri_root + temporary(ftemp)
+		ftemp    = strsplit((*self.field_values).file, ',', /EXTRACT)
+		uri_root = MrMMS_Build_Path( ftemp, SDC_ROOT=self.local_root )
+		uri      = uri_root + temporary(ftemp)
 	endelse
 
 ;-----------------------------------------------------
@@ -1439,18 +1435,23 @@ SORT=tf_sort
 	if self.dropbox_root ne '' then begin
 		;Directories from field-value pairs
 		if (*self.field_values).file[0] eq '' then begin
-			uri = MrMMS_Build_Filename( (*self.field_values).sc_id, $
-			                            (*self.field_values).instrument_id, $
-			                            (*self.field_values).data_rate_mode, $
-			                            (*self.field_values).data_level, $
-			                            OPTDESC   = (*self.field_values).descriptor, $
-			                            DIRECTORY = self.dropbox_root )
+			uri_dropbox = MrMMS_Build_Filename( (*self.field_values).sc_id, $
+			                                    (*self.field_values).instrument_id, $
+			                                    (*self.field_values).data_rate_mode, $
+			                                    (*self.field_values).data_level, $
+			                                    OPTDESC   = (*self.field_values).descriptor, $
+			                                    DIRECTORY = self.dropbox_root )
+		
+		;Directories from file names
 		endif else begin
 			ftemp       = strsplit((*self.field_values).file, ',', /EXTRACT)
 			uri_dropbox = self.dropbox_root + path_sep() + temporary(ftemp)
-		endif
+		endelse
+		
+		;Combine with local results
+		uri = [uri, temporary(uri_dropbox)]
 	endif
-	
+
 ;-----------------------------------------------------
 ; Search for Files \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -1462,7 +1463,7 @@ SORT=tf_sort
 	count = 0L
 	for i = 0, n_elements(uri) - 1 do begin
 		;Search for files
-		temp = oFile -> Search(uri_local[i], COUNT=nFiles)
+		temp = oFile -> Search(uri[i], COUNT=nFiles)
 
 		;Combine them
 		if nFiles gt 0 then begin
@@ -1473,20 +1474,6 @@ SORT=tf_sort
 		
 		;Increase count
 		count += nFiles
-		
-		;Repeat for Dropbox
-		if self.dropbox_root ne '' then begin
-			;Search for files
-			temp = oFile -> Search(uri_dropbox[i], COUNT=nDropbox)
-			
-			;Combine results
-			if nDropbox gt 0 then begin
-				if count eq 0 $
-					then files = temporary(temp) $
-					else files = [files, temporary(temp)]
-				count += nDropbox
-			endif
-		endif
 	endfor
 
 	;Destroy the file object
@@ -1495,6 +1482,7 @@ SORT=tf_sort
 ;-----------------------------------------------------
 ; Filter Files \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+
 	;Filter by time and version
 	if keyword_set(filter) && count gt 0 $
 		then files = self -> FilterFiles(files, COUNT=count)
@@ -1867,7 +1855,7 @@ end
 ; :Params:
 ;       URI:        in, required, type=string
 ;                   Change connection settings to this fully resolved URI.
-;       SUCCESS:    out, required, type=boolean
+;       SUCCESS:    out, optional, type=boolean
 ;                   A flag indicating whether the operaion was successful.
 ;-
 pro MrMMS_SDC_Query::SetURI, uri, success
@@ -2015,15 +2003,15 @@ function MrMMS_SDC_Query::uri2dir, uri
 		dirname  = self -> Path_DirName(path)
 	endelse
 	
-	;Remove (data|public) so that all data is stored in the same location
-	parts = stregex(dirname, '(mms)/(data|public)/(.*)', /SUBEXP, /EXTRACT)
+	;Remove mms/(data|public) so that all data is stored in the same location
+	parts = stregex(dirname, 'mms/(data|public)/(.*)', /SUBEXP, /EXTRACT)
 
 	;Create the directory chain
 	dir = strarr(nURI)
 	for i = 0, nURI-1 do begin
 		dir[i] = filepath(basename[i], $
 		                  ROOT_DIR     = self.local_root, $
-		                  SUBDIRECTORY = [scheme[i], host[i], parts[1,i], parts[3,i]])
+		                  SUBDIRECTORY = parts[3,i])
 	endfor
 	if nURI eq 1 then dir = dir[0]
 	
@@ -2359,6 +2347,7 @@ FILE_INFO=info, $
 FILE_NAMES=names, $
 INSTR=instr, $
 LEVEL=level, $
+LOCAL_ROOT=local_root, $
 MODE=mode, $
 OPTDESC=optdesc, $
 PUBLIC_SITE=public, $
@@ -2381,9 +2370,16 @@ _REF_EXTRA = extra
 		MrPrintF, 'LogErr'
 		return, 0
 	endif
+	
+	;Set the local data root
+	if n_elements(local_root) eq 0 then begin
+		local_root = filepath('', ROOT_DIR=file_search('~', /TEST_DIRECTORY, /EXPAND_TILDE), $
+		                          SUBDIRECTORY=['MrWebData', 'https', 'lasp.colorado.edu', 'mms'] )
+		MrPrintF, 'LogWarn', 'Setting local data root to: "' + local_root + '".'
+	endif
 
 	;Superclass INIT.
-	success = self -> MrWebURI::Init(_STRICT_EXTRA=extra)
+	success = self -> MrWebURI::Init(LOCAL_ROOT=local_root, _STRICT_EXTRA=extra)
 	if success eq 0 then return, 0
 	
 	;Allowed query values

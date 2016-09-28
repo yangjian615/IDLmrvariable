@@ -39,8 +39,13 @@
 ;       MMS, MrVariable
 ;
 ; :Keywords:
-;       LOCAL_ROOT:     out, optional, type=string, default='~/MrWebData/'
-;                       Local root data directory.
+;       DROPBOX_ROOT:   in, optional, type=string, default=MRWEBDATA_DROPBOX_ROOT environment variable
+;                       Local folder in which files are temporarily placed before
+;                           being moved to into `LOCAL_ROOT`.
+;       LOCAL_ROOT:     in, optional, type=string, default=MRWEBDATA_LOCAL_ROOT environment variable
+;                       Local directory root where downloaded files are to be saved.
+;                           The underlying directory structure should mimic the remote
+;                           site from which data was obtained.
 ;       MIRROR_ROOT:    out, optional, type=string, default=''
 ;                       Root data directory of a remote mirror site.
 ;       NO_DOWNLOAD:    in, optional, type=boolean, default=0
@@ -69,6 +74,7 @@
 ;       2014/06/27  -   Written by Matthew Argall
 ;-
 pro MrMMS_Init, $
+DROPBOX_ROOT=dropbox_root, $
 LOCAL_ROOT=local_root, $
 MIRROR_ROOT=mirror_root, $
 NO_DOWNLOAD=no_download, $
@@ -88,10 +94,11 @@ VERBOSE=verbose
 	;Create the system variable
 	if ~tf_exist then begin
 		;Create the web object
-		oWeb = MrMMS_SDC_Query( LOCAL_ROOT  = local_root, $
-		                        MIRROR_ROOT = mirror_root, $
-		                        NO_DOWNLOAD = no_download, $
-		                        OFFLINE     = offline )
+		oWeb = MrMMS_SDC_Query( DROPBOX_ROOT = dropbox_root, $
+		                        LOCAL_ROOT   = local_root, $
+		                        MIRROR_ROOT  = mirror_root, $
+		                        NO_DOWNLOAD  = no_download, $
+		                        OFFLINE      = offline )
 		
 		;Create the system variable
 		;   - It is read-only, so it must be a valid object.

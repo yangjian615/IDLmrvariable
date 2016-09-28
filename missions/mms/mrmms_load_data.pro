@@ -91,10 +91,10 @@ pro MrMMS_Load_Data_RenameEpoch, varnames
 			
 			;Rename only the "Epoch" variables.
 			;   - Allow "_#" in case /NO_CLOBBER caused Epoch to be renamed.
-			if stregex(epoch_name, '^(Epoch|Epoch_[0-9]+)$', /BOOLEAN) then begin
+			if stregex(epoch_name, '^Epoch', /BOOLEAN) then begin
 				;Dissect the variable name
 				parts    = strsplit(varnames[i], '_', /EXTRACT)
-				
+
 				;Create a new name
 				;   - Variable names are suppose to follow the format
 				;       sc_instr_param_[coordsys_][optdesc_]mode_level
@@ -104,8 +104,8 @@ pro MrMMS_Load_Data_RenameEpoch, varnames
 				;     convention exactly.
 				;   - Here, we follow the naming convention of the instrument
 				if stregex(varnames[i], '(des|dis)', /BOOLEAN) $
-					then new_name = strjoin( [parts[0:1], 'epoch', parts[-1]], '_' ) $
-					else new_name = strjoin( [parts[0:1], 'epoch', parts[-2:-1]], '_' )
+					then new_name = strjoin( [parts[0:1], strlowcase(epoch_name), parts[-1]], '_' ) $
+					else new_name = strjoin( [parts[0:1], strlowcase(epoch_name), parts[-2:-1]], '_' )
 			
 				;Rename the epoch variable
 				oVar -> SetAttrValue, 'DEPEND_0', new_name
