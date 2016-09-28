@@ -155,7 +155,7 @@ TYPE=type
 		;   - oZ_hat = oB_hat
 		
 		;Perp2: XxB
-		oY_hat = oZ_hat -> Cross([1,0,0])
+		oY_hat = oB_hat -> Cross([1,0,0])
 		oY_hat = oY_hat -> Normalize()
 		
 		;Perp1: Yx(XxB)

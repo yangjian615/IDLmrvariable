@@ -306,7 +306,7 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 		endelse
 
 ;-------------------------------------------------------
-; MrMatrixTS with Expression //////////////////////////////
+; MrMatrixTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Multiply the expressions
@@ -1519,7 +1519,7 @@ NAME=name
 	compile_opt idl2
 	on_error, 2
 
-	dims = self.dimensions
+	dims = size(*self.data, /DIMENSIONS)
 	if ~array_equal(dims[1:2], 3) then message, 'MrMatrix must be 3x3.'
 	if n_elements(name) eq 0 then name = self.name + '_rot'
 
@@ -1528,9 +1528,9 @@ NAME=name
 ;-----------------------------------------------------
 	if isa(vec, 'MrVectorTS') then begin
 		;MrVectorTS
-		outVec = [ [(*self.data)[*,0,0]*vec[*,0] + (*self.data)[*,1,0]*vec[*,1] + (*self.data)[*,2,0]*vec[*,1]], $
-		           [(*self.data)[*,0,1]*vec[*,0] + (*self.data)[*,1,1]*vec[*,1] + (*self.data)[*,2,1]*vec[*,1]], $
-		           [(*self.data)[*,0,2]*vec[*,0] + (*self.data)[*,1,2]*vec[*,1] + (*self.data)[*,2,2]*vec[*,1]] ]
+		outVec = [ [(*self.data)[*,0,0]*vec[*,0] + (*self.data)[*,1,0]*vec[*,1] + (*self.data)[*,2,0]*vec[*,2]], $
+		           [(*self.data)[*,0,1]*vec[*,0] + (*self.data)[*,1,1]*vec[*,1] + (*self.data)[*,2,1]*vec[*,2]], $
+		           [(*self.data)[*,0,2]*vec[*,0] + (*self.data)[*,1,2]*vec[*,1] + (*self.data)[*,2,2]*vec[*,2]] ]
 
 ;-----------------------------------------------------
 ; Normal Array \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -1564,7 +1564,7 @@ NAME=name
 ;-----------------------------------------------------
 ; Output \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	oVec = MrVariableTS(outVec, NAME=name, CACHE=cache, /NO_COPY)
+	oVec = MrVectorTS(outVec, NAME=name, CACHE=cache, /NO_COPY)
 
 	return, oVec
 end

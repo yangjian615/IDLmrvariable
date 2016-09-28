@@ -208,15 +208,15 @@ VARINQ = varinq
 	rec_count = var_info.maxrec + 1
 	
 	;
-	;If REC_COUNT=0, CDF_VarGet will issue an error. However, if we undefine
-	;REC_COUNT, it will read a PadValue and issue a warning. Here, we choose
-	;to read in zero records
+	; If REC_COUNT=0, CDF_VarGet will issue an error. However, if we undefine
+	; REC_COUNT, it will read a PadValue and issue a warning. Here, we choose
+	; to read in zero records
 	;
 	
 	if rec_count gt 0 then begin
 		;Do not show annoying cdf_varget warnings
 		!Quiet = 1
-	
+
 		;Get its data
 		cdf_varget, cdfID, varname, data, $
 		            COUNT        = count, $
@@ -225,7 +225,7 @@ VARINQ = varinq
 		            REC_COUNT    = rec_count, $
 		            REC_INTERVAL = rec_interval, $
 		            STRING       = string
-	
+
 		;Turn on normal warnings.
 		!Quiet = 0
 	endif else begin
@@ -246,7 +246,6 @@ VARINQ = varinq
 	if varinq.recvar then begin
 		;Scalar or time
 		if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
-			nDims = 1
 			vartype = keyword_set(is_epoch) ? 'MrTimeVar' : 'MrScalarTS'
 		
 		;Vector
@@ -388,10 +387,10 @@ NO_CLOBBER=no_clobber
 		;We do not want to create new variables every time the same
 		;file is read, so default to clobbering any pre-existing
 		;variable by the same name.
-		var = obj_new(vtype, $
-		              /CACHE, $
-		              NAME       = vname, $
-		              NO_CLOBBER = ~tf_clobber)
+		var = obj_new( vtype, $
+		               /CACHE, $
+		               NAME       = vname, $
+		               NO_CLOBBER = ~tf_clobber )
 		
 		;Keep track of variable information
 		;   - Collection is necessary only once per call (i.e. not for every file)
@@ -437,7 +436,7 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 		if tf_exists eq 0 then continue
 
 	;-----------------------------------------------------
-	; DEPEND_[0-3] \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	; DEPEND_[0-3] or LABL_PTR_[1-3] \\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
 		if stregex(attrName, '(DEPEND|LABL_PTR)_[0-3]', /BOOLEAN) then begin
 			;
@@ -489,7 +488,7 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 			var -> SetAttrValue, attrName, attrValue, /CREATE
 		endelse
 	endfor
-	
+
 	;Save the CDF datatype as well
 	varinq = cdf_varinq(cdfID, varName)
 	var -> SetAttrValue, 'CDF_TYPE', varinq.datatype, /CREATE
@@ -598,7 +597,6 @@ pro MrVar_ReadCDF_TLimit, trange
 ;-----------------------------------------------------
 ; Data Variables First \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	
 	;Find epoch variables
 	nDep0       = 0
 	epoch_names = strarr(cdf_vcount)
@@ -855,7 +853,7 @@ VERBOSE=verbose
 			                       INTERVAL     = interval, $
 			                       STRING       = string, $
 			                       VARINQ       = data_inq
-			
+
 			;Get the variable attributes
 			MrVar_ReadCDF_GetVarAttrs, cdfID, varinq.name
 			

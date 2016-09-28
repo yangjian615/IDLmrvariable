@@ -56,6 +56,7 @@
 ; :History:
 ;   Modification History::
 ;       2016-02-13  -   Written by Matthew Argall
+;       2016-09-27  -   Added SEARCHSTR and REGEX to ::GetNames. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -402,17 +403,25 @@ end
 
 
 ;+
-;   Return the name of all variables stored in the container.
+;   Return the names of variables stored in the container.
+;
+; :Params:
+;       SEARCHSTR:      in, optional, type=string
+;                       A search string to match a subset of the variables names.
 ;
 ; :Keywords:
 ;       COUNT:          out, optional, type=integer
 ;                       Number of variables in the container
+;       REGEX:          in, optional, type=boolean, default=0
+;                       If set, `SEARCHSTR` will be applied via IDL's StRegEx()
+;                           function. The default is to use StrMatch().
 ;
 ; :Returns:
 ;       VARNAMES:       The names of all variables in the container.
 ;-
-function MrVariable_Cache::GetNames, $
-COUNT=count
+function MrVariable_Cache::GetNames, searchstr, $
+COUNT=count, $
+REGEX=regex
 	compile_opt idl2
 	on_error, 2
 	
@@ -427,6 +436,19 @@ COUNT=count
 		theVar      = self -> Get(i)
 		varnames[i] = theVar -> GetName()
 	endfor
+
+	;Match a search string?
+	if n_elements(searchstr) gt 0 then begin
+		;Search for matches
+		if keyword_set(regex) $
+			then iKeep = where(stregex(varnames, searchstr, /BOOLEAN), count) $
+			else iKeep = where(strmatch(varnames, searchstr), count)
+		
+		;Keep matches
+		if count gt 0 $
+			then varnames = varnames[iKeep] $
+			else varnames = ''
+	endif
 
 	;Return the names
 	return, varnames

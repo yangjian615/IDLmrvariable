@@ -40,6 +40,12 @@
 ;                       Named variable into which the names of all currently cached
 ;                           variables is returned. If not present, the names will be
 ;                           printed to the command window.
+;       SEARCHSTRING:   in, optional, type=string
+;                       A search pattern used to filter `NAMES`, applied via IDL's StrMatch().
+;
+; :Params:
+;       REGEX:          in, optional, type=boolean, default=0
+;                       If set, apply `SEARCHSTRING` via StRegEx().
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -56,9 +62,11 @@
 ;   Modification History::
 ;       2016-02-13  -   Written by Matthew Argall
 ;       2016-02-29  -   Added the NAMES parameter
+;       2016-09-27  -   Added SEARCHSTRING and REGEX. - MRA
 ;-
 ;*****************************************************************************************
-pro MrVar_Names, names
+pro MrVar_Names, names, searchString, $
+REGEX=regex
 	compile_opt idl2
 	on_error, 2
 
@@ -68,7 +76,7 @@ pro MrVar_Names, names
 	;Print names
 	if obj_valid(MrVarCache) then begin
 		if arg_present(names) $
-			then names = MrVarCache -> GetNames() $
+			then names = MrVarCache -> GetNames(searchString, REGEX=regex) $
 			else print, MrVarCache
 	
 	;No variables exist in the cache because the cache has not been created.
