@@ -33,7 +33,7 @@
 ;
 ; PURPOSE:
 ;+
-;   Read 3D distribution function data and reduce it to a 1D distribution in pitch angle.
+;   Reduce the 3D distribution function to a 1D distribution in pitch angle.
 ;   One distribution will be created for each range of energy channels given. The range
 ;   of polar angle can be constrained.
 ;

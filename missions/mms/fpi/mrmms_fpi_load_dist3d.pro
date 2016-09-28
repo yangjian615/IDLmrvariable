@@ -241,11 +241,6 @@ end
 ;       ORIENTATION:        in, optional, type=integer, default=3
 ;                           Orientation of the sphereical grid. See
 ;                               MrVar_Grid_Cart2Sphere.pro for options.
-;       SUPPORT_DATA:       in, optional, type=boolean, default=0
-;                           If set, support data will be read as well. Regardless of
-;                               the status of this keyword, variable data associated
-;                               with DEPEND_# variables will be read. This keyword
-;                               is ignored if `VARFORMAT` is set.
 ;       TEAM_SITE:          in, optional, type=boolean, default=0
 ;                           If set, requests will be sent to the team site (password
 ;                               required, L1A and above). Automatically set if `LEVEL`
@@ -259,7 +254,6 @@ pro MrMMS_FPI_Load_Dist3D, sc, mode, species, fac, $
 COORD_SYS=coord_sys, $
 LEVEL=level, $
 ORIENTATION=orientation, $
-SUPPORT_DATA=support_data, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARNAMES=varnames
@@ -277,8 +271,8 @@ VARNAMES=varnames
 	if n_elements(species) eq 0 then species = 'e'
 	
 	;Conflicts
-	if n_elements(sc)      ne 1 then message, 'SC must be scalar.'
-	if n_elements(mode)    ne 1 then message, 'MODE must be scalar.'
+	if n_elements(sc)   ne 1 then message, 'SC must be scalar.'
+	if n_elements(mode) ne 1 then message, 'MODE must be scalar.'
 
 ;-----------------------------------------------------
 ; Load the FPI \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -287,6 +281,7 @@ VARNAMES=varnames
 	MrMMS_FPI_Load_Data, sc, mode, $
 	                     LEVEL     = level, $
 	                     OPTDESC   = 'd' + species + 's-dist', $
+	                     TEAM_SITE = team_site, $
 	                     VARFORMAT = ['*dist_*', '*energy0*', '*energy1*', '*phi*', '*theta*', '*steptable*'], $
 	                     VARNAMES  = varnames
 

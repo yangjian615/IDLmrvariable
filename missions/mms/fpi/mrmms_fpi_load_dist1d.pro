@@ -46,27 +46,31 @@
 ;       MODE:               in, required, type=string/strarr
 ;                           Telemetry mode of the data. Options include:
 ;                               {'slow' | 'fast' | 'srvy' | 'brst'}
+;       SPECIES:            in, required, type=string
+;                           Particle species for the distribution. Options include:
+;                               { 'e' | 'i' }
+;       FAC:                in, optional, type=string, default='VXB'
+;                           Field-aligned coordinate system into which to rotate the
+;                               distribution. Options include: { 'VxB' | 'ExB' | '' }
 ;
 ; :Keywords:
+;       COORD_SYS:          in, optional, type=string, default='GSE'
+;                           Original data coordinate system. Options include:
+;                               { 'dbcs' | 'gse' }
 ;       LEVEL:              in, optional, type=string/strarr, default='l2'
 ;                           Data quality level. Options include:
-;                               {'l1a' | 'l1b' | 'l2pre' | 'l2'}
-;       OPTDESC:            in, optional, type=string, default=''
-;                           Optional descriptor of the data.
-;       SUPPORT_DATA:       in, optional, type=boolean, default=0
-;                           If set, support data will be read as well. Regardless of
-;                               the status of this keyword, variable data associated
-;                               with DEPEND_# variables will be read. This keyword
-;                               is ignored if `VARFORMAT` is set.
+;                               {'l1b' | 'sitl' | 'l2'}
+;       NO_LOAD:            in, optional, type=boolean, default=0
+;                           If set, data will not be read from CDF and loaded into the cache.
 ;       TEAM_SITE:          in, optional, type=boolean, default=0
 ;                           If set, requests will be sent to the team site (password
 ;                               required, L1A and above). Automatically set if `LEVEL`
 ;                               is below level 2. This option is sticky.
 ;       TRANGE:             out, optional, type=string, default=MrVar_GetTRange()
 ;                           Start and end times over which to read data.
-;       VARFORMAT:          out, optional, type=string, default='*'
-;                           Variables that match this search pattern will be read,
-;                               others are ignored.
+;       VARNAMES:           out, optional, type=string,
+;                           Variable names that were loaded into the variable cache as
+;                               a result of this program.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -83,7 +87,7 @@
 pro MrMMS_FPI_Load_Dist1D, sc, mode, species, fac, $
 COORD_SYS=coord_sys, $
 LEVEL=level, $
-SUPPORT_DATA=support_data, $
+NO_LOAD=no_load, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARNAMES=varnames
@@ -97,7 +101,8 @@ VARNAMES=varnames
 	endif
 	
 	;Check inputs
-	cs = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
+	tf_load = ~keyword_set(no_load)
+	cs      = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
 	if n_elements(fac)  eq 0 then fac = 'VXB'
 	if n_elements(sc)   ne 1 then message, 'SC must be scalar.'
 	if n_elements(mode) ne 1 then message, 'MODE must be scalar.'
@@ -106,24 +111,30 @@ VARNAMES=varnames
 ; Load the Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Get the FPI distribution function
-	MrMMS_FPI_Load_Dist3D, sc, mode, species, fac, $
-	                       COORD_SYS = coord_sys, $
-	                       LEVEL     = level, $
-	                       VARNAMES  = varnames
+	if tf_load then begin
+		MrMMS_FPI_Load_Dist3D, sc, mode, species, fac, $
+		                       COORD_SYS = coord_sys, $
+		                       LEVEL     = level, $
+		                       TEAM_SITE = team_site, $
+		                       TRANGE    = trange, $
+		                       VARNAMES  = varnames
+	endif
 	
 ;-----------------------------------------------------
 ; Create Variable Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	fpi_prefix = sc + '_d' + species + 's_'
+	fpi_suffix = '_' + mode
 	
 	;Variable Names
-	theta_vname     = sc + '_d' + species + 's_theta_'            + mode
-	theta_fac_vname = sc + '_d' + species + 's_theta_fac_'        + mode
-	phi_fac_vname   = sc + '_d' + species + 's_phi_fac_'          + mode
-	phi_vname       = sc + '_d' + species + 's_phi_'              + mode
-	e_vname         = sc + '_d' + species + 's_energy_table_'     + mode
-	dist_fac_vname  = sc + '_d' + species + 's_dist_fac_'         + mode
-	vec_vname       = sc + '_d' + species + 's_bulkv_' + cs + '_' + mode
-	b_vname         = sc + '_fgm_bvec_gse_'                       + mode + '_l2'
+	theta_vname     = fpi_prefix + 'theta'        + fpi_suffix
+	theta_fac_vname = fpi_prefix + 'theta_fac'    + fpi_suffix
+	phi_fac_vname   = fpi_prefix + 'phi_fac'      + fpi_suffix
+	phi_vname       = fpi_prefix + 'phi'          + fpi_suffix
+	e_vname         = fpi_prefix + 'energy_table' + fpi_suffix
+	dist_fac_vname  = fpi_prefix + 'dist_fa'      + fpi_suffix
+	vec_vname       = fpi_prefix + 'bulkv_' + cs  + fpi_suffix
+	b_vname         = sc + '_fgm_bvec_gse_'       + mode + '_l2'
 	
 	;New variable names
 	pad_vname = sc + '_d' + species + 's_pad_'   + mode

@@ -62,10 +62,17 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name
 	compile_opt idl2
 	on_error, 2
 
-	;Create new names, adding "vec" and "mag"
-	pos       = strpos(b_name, '_b_')
-	bvec_name = strmid(b_name, 0, pos+2) + 'vec' + strmid(b_name, pos+2)
-	bmag_name = strmid(b_name, 0, pos+2) + 'mag' + strmid(b_name, pos+2)
+	;Find a place to split the variable name
+	;   - Add "vec" and "mag"
+	pos = strpos(b_name, '_b_')
+	if pos eq -1 then begin
+		pos       = stregex(b_name, '_(afg|dfg|fgm)_', LEN=len)
+		bvec_name = strmid(b_name, 0, pos+len) + 'vec_' + strmid(b_name, pos+len)
+		bmag_name = strmid(b_name, 0, pos+len) + 'mag_' + strmid(b_name, pos+len)
+	endif else begin
+		bvec_name = strmid(b_name, 0, pos+2) + 'vec' + strmid(b_name, pos+2)
+		bmag_name = strmid(b_name, 0, pos+2) + 'mag' + strmid(b_name, pos+2)
+	endelse
 
 	;Grab the variable
 	oB = MrVar_Get(b_name)
@@ -216,7 +223,9 @@ VARNAMES=varnames
 	; Separate B and |B| \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
 		;Separate B from |B|
-		if stregex(varnames[i], '(afg|dfg|fgm)_b_(gse|gsm|dmpa|bcs)', /BOOLEAN) $
+		;   - L2 has different names from L1A, L1B, L2Pre
+		if stregex(varnames[i], '(afg|dfg|fgm)_b_(gse|gsm|dmpa|bcs)', /BOOLEAN) || $
+		   stregex(varnames[i], '(afg|dfg|fgm)_.*_(dmpa|gse|gsm)$', /BOOLEAN) $
 			then MrMMS_FGM_Load_Data_SplitB, varnames[i]
 	endfor
 end
