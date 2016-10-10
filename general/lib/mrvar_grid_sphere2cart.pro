@@ -60,6 +60,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/08/21  -   Written by Matthew Argall
+;       2016/09/29  -   PHI and THETA can be time-independent. - MRA
 ;-
 pro MrVar_Grid_Sphere2Cart, phi, theta, oXGrid, oYGrid, oZGrid, $
 DEGREES=degrees, $
@@ -103,6 +104,9 @@ PHI_GRID=oPhiGrid
 		nTheta = szTheta[2]
 		nTime  = szTheta[1]
 	endif else nTheta = szTheta[szTheta[0]+2]
+	
+	;Number of data points
+	if n_elements(nTime) eq 0 then nTime = 1
 
 ;-----------------------------------------------------
 ; Compute Grid \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -122,6 +126,12 @@ PHI_GRID=oPhiGrid
 		then theta_grid = rebin( reform( oTheta['DATA'], nTime, 1, nTheta), nTime, nPhi, nTheta ) $
 		else theta_grid = rebin( reform( oTheta['DATA'],     1, 1, nTheta), nTime, nPhi, nTheta )
 
+	;Not time-dependent
+	if nTime eq 1 then begin
+		phi_grid   = reform(phi_grid)
+		theta_grid = reform(theta_grid)
+	endif
+	
 ;-----------------------------------------------------
 ; Convert to Cartesian Coordinates \\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
