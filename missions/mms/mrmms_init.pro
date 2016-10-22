@@ -98,7 +98,8 @@ VERBOSE=verbose
 		                        LOCAL_ROOT   = local_root, $
 		                        MIRROR_ROOT  = mirror_root, $
 		                        NO_DOWNLOAD  = no_download, $
-		                        OFFLINE      = offline )
+		                        OFFLINE      = offline, $
+		                        VERBOSE      = verbose )
 		
 		;Create the system variable
 		;   - It is read-only, so it must be a valid object.

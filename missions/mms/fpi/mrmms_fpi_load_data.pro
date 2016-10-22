@@ -83,6 +83,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/08/20  -   Written by Matthew Argall
+;       2016/10/07  -   Added the SUFFIX keyword. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -101,9 +102,12 @@ pro MrMMS_FPI_Load_Data_ESpectr, names
 	if nESpectr ne 6 then message, 'Unexpected number of energy spectra.'
 	
 	;Variable names
+	;   - sc_instr_energyspectr_px_mode[_suffix]
+	;      0   1        2        3  4      5+
+	;    | prefix |                  |   suffix   |
 	parts    = strsplit(names[0], '_', /EXTRACT)
 	prefix   = parts[0] + '_' + parts[1] + '_'
-	suffix   = '_' + parts[-1]
+	suffix   = '_' + strjoin(parts[4:*], '_')
 	new_name = prefix + 'energyspectr' + suffix
 
 	;Average the distributions
@@ -116,7 +120,7 @@ pro MrMMS_FPI_Load_Data_ESpectr, names
 		oESpectr  += tempSpectr
 	endfor
 	oESpectr /= nESpectr
-	
+
 	;Save the variable
 	oESpectr    = oESpectr -> Transpose()
 	oESpectr   -> SetName, new_name
@@ -132,9 +136,6 @@ pro MrMMS_FPI_Load_Data_ESpectr, names
 	oESPectr -> AddAttr,      'SCALE',      1
 	oESPectr -> SetAttrValue, 'TITLE',      'E Flux'
 	oESPectr -> AddAttr,      'UNITS',      'eV / (cm^2 s sr eV)'
-	
-	
-	
 	
 	;DEPEND_1
 	eIndex  = MrVar_Get( oESPectr['DEPEND_1'] )
@@ -155,28 +156,46 @@ pro MrMMS_FPI_Load_Data_Dist, name
 	on_error, 2
 	
 	;Variable name parts
+	;   - sc_instr_energy_mode[_suffix]
+	;      0   1     2     3      4+
+	;    | prefix |      |   suffix   |
 	parts  = strsplit(name, '_', /EXTRACT)
-	prefix = parts[0] + '_' + parts[1] + '_'
-	suffix = '_' + parts[-1]
+	prefix = strjoin(parts[0:1], '_') + '_'
+	suffix = '_' + strjoin(parts[3:*], '_')
+
+	;BRST mode
+	;   - Two energy tables alternate based on STEPTABLE_PARITY
+	if stregex(parts[3], '^brst', /BOOLEAN) then begin
+		;Get the sector, pixel, and energy tables
+		oParity  = MrVar_Get( prefix + 'steptable_parity' + suffix )
+		oEnergy0 = MrVar_Get( prefix + 'energy0'          + suffix )
+		oEnergy1 = MrVar_Get( prefix + 'energy1'          + suffix )
+		oDist    = MrVar_get( prefix + 'dist'             + suffix )
 	
-	;Get the sector, pixel, and energy tables
-	oParity  = MrVar_Get( prefix + 'steptable_parity' + suffix )
-	oEnergy0 = MrVar_Get( prefix + 'energy0'          + suffix )
-	oEnergy1 = MrVar_Get( prefix + 'energy1'          + suffix )
-	oDist    = MrVar_get( prefix + 'dist'             + suffix )
+		;Create new energy table
+		;   - One time-dependent energy table
+		;   - One combined (average) energy table
+		energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
+		energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_name, /CACHE)
+		energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_name,  /CACHE)
+		
+		;Names of new energy tables
+		eTable_name = prefix + 'energy_table'   + suffix
+		eMean_name  = prefix + 'energy_geomean' + suffix
+	
+	;SRVY mode
+	endif else begin
+		;There is only one energy table
+		eTable_name = prefix + 'energy' + suffix
+	endelse
 	
 	;Names of phi, theta, and new energy tables
-	phi_name    = prefix + 'phi'            + suffix
-	theta_name  = prefix + 'theta'          + suffix
-	eTable_name = prefix + 'energy_table'   + suffix
-	eMean_name  = prefix + 'energy_geomean' + suffix
-	
-	;Create new energy table
-	energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
-	energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_name, /CACHE)
-	energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_name,  /CACHE)
-	
+	dist_name   = prefix + 'dist'  + suffix
+	phi_name    = prefix + 'phi'   + suffix
+	theta_name  = prefix + 'theta' + suffix
+		
 	;Set the distribution function dependencies
+	oDist  = MrVar_Get(dist_name)
 	oDist -> SetAttrValue, 'DEPEND_1', phi_name
 	oDist -> SetAttrValue, 'DEPEND_2', theta_name
 	oDist -> SetAttrValue, 'DEPEND_3', eTable_name
@@ -199,9 +218,12 @@ pro MrMMS_FPI_Load_Data_PAD, names
 	if nPAD ne 3 then message, 'Unexpected number of energy spectra.'
 	
 	;Variable names
+	;   - sc_instr_pitchangdist_miden_mode[_suffix]
+	;      0   1        2         3    4      5+
+	;    | prefix |                  |   suffix   |
 	parts    = strsplit(names[0], '_', /EXTRACT)
 	prefix   = parts[0] + '_' + parts[1] + '_'
-	suffix   = '_' + parts[-1]
+	suffix   = '_' + strjoin(parts[4:*], '_')
 	new_name = prefix + 'pitchangdist' + suffix
 	
 	;Average the distributions
@@ -354,6 +376,7 @@ end
 pro MrMMS_FPI_Load_Data, sc, mode, $
 LEVEL=level, $
 OPTDESC=optdesc, $
+SUFFIX=suffix, $
 SUPPORT_DATA=support_data, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
@@ -376,6 +399,7 @@ VARNAMES=varnames
 	;Get the data
 	MrMMS_Load_Data, sc, instr, mode, level, $
 	                 OPTDESC      = optdesc, $
+	                 SUFFIX       = suffix, $
 	                 SUPPORT_DATA = support_data, $
 	                 TEAM_SITE    = team_site, $
 	                 TRANGE       = trange, $

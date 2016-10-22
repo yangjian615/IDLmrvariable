@@ -33,7 +33,8 @@
 ;
 ; PURPOSE:
 ;+
-;   Create a transformation matrix to field-aligned coordinates (FAC).
+;   Load data required to create a transformation to a field-aligned coordinate system.
+;   Data rates and modes for each instrument are taken into account.
 ;
 ; :Categories:
 ;       MMS, FGM, MrVariable
@@ -56,7 +57,7 @@
 ;                               the perpendicular direction, as per `FAC`.
 ;
 ; :Keywords:
-;       COORDS:             in, optional, type=string, default='GSE'
+;       COORD_SYS:          in, optional, type=string, default='GSE'
 ;                           Original coordinate system.
 ;       INSTR:              in, optional, type=string, default='dfg'
 ;                           The fluxgate instrument to use. The default is 'DFG' for
@@ -66,12 +67,23 @@
 ;       NO_LOAD:            in, optional, type=boolean, default=0
 ;                           Set if the data that define the field-aligned coordinate
 ;                               system has already been loaded into the variable cache.
+;                               Data will not be re-loaded but will be re-interpolated,
+;                               notably if `VAR` is given.
 ;       TRANGE:             in, optional, type=strarr(2), default=MrVar_GetTRange()
 ;                           Time interval over which to create the transformation.
+;       SUFFIX:             in, optional, type=string, default=''
+;                           A suffix to be appended to variable names.
+;       VARNAMES:           out, optional, type=string/strarr(2)
+;                           Names of the variables that define the field-aligned coordinate
+;                               system. The first element will be the name of the magnetic
+;                               field vector while the second element will be the name
+;                               of the vector that defines the perpendicular direction,
+;                               if one is implied by `FAC`.
 ;
 ; :See Also:
-;    MrVar_FAC.pro
-;    MrVar_SetTRange.pro
+;    MrMMS_FGM_Load_Data.pro
+;    MrMMS_FPI_Load_Data.pro
+;    MrMMS_Load_Data.pro
 ;       
 ; :Author:
 ;   Matthew Argall::
@@ -83,36 +95,38 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016/09/24  -   Written by Matthew Argall
+;       2016/10/07  -   Written by Matthew Argall
 ;-
-function MrMMS_FGM_Get_TFAC, sc, mode, fac, var, $
-COORDS=coords, $
+pro MrMMS_FGM_Load_FAC_Data, sc, mode, fac, var, $
+COORD_SYS=coord_sys, $
 INSTR=instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
-TRANGE=trange
+SUFFIX=suffix, $
+TRANGE=trange, $
+VARNAMES=varnames
 	compile_opt idl2
 
 	catch, the_error
 	if the_error ne 0 then begin
 		catch, /CANCEL
-		if n_elements(win) gt 0 then obj_destroy, win
 		MrPrintF, 'LogErr'
-		return, obj_new()
+		return
 	endif
 	
 	;Defaults
 	tf_load = ~keyword_set(no_load)
-	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
-	if n_elements(coords) eq 0 then coords = 'gse'
-	if n_elements(fac)    eq 0 then fac    = 'VXB'
-	if n_elements(instr)  eq 0 then instr  = 'fgm'
-	if n_elements(level)  eq 0 then level  = 'l2'
+	if n_elements(trange)    gt 0 then MrVar_SetTRange, trange
+	if n_elements(coord_sys) eq 0 then coord_sys = 'gse'
+	if n_elements(fac)       eq 0 then fac    = ''
+	if n_elements(instr)     eq 0 then instr  = 'fgm'
+	if n_elements(level)     eq 0 then level  = 'l2'
+	if n_elements(suffix)    eq 0 then suffix = ''
 	
 	;Variable type
 	type = level eq 'l2' ? 'flux' : 'counts'
 	_fac = strupcase(fac)
-	_cs  = strlowcase(coords)
+	_cs  = strlowcase(coord_sys)
 
 ;-------------------------------------------
 ; Sampling Rates ///////////////////////////
@@ -154,9 +168,9 @@ TRANGE=trange
 	endelse
 	
 	;Coordinate system
-	fgm_coords = MrIsMember(['dbcs', 'dsl'],  _cs) ? 'dmpa' : coords
-	fpi_coords = MrIsMember(['dmpa', 'dsl'],  _cs) ? 'dbcs' : coords
-	edp_coords = MrIsMember(['dbcs', 'dmpa'], _cs) ? 'dsl'  : coords
+	fgm_coords = MrIsMember(['dbcs', 'dsl'],  _cs) ? 'dmpa' : _cs
+	fpi_coords = MrIsMember(['dmpa', 'dsl'],  _cs) ? 'dbcs' : _cs
+	edp_coords = MrIsMember(['dbcs', 'dmpa'], _cs) ? 'dsl'  : _cs
 	
 ;-------------------------------------------
 ; Load Data ////////////////////////////////
@@ -169,6 +183,7 @@ TRANGE=trange
 		MrMMS_FGM_Load_Data, sc, fgm_mode, $
 		                     LEVEL     = fgm_level, $
 		                     INSTR     = fgm_instr, $
+		                     SUFFIX    = suffix, $
 		                     VARFORMAT = ['*b_' + fgm_coords + '*', '*fg*' + fgm_coords]
 
 	;-------------------------------------------
@@ -184,9 +199,10 @@ TRANGE=trange
 			endif
 			
 			;Load the data
-			MrMMS_FPI_Get_Data, sc, 'fpi', fpi_mode, level, $
-			                    OPTDESC   = 'des-moms', $
-			                    VARFORMAT = '*bulk?_' + fpi_cs + '*'
+			MrMMS_FPI_Load_Data, sc, 'fpi', fpi_mode, level, $
+			                     OPTDESC   = 'des-moms', $
+			                     SUFFIX    = suffix, $
+			                     VARFORMAT = '*bulk?_' + fpi_coords + '*'
 	
 	;-------------------------------------------
 	; EDP //////////////////////////////////////
@@ -197,9 +213,10 @@ TRANGE=trange
 			edp_mode = 'fast'
 			
 			;Load the data
-			MrMMS_Get_Data, sc, 'edp', edp_mode, level, $
-			                OPTDESC   = 'dce', $
-			                VARFORMAT = E_vname
+			MrMMS_Load_Data, sc, 'edp', edp_mode, level, $
+			                 OPTDESC   = 'dce', $
+			                 SUFFIX    = suffix, $
+			                 VARFORMAT = '*dce_' + edp_coords + '*'
 	
 	;-------------------------------------------
 	; ??? //////////////////////////////////////
@@ -212,22 +229,33 @@ TRANGE=trange
 ;-------------------------------------------
 ; Get the Data /////////////////////////////
 ;-------------------------------------------
-	
 	;Get the magnetic field vector
-	b_vname = fgm_level eq 'l2' || fgm_level eq 'l2pre' $
-	              ? strjoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' ) $
-	              : strjoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
+	b_vname = fgm_level eq 'l2' $
+	              ? strjoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' ) + suffix $
+	              : strjoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' ) + suffix
 	oB      = MrVar_Get(b_vname)
 	
 	;Vector that defines the perpendicular direction
 	case _fac of
-		'VXB': oPerp = MrVar_Get( sc + '_des_bulkv_' + fpi_cs + '_' + fpi_mode )
-		'EXB': oPerp = MrVar_Get( sc + '_edp_dce_' + cs + '_' + edp_mode + '_' + level )
+		'VXB': oPerp = MrVar_Get( strjoin( [sc, 'des_bulkv', fpi_cs, fpi_mode], '_' ) + suffix )
+		'EXB': oPerp = MrVar_Get( strjoin( [sc, 'edp_dce',      _cs, edp_mode, level], '_' ) + suffix )
 		'':    ;Do nothing
 	endcase
 
 ;-------------------------------------------
-; Create Transformation Matrix /////////////
+; Output Variable Names ////////////////////
+;-------------------------------------------
+	
+	;Output names
+	bname_out = strjoin( [sc, fgm_instr, 'bvec', fgm_mode, fgm_level, 'facdata'], '_' ) + suffix
+	case _fac of
+		'VXB': perp_name_out = strjoin( [sc, 'des_bulkv', fpi_cs, fpi_mode,        'facdata'], '_' ) + suffix
+		'EXB': perp_name_out = strjoin( [sc, 'edp_dce',      _cs, edp_mode, level, 'facdata'], '_' ) + suffix
+		'':    ;Do nothing
+	endcase
+
+;-------------------------------------------
+; Inteprolate Data /////////////////////////
 ;-------------------------------------------
 	;Specific time cadence desired
 	if n_elements(var) gt 0 then begin
@@ -235,28 +263,43 @@ TRANGE=trange
 		oVar     = MrVar_Get(var)
 		depend_0 = oVar['DEPEND_0']
 
-		;Interpolate onto the given variable
+		;Interpolate magnetic field
 		oB_fac = oB -> Interpol(oVar)
-		if n_elements(oPerp) gt 0 then oV_fac = oPerp -> Interpol(oVar)
+		oB_fac -> SetName, bname_out
+		oB_fac -> Cache
+		
+		;Interpolate perpendicular vector
+		if n_elements(oPerp) gt 0 then begin
+			oV_fac   = oPerp -> Interpol(oVar)
+			oV_fac  -> SetName, perp_name_out
+			oV_fac  -> Cache
+		endif
 	
 	;Common time base for FAC
 	endif else begin
+		;Perpendicular vector is defined.
 		if n_elements(oPerp) gt 0 then begin
-			oB_fac = oB -> Interpol(oPerp)
-			depend_0 = oPerp['DEPEND_0']
+			;Interpolate the magnetic field
+			oB_fac  = oB -> Interpol(oPerp)
+			oB_fac -> SetName, bname_out
+			oB_fac -> Cache
+			
+			;New copy of the perpendicular vector
+			;   - Leave the original data with original name
+			oV_fac  = oPerp -> Copy(perp_name_out, /CACHE)
+		
+		;Only parallel direction is explicitly defined.
 		endif else begin
-			depend_0 = oB['DEPEND_0']
+			oB_fac = oB -> Copy(bname_out, /CACHE)
 		endelse
 	endelse
-	
-	;Transformation
-	oT = MrVar_FAC(oB_fac, oV_fac, TYPE=_fac)
 
 ;-------------------------------------------
-; Set Properties ///////////////////////////
+; Variable Names ///////////////////////////
 ;-------------------------------------------
-	oT -> AddAttr, 'CATDESC',  'Transformation matrix from ' + strupcase(coords) + ' to ' + _fac + '.'
-	oT -> AddAttr, 'DEPEND_0', depend_0
-
-	return, oT
+	if arg_present(varnames) then begin
+		if n_elements(oV_fac) gt 0 $
+			then varnames = [oB_fac.name, oV_fac.name] $
+			else varnames = oB_fac.name
+	endif
 end

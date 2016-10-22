@@ -57,10 +57,9 @@
 ;                           Energy channels to be averaged. Channels range from 0 to 31.
 ;
 ; :Keywords:
-;       SHOW_EBINS:         in, optional, type=boolean, default=0
-;                           If set, the energy bins and their respective channels will
-;                               be printed. All other keywords are ignored and no data
-;                               is produced.
+;       NO_LOAD:            in, optional, type=boolean, default=0
+;                           If set, data will not be (re-)read from its CDF file and
+;                               loaded into the variable cache.
 ;       PHI_RANGE:          in, optional, type=fltarr(2), default=[0.0\, 360.0]
 ;                           Range in azimuth angle over which to average the data.
 ;       UNITS:              in, optional, type=string, default='E FLUX'
@@ -70,6 +69,10 @@
 ;                               'DIFF FLUX'   - # / cm^2 / s / sr / keV
 ;                               'PSD'         - s^2 / km^6
 ;                               'DF'          - s^2 / km^6
+;       SHOW_EBINS:         in, optional, type=boolean, default=0
+;                           If set, the energy bins and their respective channels will
+;                               be printed. All other keywords are ignored and no data
+;                               is produced.
 ;       VARNAMES:           out, optional, type=string/strarr
 ;                           Names of the variables created and cached.
 ;
@@ -84,10 +87,12 @@
 ; :History:
 ;   Modification History::
 ;       2016/09/05  -   Written by Matthew Argall
+;       2016/10/05  -   Will now load all requisite data. Added the NO_LOAD keyword. - MRA
 ;-
 pro MrMMS_FPI_Dist_PAD, sc, mode, species, channels, $
-SHOW_EBINS=show_ebins, $
+NO_LOAD=no_load, $
 PHI_RANGE=phi_range, $
+SHOW_EBINS=show_ebins, $
 UNITS=units, $
 VARNAMES=varnames
 	compile_opt idl2
@@ -100,6 +105,7 @@ VARNAMES=varnames
 	endif
 	
 	;Check inputs
+	tf_load       = ~keyword_set(no_load)
 	tf_show_ebins = keyword_set(show_ebins)
 	if n_elements(species)   eq 0 then species   = 'e'
 	if n_elements(channels)  eq 0 then channels  = [0, 31]
@@ -115,6 +121,19 @@ VARNAMES=varnames
 	eV2J = constants('eV2J')
 	m2km = constants('m2km')
 	mass = species eq 'e' ? constants('m_e') : constants('m_H')
+	
+;-----------------------------------------------------
+; Load the Distribution Function \\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	if tf_load then begin
+		MrMMS_FPI_Load_Data, sc, mode, $
+		                     LEVEL        = level, $
+		                     OPTDESC      = 'd' + species + 's-dist', $
+		                     TEAM_SITE    = team_site, $
+		                     TRANGE       = trange, $
+		                     VARFORMAT    = ['*dist_*', '*phi*', '*theta*', $
+		                                     '*energy0*', '*energy1*', '*steptable*'], $
+	endif
 	
 ;-----------------------------------------------------
 ; Create Variable Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\

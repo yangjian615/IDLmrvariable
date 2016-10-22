@@ -730,6 +730,17 @@ end
 ;+
 ;   Allow square-bracket array indexing from the right side of an operator.
 ;
+;   Calling Sequence
+;       oTSvar    = oTSvar[0]
+;       t0        = oTSvar[[0]]
+;       data      = oTSvar['DATA']
+;       pData     = oTSvar['POINTER']
+;       pData     = oTSvar['PTR']
+;       isoTime   = oTSvar['TIME']
+;       time      = oTSvar['TIME', T_TYPE]
+;       attrValue = oTSvar[AttrName]
+;       data      = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
+;
 ; :Params:
 ;       ISRANGE:            in, required, type=intarr
 ;                           A vector that has one element for each Subscript argument
@@ -771,6 +782,7 @@ function MrVariable::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6
 		case strupcase(i1) of
 			'DATA':    return, *self.data
 			'POINTER': return,  self.data
+			'PTR':     return,  self.data
 			else:      return,  self -> GetAttrValue(i1)
 		endcase
 
@@ -2225,7 +2237,7 @@ OVERWRITE=overwrite
 			
 			;KEY must be new
 			if self -> HasAttr(key) && ~tf_overwrite then begin
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + key + '".'
+				MrPrintF, 'LogWarn', 'Attribute already exists: "' + key + '".', LEVEL=5
 				continue
 			endif
 			
@@ -2234,7 +2246,8 @@ OVERWRITE=overwrite
 				self.attributes[key] = val
 			endif else begin
 				MrPrintF, 'LogWarn', size(val, /TNAME), key, $
-				          FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")'
+				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
+				          LEVEL  = 5
 				continue
 			endelse
 		endforeach
@@ -2254,7 +2267,7 @@ OVERWRITE=overwrite
 		
 			;TAG must not exist
 			if tf_has[i] && ~tf_overwrite then begin
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + tag + '".'
+				MrPrintF, 'LogWarn', 'Attribute already exists: "' + tag + '".', LEVEL=5
 				continue
 			endif
 			
@@ -2263,7 +2276,8 @@ OVERWRITE=overwrite
 				self.attributes[tag] = attrName.(i)
 			endif else begin
 				MrPrintF, 'LogWarn', size(attrName.(i), /TNAME), tag, $
-				          FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")'
+				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
+				          LEVEL  = 5
 				continue
 			endelse
 		endfor
@@ -2280,14 +2294,16 @@ OVERWRITE=overwrite
 	;-------------------------------------------------------
 		if isa(attrName, /SCALAR) then begin
 			if tf_has && ~tf_overwrite then begin
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + attrName + '".'
+				;Issue a warning from the calling program
+				MrPrintF, 'LogWarn', 'Attribute already exists: "' + attrName + '".', LEVEL=5
 			endif else begin
 				;Validate datatype
 				if self -> AttrValue_IsValid(attrValue) then begin
 					self.attributes[attrName] = attrValue
 				endif else begin
 					MrPrintF, 'LogWarn', size(attrValue, /TNAME), attrName, $
-					          FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")'
+					          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
+					          LEVEL  = 5
 				endelse
 			endelse
 
@@ -2305,7 +2321,7 @@ OVERWRITE=overwrite
 			;Attribute names must not exist
 			if max(tf_has) eq 1 && ~tf_overwrite then begin
 				ibad = where(~tf_has, nbad, COMPLEMENT=igood, NCOMPLEMENT=ngood)
-				for i = 0, nbad do MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[ibad[i]] + '".'
+				for i = 0, nbad do MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[ibad[i]] + '".', LEVEL=5
 				names = attrNames[igood]
 			endif
 			
@@ -2314,7 +2330,8 @@ OVERWRITE=overwrite
 				self.attributes[names] = attrValue
 			endif else begin
 				MrPrintF, 'LogWarn', size(attrValue, /TNAME), attrName[0], $
-				          FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")'
+				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
+				          LEVEL  = 5
 			endelse
 
 	;-------------------------------------------------------
@@ -2329,7 +2346,7 @@ OVERWRITE=overwrite
 			foreach val, attrValue, idx do begin
 				;Attribute must exist
 				if ~tf_has[idx] && ~tf_create then begin
-					MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[idx] + '".'
+					MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[idx] + '".', LEVEL=5
 					continue
 				endif
 				
@@ -2338,7 +2355,8 @@ OVERWRITE=overwrite
 					self.attributes[attrName[idx]] = attrValue[idx]
 				endif else begin
 					MrPrintF, 'LogWarn', size(attrValue[idx], /TNAME), attrName[idx], $
-					          FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")'
+					          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
+					          LEVEL  = 5
 				endelse
 			endforeach
 		endelse
@@ -2543,7 +2561,7 @@ pro MrVariable::Append_Finalize
 		self._append_cont    = 0B
 		self._append_before  = 0B
 		self._append_no_copy = 0B
-		void = cgErrorMSG()
+		MrPrintF, 'LogErr'
 		return
 	endif
 
@@ -2676,7 +2694,7 @@ NO_DEFORM=no_deform
 		self._append_before  = 0B
 		self._append_no_copy = 0B
 		if ptr_valid(pArray) then ptr_free, pArray
-		void = cgErrorMSG()
+		MrPrintF, 'LogErr'
 		return
 	endif
 
@@ -2906,7 +2924,8 @@ CACHE=cache
 	
 	;Copy the data into a new object
 	;   - Use Obj_Class() so subclasses can inherit the method.
-	theCopy = obj_new(obj_class(self), *self.data)
+	theCopy = obj_new(obj_class(self), *self.data, $
+	                  NAME = name)
 
 	;Copy the variable attributes
 	self -> CopyAttrTo, theCopy
@@ -3401,14 +3420,7 @@ pro MrVariable::Make_Array, D1, D2, D3, D4, D5, D6, D7, D8, $
 TYPE=type, $
 _REF_EXTRA=extra
 	compile_opt idl2
-
-	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /cancel
-		void = cgErrorMsg()
-		return
-	endif
+	on_error, 2
 
 	;Defaults
 	if n_elements(type) eq 0 then type='FLOAT'
@@ -3465,14 +3477,7 @@ MIN=minimum, $
 NAN=nan, $
 SUBSCRIPT_MIN=iMin
 	compile_opt idl2
-
-	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /cancel
-		void = cgErrorMsg()
-		return, !Null
-	endif
+	on_error, 2
 
 	;Find only the minimum
 	if arg_present(minimum) || arg_present(iMin) then begin
@@ -3514,14 +3519,7 @@ MAX=maximum, $
 NAN=nan, $
 SUBSCRIPT_MAX=iMax
 	compile_opt idl2
-
-	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /cancel
-		void = cgErrorMsg()
-		return, !Null
-	endif
+	on_error, 2
 
 	;Find the minimum.
 	if arg_present(maximum) || arg_present(iMax) then begin
@@ -3547,9 +3545,7 @@ NO_COPY=no_copy
 
 	;Return a copy of the array
 	;   - Use Obj_Class() so that subclasses can inherit the method.
-	if n_elements(array) gt 0 $
-		then return, obj_new(obj_class(self), array, NAME=name, NO_COPY=no_copy) $
-		else return, obj_new(obj_class(self), *self.data, NAME=self.name)
+	return, obj_new(obj_class(self), array, NAME=name, NO_COPY=no_copy) $
 end 
 
 
@@ -3638,14 +3634,7 @@ end
 pro MrVariable::RandomU, seed, D1, D2, D3, D4, D5, D6, D7, D8, $
 _REF_EXTRA=extra
 	compile_opt idl2
-
-	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /cancel
-		void = cgErrorMsg()
-		return
-	endif
+	on_error, 2
 
 	;Make the array
 	case 1 of
@@ -4102,14 +4091,7 @@ end
 ;-
 pro MrVariable::Shift, s1, s2, s3, s4, s5, s6, s7, s8
 	compile_opt idl2
-
-	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /cancel
-		void = cgErrorMsg()
-		return
-	endif
+	on_error, 2
 
 	;Shift *self.data
 	if IsA(s1, /ARRAY) then begin

@@ -100,6 +100,7 @@
 ;       2016/07/20  -   Added MrVar_ReadCDF_VarAttr2GfxKwd. - MRA
 ;       2016/08/20  -   Prevent variables from being read twice - once as an attribute
 ;                           and once as a variable - when /SUPPORT_DATA is set. - MRA
+;       2016/10/06  -   Added the SUFFIX keyword. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -113,7 +114,8 @@ pro MrVar_ReadCDF_Clobber, varname
 	compile_opt idl2
 	on_error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 	
 	;Get the variable
 	iRemove = where(cdf_vnames eq varname, nRemove, COMPLEMENT=iKeep, NCOMPLEMENT=nKeep)
@@ -163,9 +165,6 @@ end
 ;                               into account `INTERVAL` and `OFFSET`.
 ;       INTERVAL:           in, optional, type=intarr, default=1 for each dimension
 ;                           Interval between values in each dimension.
-;       IS_EPOCH:           in, optional, type=boolean, default=0
-;                           If set, then `VARNAME` is an epoch time variable and will
-;                               be saved as a MrTimeVar variable, not a MrScalarTS.
 ;       NO_CLOBBER:         in, optional, type=boolean, default=0
 ;                           If set, variables with names that already exist in the
 ;                               MrVariable cache will be renamed by appending '_#' to
@@ -188,20 +187,23 @@ end
 pro MrVar_ReadCDF_GetData, cdfID, varname, $
 COUNT = count, $
 INTERVAL = interval, $
-IS_EPOCH = is_epoch, $
 NO_CLOBBER = no_clobber, $
 OFFSET = offset, $
 REC_INTERVAL = rec_interval, $
+SUFFIX = suffix, $
 STRING = string, $
 VARINQ = varinq
 	compile_opt idl2
 	on_error, 2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 	
 ;-----------------------------------------------------
 ; Read Variable Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	tf_string = n_elements(string) eq 0 ? 1B : keyword_set(string)
+	if n_elements(suffix) eq 0 then suffix = ''
 
 	;Number of records -- read all
 	cdf_control, cdfID, GET_VAR_INFO=var_info, VARIABLE=varname
@@ -224,7 +226,7 @@ VARINQ = varinq
 		            OFFSET       = offset, $
 		            REC_COUNT    = rec_count, $
 		            REC_INTERVAL = rec_interval, $
-		            STRING       = string
+		            STRING       = tf_string
 
 		;Turn on normal warnings.
 		!Quiet = 0
@@ -246,7 +248,10 @@ VARINQ = varinq
 	if varinq.recvar then begin
 		;Scalar or time
 		if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
-			vartype = keyword_set(is_epoch) ? 'MrTimeVar' : 'MrScalarTS'
+			;Is the variable an epoch datatype?
+			if MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], varinq.datatype) $
+				then vartype = 'MrTimeVar' $
+				else vartype = 'MrScalarTS'
 		
 		;Vector
 		endif else if nDims eq 1 && varinq.dim[0] eq 3 then begin
@@ -343,7 +348,8 @@ NO_CLOBBER=no_clobber
 	compile_opt idl2
 	on_error, 2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 	
 	;Defaults
 	;   - Clobber existing variables
@@ -364,7 +370,7 @@ NO_CLOBBER=no_clobber
 ;-----------------------------------------------------
 	endif else begin
 		;Check if there is a variable by the same name already in the cache
-		old_var = MrVar_Get(vname, COUNT=count)
+		old_var = MrVar_Get(vname+vsuffix, COUNT=count)
 
 		;If there is, and we clobber, then clobber its depend_# attributes
 		if count gt 0 && tf_clobber then begin
@@ -373,7 +379,7 @@ NO_CLOBBER=no_clobber
 				;Look for dependent variable
 				depN    = 'DEPEND_' + string(i, FORMAT='(i0)')
 				depName = old_var -> GetAttrValue(depN, /NULL)
-				
+
 				;Remove dependent variable
 				;   - If the variable has already been read, then it has
 				;     already been sufficiently clobbered.
@@ -389,7 +395,7 @@ NO_CLOBBER=no_clobber
 		;variable by the same name.
 		var = obj_new( vtype, $
 		               /CACHE, $
-		               NAME       = vname, $
+		               NAME       = vname + vsuffix, $
 		               NO_CLOBBER = ~tf_clobber )
 		
 		;Keep track of variable information
@@ -418,7 +424,8 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 	compile_opt idl2
 	on_error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 
 	;Number of attributes
 	;   - Variable attributes should be saved after global attributes
@@ -461,8 +468,7 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 				;   - Do not clobber other DEPEND_[0-3] data. They often
 				;     have the same name (e.g. Epoch)
 				MrVar_ReadCDF_GetData, cdfID, attrValue, $
-				                       /NO_CLOBBER, $
-				                       IS_EPOCH   = (attrName eq 'DEPEND_0')
+				                       /NO_CLOBBER
 				
 				;Get its variable attributes
 				MrVar_ReadCDF_GetVarAttrs, cdfID, attrValue
@@ -471,14 +477,19 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 			;Add DEPEND_0 to the variable attributes
 			var  = MrVar_ReadCDF_GetVar(varname)
 			attr = MrVar_ReadCDF_GetVar(attrValue)
-			var -> SetAttrValue, attrName, attr.name, /CREATE
-			
-			;Delete the LABL_PTR_# variable from the cache
+
+			; Delete the LABL_PTR_# variable from the cache
 			;   - But only if it has not already been read into the cache
 			;   - If /SUPPORT_DATA is set, it will be read into the cache as a variable
-			if nName eq 0 && stregex(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) $
-				then MrVar_ReadCDF_Clobber, attrValue
-		
+			if nName eq 0 && stregex(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) then begin
+				var -> SetAttrValue, attrName, attr['DATA'], /CREATE
+				MrVar_ReadCDF_Clobber, attrValue
+			
+			;Add DEPEND_0 to the variable attributes
+			endif else begin
+				var -> SetAttrValue, attrName, attr.name, /CREATE
+			endelse
+
 	;-----------------------------------------------------
 	; Other Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
@@ -508,8 +519,6 @@ pro MrVar_ReadCDF_VarAttr2GfxKwd, varname
 	compile_opt idl2
 	on_error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
-
 	;Get the variable
 	var  = MrVar_ReadCDF_GetVar(varname)
 	
@@ -521,7 +530,7 @@ pro MrVar_ReadCDF_VarAttr2GfxKwd, varname
 			else: ;Do nothing
 		endcase
 	endif
-	
+
 	;TITLE (Axis)
 	if ~var -> HasAttr('TITLE') then begin
 		case 1 of
@@ -585,7 +594,8 @@ pro MrVar_ReadCDF_TLimit, trange
 	compile_opt idl2
 	on_error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 
 ;-----------------------------------------------------
 ; Trim in Time \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -676,6 +686,8 @@ end
 ;                           If set, variables with names that already exist in the
 ;                               MrVariable cache will be renamed by appending '_#' to
 ;                               the variable name, where "#" represents a number.
+;       SUFFIX:             in, optional, type=string, default=''
+;                           A suffix to be appended to each variable name.
 ;       SUPPORT_DATA:       in, optional, type=boolean, default=0
 ;                           If set, support data will be read as well. Regardless of
 ;                               the status of this keyword, variable data associated
@@ -684,8 +696,9 @@ end
 ;       TRANGE:             in, optional, type=strarr(2), default=MrVar_GetTRange()
 ;                           The time range over which to read data, formatted as ISO-8601
 ;                               strings: 'YYYY-MM-DDThh:mm:ss'.
-;       STRING:             in, optional, type=boolean, default=0
-;                           If set, byte data will be converted to string.
+;       STRING:             in, optional, type=boolean, default=1
+;                           If set, CDF_CHAR and CDF_UCHAR will be read as strings. This
+;                               is the default. STRING is ignored for other datatypes.
 ;       VALIDATE:           in, optional, type=boolean, default=0
 ;                           If set, the CDF file will be validated when opened.
 ;       VARFORMAT:          in, optional, type=string/strarr, default='*'
@@ -701,16 +714,18 @@ end
 ;-
 pro MrVar_ReadCDF, files, $
 NO_CLOBBER=no_clobber, $
+STRING=string, $
+SUFFIX=suffix, $
 SUPPORT_DATA=support_data, $
 TRANGE=trange, $
-STRING=string, $
 VALIDATE=validate, $
 VARFORMAT=varformat, $
 VARNAMES=varnames, $
 VERBOSE=verbose
 	compile_opt idl2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cache_vnames, cdf_vcount, file_vnames, file_vcount
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
 
 	;Get the time range (Will throw error if not set.)
 	if n_elements(trange) eq 0 then begin
@@ -751,6 +766,7 @@ VERBOSE=verbose
 	tf_support = keyword_set(support_data)
 	tf_verbose = keyword_set(verbose)
 	nvarfmt    = n_elements(varformat)
+	vsuffix    = n_elements(suffix) eq 0 ? '' : suffix
 	
 ;-----------------------------------------------------
 ; CDF file names or IDs \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -845,6 +861,8 @@ VERBOSE=verbose
 			timevar[cdf_vcount] = max(varinq.datatype eq ['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'])
 
 			;Read the variable data
+			;   - TODO: Use VarInq.DataType to set the IS_EPOCH keyword.
+			;           Epoch variables are being read as scalars.
 			MrVar_ReadCDF_GetData, cdfID, varinq.name, $
 			                       REC_INTERVAL = rec_interval, $
 			                       NO_CLOBBER   = no_clobber, $
@@ -853,7 +871,7 @@ VERBOSE=verbose
 			                       INTERVAL     = interval, $
 			                       STRING       = string, $
 			                       VARINQ       = data_inq
-
+			
 			;Get the variable attributes
 			MrVar_ReadCDF_GetVarAttrs, cdfID, varinq.name
 			
@@ -865,6 +883,7 @@ VERBOSE=verbose
 		if tf_open then begin
 			cdf_close, cdfID
 			tf_open = 0B
+			cdfID   = 0LL
 		endif
 	endfor
 

@@ -58,7 +58,7 @@
 ;       B_NAME:         in, required, type=string
 ;                       Name of the magnetic field variable.
 ;-
-pro MrMMS_FGM_Load_Data_SplitB, b_name
+pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	compile_opt idl2
 	on_error, 2
 
@@ -76,7 +76,7 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name
 
 	;Grab the variable
 	oB = MrVar_Get(b_name)
-	
+
 	;Separate magnitude from vector
 	Bxyz  = MrVectorTS( oB[0:2,*], NAME=bvec_name, /CACHE )
 	Bmag  = MrScalarTS( oB[3,*],   NAME=bmag_name, /CACHE )
@@ -137,6 +137,8 @@ end
 ;                           If set, requests will be sent to the team site (password
 ;                               required, L1A and above). Automatically set if `LEVEL`
 ;                               is below level 2. This option is sticky.
+;       SUFFIX:             in, optional, type=string, default=''
+;                           A suffix to be appended to variable names.
 ;       TRANGE:             out, optional, type=string, default=MrVar_GetTRange()
 ;                           Start and end times over which to read data.
 ;       VARFORMAT:          out, optional, type=string, default='*'
@@ -147,6 +149,7 @@ pro MrMMS_FGM_Load_Data, sc, mode, $
 INSTR=instr, $
 LEVEL=level, $
 OPTDESC=optdesc, $
+SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARFORMAT=varformat, $
@@ -171,6 +174,7 @@ VARNAMES=varnames
 	;Get the data
 	MrMMS_Load_Data, sc, instr, mode, level, $
 	                 OPTDESC   = optdesc, $
+	                 SUFFIX    = suffix, $
 	                 TEAM_SITE = team_site, $
 	                 TRANGE    = trange, $
 	                 VARFORMAT = varformat, $
@@ -181,51 +185,15 @@ VARNAMES=varnames
 ;-----------------------------------------------------
 
 	;Build variable names
-	for i = 0, n_elements(varnames) - 1 do begin
-	
-	;-----------------------------------------------------
-	; Rename Epoch Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;
-		; We are deleting original CDF data, which means that the next time
-		; it is read, Epoch will be read as Epoch_1, etc., unless we rename
-		; the epoch variable to something else.
-		;
-
-		;Get the variable
-		;   - Epoch variables are being renamed, so it may no longer exist
-		oVar = MrVar_Get(varnames[i], COUNT=count)
-		if count eq 0 then continue
-		
-		;Change the DEPEND_0 attribute, if there is one
-		if oVar -> HasAttr('DEPEND_0') then begin
-			;Old epoch name
-			epoch_name = oVar['DEPEND_0']
-			
-			;Do not rename the Epoch_state variable.
-			if stregex(epoch_name, '^(Epoch|Epoch_[0-9]+)$', /BOOLEAN) then begin
-				;Dissect the variable name
-				parts    = strsplit(varnames[i], '_', /EXTRACT)
-				new_name = strjoin( [parts[0:1], 'epoch', parts[-2:-1]], '_' )
-			
-				;Rename the epoch variable
-				oVar -> SetAttrValue, 'DEPEND_0', new_name
-				
-				;If the epoch variable itself has not been renamed, rename it
-				if MrVar_IsCached(epoch_name) then begin
-					oEpoch  = MrVar_Get(epoch_name)
-					oEpoch -> SetName, new_name
-				endif
-			endif
-		endif
-	
-	;-----------------------------------------------------
-	; Separate B and |B| \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
+	nVars = n_elements(varnames)
+	for i = 0, nVars - 1 do begin
 		;Separate B from |B|
 		;   - L2 has different names from L1A, L1B, L2Pre
 		if stregex(varnames[i], '(afg|dfg|fgm)_b_(gse|gsm|dmpa|bcs)', /BOOLEAN) || $
-		   stregex(varnames[i], '(afg|dfg|fgm)_.*_(dmpa|gse|gsm)$', /BOOLEAN) $
-			then MrMMS_FGM_Load_Data_SplitB, varnames[i]
+		   stregex(varnames[i], '(afg|dfg|fgm)_(slow|fast|srvy|brst)_(l1a|l1b|l2pre)_(dmpa|gse|gsm)' + suffix + '$', /BOOLEAN) $
+		then begin
+			MrMMS_FGM_Load_Data_SplitB, varnames[i], bvec_name, bmag_name
+			varnames = [varnames, bvec_name, bmag_name]
+		endif
 	endfor
 end

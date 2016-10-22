@@ -43,11 +43,11 @@
 ;
 ; :Keywords:
 ;       WIN:        in, optional, type=objref, default=GetMrWindows(/CURRENT)
-;                   A MrWindow object reference containin `GFXNAMES`.
+;                   A MrGraphics window object reference containing `GFXNAMES`.
 ;
 ; :Returns:
-;       WIN:        out, required, type=objref
-;                   A MrWindow object reference.
+;       GFXWIN:     out, required, type=objref
+;                   A MrGraphics window object reference.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -95,13 +95,17 @@ WIN=win
 	endelse
 	
 	;Graphics window
-	if n_elements(win) eq 0 $
-		then win = GetMrWindows(/CURRENT) $
-		else if ~obj_isa(win, 'MRWINDOW') then message, 'WIN must be a MrWindow object.'
+	if n_elements(win) eq 0 then begin
+		gfxWin = GetMrWindows(/CURRENT)
+	endif else begin
+		if obj_isa(win, 'MRWINDOW') $
+			then gfxWin = win $
+			else message, 'WIN must be a MrWindow object.'
+	endelse
 
 	;Disable refreshing for the moment
-	tf_refresh = win -> GetRefresh()
-	if tf_refresh then win -> Refresh, /DISABLE
+	tf_refresh = gfxWin -> GetRefresh()
+	if tf_refresh then gfxWin -> Refresh, /DISABLE
 
 ;-------------------------------------------
 ; Step Through Variables ///////////////////
@@ -109,7 +113,7 @@ WIN=win
 	nVars = n_elements(_varNames)
 	for i = 0, nVars - 1 do begin
 		;Find the graphic & variable to be added to it
-		oGfx = win -> FindByName(_gfxNames[i], COUNT=gfxCount)
+		oGfx = gfxWin -> FindByName(_gfxNames[i], COUNT=gfxCount)
 		oVar = MrVar_Get(_varNames[i], COUNT=varCount)
 
 		;Skip the variable or graphic
@@ -151,6 +155,6 @@ WIN=win
 	endfor
 
 	;Return the plot
-	if tf_refresh then win -> Refresh
-	return, win
+	if tf_refresh then gfxWin -> Refresh
+	return, gfxWin
 end

@@ -1445,7 +1445,11 @@ end
 
 
 ;+
-;   Perform interpolation on regularly or irregularly vectors.
+;   Perform interpolation on regularly or irregularly gridded vectors.
+;
+;   All variable attributes are copied to the resultant vector, except in the
+;   case that `XOUT` is not a MrVariable object. In this case, the 'DEPEND_0'
+;   variable attribute is removed from the output vector.
 ;
 ;   Calling Sequence:
 ;       varOut = MrVar1 -> Interpol(MrVar2)

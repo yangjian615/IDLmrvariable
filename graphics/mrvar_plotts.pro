@@ -45,9 +45,30 @@
 ;                       not provided, the variables given in the previous call to
 ;                       MrVar_PlotTS will be used.
 ;
+; :Params:
+;       LAYOUT:     in, optional, type=intarr(2), default=[1\,nVars]
+;                   The number of columns and rows in the plot layout: [nCols, nRows].
+;                       `VARIABLES` will plotted from right to left then from top to
+;                       bottom. 
+;       NO_REFRESH: in, optional, type=boolean, default=0
+;                   If set, then `WIN` will not be refreshed before being returned. This
+;                       means that the GUI window itself will not be realized and the
+;                       graphics will not be drawn. This is useful if more graphics are
+;                       to be added or graphics properties are to be changed. To refresh
+;                       the window, call its ::Refresh method.
+;       XSIZE:      in, optional, type=integer, default=640
+;                   Width of the graphics window, in pixels.
+;       YSIZE:      in, optional, type=integer, default=500
+;                   Height of the graphics window, in pixels.
+;
 ; :Returns:
 ;       WIN:        out, required, type=objref
 ;                   A MrWindow object reference.
+;
+; :Common Blocks:
+;       MrVar_PlotTS_Common
+;           Retains the names of the plotted variable names so that variable properties
+;           can be updated and the plot re-invoked.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -60,8 +81,11 @@
 ; :History:
 ;   Modification History::
 ;       2016/08/13  -   Written by Matthew Argall
+;       2016/10/03  -   Added the LAYOUT and NO_REFRESH keywords. - MRA
 ;-
 function MrVar_PlotTS, variables, $
+LAYOUT=layout, $
+NO_REFRESH=no_refresh, $
 XSIZE=xsize, $
 YSIZE=ysize
 	compile_opt strictarr
@@ -93,19 +117,34 @@ YSIZE=ysize
 		if ~MrIsA(variables, /INTEGER) && ~MrIsA(variables, 'STRING') $
 			then message, 'VARIABLES must be variable names or indices.'
 	endelse
+
+;-------------------------------------------
+; Check Inputs /////////////////////////////
+;-------------------------------------------
 	
 	;Number of variables to plot
-	nVars = n_elements(variables)
+	nVars      = n_elements(variables)
+	tf_refresh = ~keyword_set(no_refresh)
+	
+	;Plot layout
+	if n_elements(layout) eq 0 then begin
+		layout = [1, nVars]
+	endif else if nVars gt layout[0]*layout[1] then begin
+		message, 'LAYOUT is not large enough to fit all variables.'
+	endif
 
 ;-------------------------------------------
 ; Create the Window ////////////////////////
 ;-------------------------------------------
-	win = MrWindow(LAYOUT=[1,nVars], XSIZE=xsize, YGAP=0.5, YSIZE=ysize, REFRESH=0)
+	win = MrWindow(LAYOUT=layout, XSIZE=xsize, YGAP=0.5, YSIZE=ysize, REFRESH=0)
 
 ;-------------------------------------------
 ; Step Through Each Variable ///////////////
 ;-------------------------------------------
 	for i = 0, nVars - 1 do begin
+		iCol = i mod layout[0]
+		iRow = i  /  layout[0]
+
 		;Get the variable
 		oVar = MrVar_Get(variables[i], COUNT=count)
 
@@ -143,9 +182,9 @@ YSIZE=ysize
 	;-------------------------------------------
 	; Prettify /////////////////////////////////
 	;-------------------------------------------
-		if i gt 0       then title       = ''     else void = temporary(title)
-		if i lt nVars-1 then xtickformat = '(a1)' else void = temporary(xtickformat)
-		if i lt nVars-1 then xtitle      = ''     else void = temporary(xtitle)
+		if iRow gt 0       then title       = ''     else void = temporary(title)
+		if iRow lt nVars-1 then xtickformat = '(a1)' else void = temporary(xtickformat)
+		if iRow lt nVars-1 then xtitle      = ''     else void = temporary(xtitle)
 		gfx -> SetProperty, TITLE=title, XTICKFORMAT=xtickformat, XTITLE=xtitle
 	endfor
 
@@ -154,12 +193,12 @@ YSIZE=ysize
 ;-------------------------------------------
 	;Put the variables into the common block
 	vars = variables
-	
+
 	;Time range
 	trange  = MrVar_GetTRange('SSM')
 	win    -> SetGlobal, XRANGE=trange
 	
 	;Return the plot
-	win -> Refresh
+	if tf_refresh then win -> Refresh
 	return, win
 end

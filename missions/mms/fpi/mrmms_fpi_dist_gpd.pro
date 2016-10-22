@@ -57,12 +57,9 @@
 ;                           Energy channels to be averaged. Channels range from 0 to 31.
 ;
 ; :Keywords:
-;       SHOW_EBINS:         in, optional, type=boolean, default=0
-;                           If set, the energy bins and their respective channels will
-;                               be printed. All other keywords are ignored and no data
-;                               is produced.
-;       THETA_RANGE:        in, optional, type=fltarr(2), default=[0.0\, 180.0]
-;                           Range in polar angle over which to average the data.
+;       NO_LOAD:            in, optional, type=boolean, default=0
+;                           If set, data will not be (re-)read from its CDF file and
+;                               loaded into the variable cache.
 ;       UNITS:              in, optional, type=string, default='E FLUX'
 ;                           Units of the output distribution. Options are::
 ;                               'ENERGY'      - eV
@@ -70,6 +67,12 @@
 ;                               'DIFF FLUX'   - # / cm^2 / s / sr / keV
 ;                               'PSD'         - s^2 / km^6
 ;                               'DF'          - s^2 / km^6
+;       SHOW_EBINS:         in, optional, type=boolean, default=0
+;                           If set, the energy bins and their respective channels will
+;                               be printed. All other keywords are ignored and no data
+;                               is produced.
+;       THETA_RANGE:        in, optional, type=fltarr(2), default=[0.0\, 180.0]
+;                           Range in polar angle over which to average the data.
 ;       VARNAMES:           out, optional, type=string/strarr
 ;                           Names of the variables created and cached.
 ;
@@ -86,6 +89,7 @@
 ;       2016/09/01  -   Written by Matthew Argall
 ;-
 pro MrMMS_FPI_Dist_GPD, sc, mode, species, channels, $
+NO_LOAD=no_load, $
 SHOW_EBINS=show_ebins, $
 THETA_RANGE=theta_range, $
 UNITS=units, $

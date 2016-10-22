@@ -148,8 +148,6 @@ VARNAMES=varnames
 	phi_vname   = sc + '_d' + species + 's_phi_'              + mode
 	e_vname     = sc + '_d' + species + 's_energy_table_'     + mode
 	dist_vname  = sc + '_d' + species + 's_dist_'             + mode
-	vec_vname   = sc + '_d' + species + 's_bulkv_' + cs + '_' + mode
-	b_vname     = sc + '_fgm_bvec_gse_'                       + mode + '_l2'
 	
 	;New variable names
 	phi_fac_vname   = sc + '_d' + species + 's_phi_fac_'   + mode
@@ -215,6 +213,66 @@ end
 
 
 ;+
+;   Create new energy tables and set the distribution function's DEPEND_1-3 variable
+;   attributes to be variables with physical units.
+;
+; :Params:
+;       NAMES:          in, required, type=string
+;                       Name of the distribution function variable.
+;-
+pro MrMMS_FPI_Load_Dist3D_Meta, name
+	compile_opt idl2
+	on_error, 2
+	
+	;Variable name parts
+	;   - sc_instr_energy_mode[_suffix]
+	;      0   1     2     3      4+
+	;    | prefix |      |   suffix   |
+	parts  = strsplit(name, '_', /EXTRACT)
+	prefix = strjoin(parts[0:1], '_') + '_'
+	suffix = '_' + strjoin(parts[3:*], '_')
+
+	;BRST mode
+	;   - Two energy tables alternate based on STEPTABLE_PARITY
+	if stregex(parts[3], '^brst', /BOOLEAN) then begin
+		;Get the sector, pixel, and energy tables
+		oParity  = MrVar_Get( prefix + 'steptable_parity' + suffix )
+		oEnergy0 = MrVar_Get( prefix + 'energy0'          + suffix )
+		oEnergy1 = MrVar_Get( prefix + 'energy1'          + suffix )
+		oDist    = MrVar_get( prefix + 'dist'             + suffix )
+	
+		;Create new energy table
+		;   - One time-dependent energy table
+		;   - One combined (average) energy table
+		energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
+		energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_name, /CACHE)
+		energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_name,  /CACHE)
+		
+		;Names of new energy tables
+		eTable_name = prefix + 'energy_table'   + suffix
+		eMean_name  = prefix + 'energy_geomean' + suffix
+	
+	;SRVY mode
+	endif else begin
+		;There is only one energy table
+		eTable_name = prefix + 'energy' + suffix
+	endelse
+	
+	;Names of phi, theta, and new energy tables
+	dist_name   = prefix + 'dist'  + suffix
+	phi_name    = prefix + 'phi'   + suffix
+	theta_name  = prefix + 'theta' + suffix
+		
+	;Set the distribution function dependencies
+	oDist  = MrVar_Get(dist_name)
+	oDist -> SetAttrValue, 'DEPEND_1', phi_name
+	oDist -> SetAttrValue, 'DEPEND_2', theta_name
+	oDist -> SetAttrValue, 'DEPEND_3', eTable_name
+end
+
+
+
+;+
 ;   Find and read MMS FPI data.
 ;
 ; :Params:
@@ -254,6 +312,7 @@ pro MrMMS_FPI_Load_Dist3D, sc, mode, species, fac, $
 COORD_SYS=coord_sys, $
 LEVEL=level, $
 ORIENTATION=orientation, $
+SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARNAMES=varnames
@@ -268,41 +327,92 @@ VARNAMES=varnames
 	
 	;Check inputs
 	cs = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
+	if n_elements(level)   eq 0 then level   = 'l2'
 	if n_elements(species) eq 0 then species = 'e'
+	if n_elements(suffix)  eq 0 then suffix  = ''
 	
 	;Conflicts
-	if n_elements(sc)   ne 1 then message, 'SC must be scalar.'
-	if n_elements(mode) ne 1 then message, 'MODE must be scalar.'
+	if n_elements(sc)    ne 1 then message, 'SC must be scalar.'
+	if n_elements(mode)  ne 1 then message, 'MODE must be scalar.'
+	
+	;Fast and Brst are organized differently
+	if mode eq 'fast' $
+		then varformat = ['*_dist_*', '*_theta_*', '*_energy_*', '*_phi_*'] $
+		else varformat = ['*dist_*', '*energy?*', '*phi*', '*theta*', '*steptable*']
 
 ;-----------------------------------------------------
 ; Load the FPI \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Get the FPI distribution function
-	MrMMS_FPI_Load_Data, sc, mode, $
-	                     LEVEL     = level, $
-	                     OPTDESC   = 'd' + species + 's-dist', $
-	                     TEAM_SITE = team_site, $
-	                     VARFORMAT = ['*dist_*', '*energy0*', '*energy1*', '*phi*', '*theta*', '*steptable*'], $
-	                     VARNAMES  = varnames
+	MrMMS_Load_Data, sc, 'fpi', mode, level, $
+	                 OPTDESC   = 'd' + species + 's-dist', $
+	                 SUFFIX    = suffix, $
+	                 TEAM_SITE = team_site, $
+	                 VARFORMAT = varformat, $
+	                 VARNAMES  = varnames
+	
+	;Associate variable attributes with DEPEND_[0-3]
+	dist_vname = sc + '_d' + species + 's_dist_' + mode
+	MrMMS_FPI_Load_Dist3D_Meta, dist_vname
+
+	;Put time first
+	oDist   = MrVar_Get(dist_vname)
+	oDistTS = oDist -> Transpose([3,0,1,2])
 
 ;-----------------------------------------------------
-; Rotate to FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	if n_elements(fac) gt 0 then begin
-		_fac = strupcase(fac)
+
+	;-----------------------------------------------------
+	; Rotate to FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;Load FAC data and interpolate onto FPI-DIST data
+		MrMMS_FGM_Load_FAC_Data, sc, mode, fac, dist_vname, $
+		                         SUFFIX   = suffix, $
+		                         VARNAMES = fac_vnames
+		
+		;FAC variables
+		b_vname = fac_vnames[0]
+		if n_elements(fac_vnames) gt 1 then perp_vname = fac_vnames[1]
+
+		;Convert from instrument coordinates to field-aligned coordinates
+		MrVar_Grid_sphere2fac, b_vname, oDist['DEPEND_1'], oDist['DEPEND_2'], oPhi_FAC, oTheta_FAC, $
+		                       ORIENTATION = orientation, $
+		                       /SPHERE, $
+		                       TYPE        = fac, $
+		                       VEC         = perp_vname
 	
-		;Load the data required to transformt to FAC
-		MrMMS_FPI_Load_Dist3D_FACData, sc, mode, _fac, species, cs, $
-		                               LEVEL     = level, $
-		                               VARNAMES  = vnames
+	;-----------------------------------------------------
+	; Store Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;Output Names
+		dist_fac_vname  = sc + '_d' + species + 's_dist_fac_'  + mode + suffix
+		phi_fac_vname   = sc + '_d' + species + 's_phi_fac_'   + mode + suffix
+		theta_fac_vname = sc + '_d' + species + 's_theta_fac_' + mode + suffix
 		
-		;Transform the look-directions to FAC incident trajectories
-		MrMMS_FPI_Load_Dist3D_Rotate, sc, mode, _fac, species, cs, $
-		                              ORIENTATION = orientation, $
-		                              VARNAMES    = fac_vnames
+		;Set names
+		oPhi_FAC   -> SetName, phi_fac_vname
+		oTheta_FAC -> SetName, theta_fac_vname
 		
-		;Combine all variable names
-		varnames = [varnames, temporary(vnames), temporary(fac_vnames)]
+		;Add to variable cache
+		oPhi_FAC   -> Cache
+		oTheta_FAC -> Cache
+		
+		;Set time dependence
+		if mode eq 'brst' then begin
+			oPhi_FAC   -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
+			oTheta_FAC -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
+		endif
+	
+		;Distribution
+		oDistTS -> SetName, dist_fac_vname
+		MrVar_Replace, oDist, oDistTS
+		oDistTS -> SetAttrValue, 'DEPEND_1', phi_fac_vname
+		oDistTS -> SetAttrValue, 'DEPEND_2', theta_fac_vname
+	
+		;Variable names
+		varnames = [dist_vname, phi_fac_vname, theta_fac_vname, oDist['DEPEND_3'], fac_vnames]
 
 ;-----------------------------------------------------
 ; Create Grid \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -325,13 +435,10 @@ VARNAMES=varnames
 		                        /DEGREES, $
 		                        ORIENTATION = orientation
 		
-		;Get the distribution
-		oDist = MrVar_Get(dist_vname)
-		
 		;Save PHI
 		oPhiGrid -> SetName, phi_grid_vname
 		oPhiGrid -> Cache
-		oPhiGrid -> AddAttr, 'DEPEND_0', oDist['DEPEND_0']
+		oPhiGrid -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
 		oPhiGrid -> AddAttr, 'DEPEND_1', phi_vname
 		oPhiGrid -> AddAttr, 'DEPEND_2', theta_vname
 		

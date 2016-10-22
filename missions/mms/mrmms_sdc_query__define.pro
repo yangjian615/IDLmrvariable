@@ -1415,11 +1415,11 @@ SORT=tf_sort
 	;   - TSTART will be made from MrTokens
 	;   - VERSION will be the asterisk
 	if (*self.field_values).file[0] eq '' then begin
-		uri = MrMMS_Build_Filename( (*self.field_values).sc_id, $
-		                            (*self.field_values).instrument_id, $
-		                            (*self.field_values).data_rate_mode, $
-		                            (*self.field_values).data_level, $
-		                            OPTDESC  = (*self.field_values).descriptor, $
+		uri = MrMMS_Build_Filename( strsplit( (*self.field_values).sc_id,          ',', /EXTRACT ), $
+		                            strsplit( (*self.field_values).instrument_id,  ',', /EXTRACT ), $
+		                            strsplit( (*self.field_values).data_rate_mode, ',', /EXTRACT ), $
+		                            strsplit( (*self.field_values).data_level,     ',', /EXTRACT ), $
+		                            OPTDESC  = strsplit( (*self.field_values).descriptor, ',', /EXTRACT ), $
 		                            SDC_ROOT = self.local_root )
 		
 	;Directories from file names
@@ -1435,11 +1435,11 @@ SORT=tf_sort
 	if self.dropbox_root ne '' then begin
 		;Directories from field-value pairs
 		if (*self.field_values).file[0] eq '' then begin
-			uri_dropbox = MrMMS_Build_Filename( (*self.field_values).sc_id, $
-			                                    (*self.field_values).instrument_id, $
-			                                    (*self.field_values).data_rate_mode, $
-			                                    (*self.field_values).data_level, $
-			                                    OPTDESC   = (*self.field_values).descriptor, $
+			uri_dropbox = MrMMS_Build_Filename( strsplit( (*self.field_values).sc_id,          ',', /EXTRACT ), $
+			                                    strsplit( (*self.field_values).instrument_id,  ',', /EXTRACT ), $
+			                                    strsplit( (*self.field_values).data_rate_mode, ',', /EXTRACT ), $
+			                                    strsplit( (*self.field_values).data_level,     ',', /EXTRACT ), $
+			                                    OPTDESC   = strsplit( (*self.field_values).descriptor, ',', /EXTRACT ), $
 			                                    DIRECTORY = self.dropbox_root )
 		
 		;Directories from file names
@@ -2011,7 +2011,7 @@ function MrMMS_SDC_Query::uri2dir, uri
 	for i = 0, nURI-1 do begin
 		dir[i] = filepath(basename[i], $
 		                  ROOT_DIR     = self.local_root, $
-		                  SUBDIRECTORY = parts[3,i])
+		                  SUBDIRECTORY = parts[2,i])
 	endfor
 	if nURI eq 1 then dir = dir[0]
 	

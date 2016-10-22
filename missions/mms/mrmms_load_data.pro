@@ -51,6 +51,8 @@
 ;       2016/08/16  -   Written by Matthew Argall
 ;       2016/09/02  -   Rename "Epoch" variables to follow the MMS variable naming
 ;                           convention. - MRA
+;       2016/10/06  -   Added the SUFFIX keyword. Renamed Epoch variables are now
+;                           reflected in VARNAMES. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -72,48 +74,85 @@
 ;       VARNAMES:       in, required, type=string/strarr
 ;                       Names of CDF variables for which the DEPEND_0 attribute
 ;                           is to be renamed.
+;       SUFFIX:         in, optional, type=string, default=''
+;                       A suffix to be appended to variable names.
 ;-
-pro MrMMS_Load_Data_RenameEpoch, varnames
+pro MrMMS_Load_Data_RenameEpoch, varnames, suffix
 	compile_opt idl2
 	on_error, 2
-
-	;Build variable names
+	
+	;Number of segments in SUFFIX
+	if n_elements(suffix) gt 0 then begin
+		nSeg = n_elements( strsplit(suffix, '_') )
+	endif else begin
+		nSeg   = 0
+		suffix = ''
+	endelse
+	
+;-----------------------------------------------------
+; Step Through Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
 	for i = 0, n_elements(varnames) - 1 do begin
 		;Get the variable
 		;   - Epoch variables are being renamed, so it may no longer exist
 		oVar = MrVar_Get(varnames[i], COUNT=count)
 		if count eq 0 then continue
 		
+	;-----------------------------------------------------
+	; Check for DEPEND_0 \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
 		;Change the DEPEND_0 attribute, if there is one
 		if oVar -> HasAttr('DEPEND_0') then begin
 			;Old epoch name
 			epoch_name = oVar['DEPEND_0']
-			
+
 			;Rename only the "Epoch" variables.
 			;   - Allow "_#" in case /NO_CLOBBER caused Epoch to be renamed.
 			if stregex(epoch_name, '^Epoch', /BOOLEAN) then begin
+		
+			;-----------------------------------------------------
+			; Create New Name \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+			;-----------------------------------------------------
 				;Dissect the variable name
 				parts    = strsplit(varnames[i], '_', /EXTRACT)
 
+				;Remove a suffix from EPOCH_NAME
+				;   - TODO: If /NO_CLOBBER was set, "_#" might be appended to the
+				;           end of the variable name. Change the regular expression
+				;           to '^(.*)' + suffix + '(_[0-9]+)?' and follow through.
+				epoch_base = stregex(epoch_name, '^(.*)' + suffix + '$', /SUBEXP, /EXTRACT)
+				epoch_base = epoch_base[1]
+
 				;Create a new name
 				;   - Variable names are suppose to follow the format
-				;       sc_instr_param_[coordsys_][optdesc_]mode_level
+				;       sc_instr_param[_coordsys][_optdesc]_mode_level[_suffix]
 				;   - We want to make "Epoch" look like
-				;       sc_instr_epoch_mode_level
+				;       sc_instr_epoch_mode_level[_suffix]
 				;   - But some instruments do not follow the veriable naming
 				;     convention exactly.
 				;   - Here, we follow the naming convention of the instrument
 				if stregex(varnames[i], '(des|dis)', /BOOLEAN) $
-					then new_name = strjoin( [parts[0:1], strlowcase(epoch_name), parts[-1]], '_' ) $
-					else new_name = strjoin( [parts[0:1], strlowcase(epoch_name), parts[-2:-1]], '_' )
-			
-				;Rename the epoch variable
+					then new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-1-nSeg:-1]], '_' ) $
+					else new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-2-nSeg:-1]], '_' )
+					
+			;-----------------------------------------------------
+			; Update DEPEND_0 Attribute \\\\\\\\\\\\\\\\\\\\\\\\\\
+			;-----------------------------------------------------
 				oVar -> SetAttrValue, 'DEPEND_0', new_name
+				
+			;-----------------------------------------------------
+			; Rename Epoch Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+			;-----------------------------------------------------
 				
 				;If the epoch variable itself has not been renamed, rename it
 				if MrVar_IsCached(epoch_name) then begin
+					;Set the variable name
 					oEpoch  = MrVar_Get(epoch_name)
 					oEpoch -> SetName, new_name
+					
+					;Update the variable name in VARNAMES
+					idx = where(varnames eq epoch_name)
+					varnames[idx] = new_name
 				endif
 			endif
 		endif
@@ -138,6 +177,8 @@ end
 ; :Keywords:
 ;       OPTDESC:            in, optional, type=string, default=''
 ;                           Optional descriptor of the data.
+;       SUFFIX:             in, optional, type=string, default=''
+;                           A suffix to be appended to variable names.
 ;       SUPPORT_DATA:       in, optional, type=boolean, default=0
 ;                           If set, support data will be read as well. Regardless of
 ;                               the status of this keyword, variable data associated
@@ -149,13 +190,16 @@ end
 ;                               is below level 2. This option is sticky.
 ;       TRANGE:             out, optional, type=string, default=MrVar_GetTRange()
 ;                           Start and end times over which to read data.
-;       VARFORMAT:          out, optional, type=string, default='*'
+;       VARFORMAT:          in, optional, type=string, default=''
 ;                           Variables that match this search pattern will be read,
 ;                               others are ignored.
+;       VARNAMES:           out, optional, type=string/strarr
+;                           Names of the variables that have been loaded into the cache.
 ;-
 pro MrMMS_Load_Data, sc, instr, mode, level, $
 OPTDESC=optdesc, $
 SUPPORT_DATA=support_data, $
+SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARFORMAT=varformat, $
@@ -241,6 +285,7 @@ VARNAMES=varnames
 	
 		;Read files
 		MrVar_ReadCDF, files[iFiles], $
+		               SUFFIX       = suffix, $
 		               SUPPORT_DATA = support_data, $
 		               TRANGE       = trange, $
 		               VARFORMAT    = varformat, $
@@ -251,5 +296,5 @@ VARNAMES=varnames
 ;-----------------------------------------------------
 ; Rename the Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	MrMMS_Load_Data_RenameEpoch, varnames
+	MrMMS_Load_Data_RenameEpoch, varnames, suffix
 end

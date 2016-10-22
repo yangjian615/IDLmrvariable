@@ -69,6 +69,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/05/27  -   Written by Matthew Argall
+;       2016/10/22  -   Convert to and from Julday and SSM. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -196,6 +197,43 @@ pro MrTimeVar::CLEANUP
 	on_error, 2
 	
 	self -> MrVariable::Cleanup
+end
+
+
+;+
+;   Convert ISO-8601 time to Julian day (begins at noon) via IDL's
+;   JULDAY function.
+;
+; :Params:
+;       ISO:            in, required, type=strarr
+;                       ISO times to be converted to TT2000 format.
+;
+; :Returns:
+;       JUL:            out, required, type=int64
+;                       The Julian Date for the specified date.
+;-
+function MrTimeVar::iso2julday, iso
+	compile_opt idl2
+	on_error, 2
+	
+	;Make sure time is properly formatted
+	tpattern = '%Y-%M-%dT%H:%m:%S%f'
+	if ~MrTokens_IsMatch(iso[0], tpattern) $
+		then message, 'Input time is not a recognized ISO format.'
+	
+	;Compute TT2000 times
+	;   - StrMid is ~100x faster than MrTimeParser
+	;   - Requires implicit array to be ISO time
+	jul = julday( fix(strmid(iso,  5, 2)), $      ;month
+	              fix(strmid(iso,  8, 2)), $      ;day
+	              fix(strmid(iso,  0, 4)), $      ;year
+	              fix(strmid(iso, 11, 2)), $      ;hour
+	              fix(strmid(iso, 14, 2)), $      ;minute
+	              double(strmid(iso, 17)), $      ;second
+	            )
+	
+	;Return the array
+	return, jul
 end
 
 
@@ -437,6 +475,82 @@ end
 
 
 ;+
+;   Convert Julian day to ISO-8601 time via IDL's CALDAT procedure.
+;
+; :Params:
+;       ISO:            in, required, type=strarr
+;                       ISO times to be converted to TT2000 format.
+;
+; :Returns:
+;       JUL:            out, required, type=int64
+;                       The Julian Date for the specified date.
+;-
+function MrTimeVar::julday2iso, jul
+	compile_opt idl2
+	on_error, 2
+	
+	;Parse the julian date
+	caldat, jul, month, day, year, hour, minute, second
+	
+	;Create ISO time
+	;   - Keep milliseconds
+	iso = string(year,   FORMAT='(i04)') + '-' + $
+	      string(month,  FORMAT='(i02)') + '-' + $
+	      string(day,    FORMAT='(i02)') + 'T' + $
+	      string(hour,   FORMAT='(i02)') + ':' + $
+	      string(minute, FORMAT='(i02)') + ':' + $
+	      string(second, FORMAT='(f06.3)') + 'Z'
+	
+	;Return the array
+	return, iso
+end
+
+
+;+
+;   Convert Julian day to ISO-8601 time via IDL's CALDAT procedure.
+;
+; :Params:
+;       SSM:            in, required, type=double
+;                       Times in seconds since midnight.
+;       T_REF:          in, required, type=string
+;                       ISO date from which `SSM` is referenced.
+;
+; :Returns:
+;       ISO:            out, required, type=strarr
+;                       ISO times.
+;-
+function MrTimeVar::ssm2iso, ssm, t_ref
+	compile_opt idl2
+	on_error, 2
+	
+	;Make sure time is properly formatted
+	tpattern = '%Y-%M-%d'
+	if ~MrTokens_IsMatch(t_ref, tpattern) $
+		then message, 'Input time is not a recognized ISO format.'
+	
+	;Get the reference time
+	iso_ref = strmid(t_ref, 0, 10)
+	
+	;Compute time from seconds
+	hour   = fix(ssm / 3600.0)
+	minute = fix((ssm mod 3600.0) / 60.0)
+	second = ssm mod 60.0
+	
+	;Create iso time
+	iso = iso_ref + 'T' + $
+	      string(hour,   FORMAT='(i02)')     + ':' + $
+	      string(minute, FORMAT='(i02)')     + ':' + $
+	      string(second, FORMAT='(f013.10)') + 'Z'
+	
+	;Parse the julian date
+	caldat, jul, month, day, year, hour, minute, second
+	
+	;Return the array
+	return, iso
+end
+
+
+;+
 ;   Convert CDF_TIME_TT2000 time to ISO-8601 format.
 ;
 ; :Params:
@@ -570,50 +684,63 @@ end
 ;+
 ;   Get time array data.
 ;
+;   CALLING SEQUENCE
+;       time = oTime -> GetData(type)
+;       time = oTime -> GetData('CUSTOM', time_fmt)
+;
 ; :Params:
-;       TYPE:               in, optional, type=array, default='ISO-8601'
-;                           Specify to output `TIME` in one of the following formats::
-;                               'CDF_EPOCH'       - CDF Epoch values (milliseconds)
-;                               'CDF_EPOCH16'     - CDF Epoch16 values (picoseconds)
-;                               'CDF_EPOCH_LONG'  - CDF Epoch16 values (picoseconds)
-;                               'CDF_TIME_TT2000' - CDF TT2000 values (nanoseconds)
-;                               'TT2000'          - CDF TT2000 values (nanoseconds)
-;                               'ISO-8601'        - ISO-8601 formatted string
-;                               'CUSTOM'          - Custom time string format
+;       TYPE:           in, optional, type=array, default='ISO-8601'
+;                       Specify to output `TIME` in one of the following formats::
+;                           'CDF_EPOCH'       - CDF Epoch values (milliseconds)
+;                           'CDF_EPOCH16'     - CDF Epoch16 values (picoseconds)
+;                           'CDF_EPOCH_LONG'  - CDF Epoch16 values (picoseconds)
+;                           'CDF_TIME_TT2000' - CDF TT2000 values (nanoseconds)
+;                           'TT2000'          - CDF TT2000 values (nanoseconds)
+;                           'JULDAY'          - Julian date
+;                           'ISO-8601'        - ISO-8601 formatted string
+;                           'SSM'             - Seconds since midnight
+;                           'CUSTOM'          - Custom time string format
+;       T_REF:          in, optional, type=array, default=first element of time array
+;                       Reference time. Ignored unless `TYPE` is 'SSM'
 ;
 ; :Keywords:
-;       DESTROY:            in, optional, type=boolean, default=0
-;                           If set, the object will be destroyed after returning the array.
-;       NO_COPY:            in, optional, type=boolean, default=0
-;                           If set, the array will be removed frome the object and return.
-;                               This prevents two copies of the array from being in
-;                               memory.
-;       TOKEN_FMT:          in, optional, type=string
-;                           The MrTokens pattern that specifies how `TIME` should be
-;                               output. If provided and `TYPE` is undefined, automatically
-;                               sets `TYPE` = 'CUSTOM'.
+;       DESTROY:        in, optional, type=boolean, default=0
+;                       If set, the object will be destroyed after returning the array.
+;       NO_COPY:        in, optional, type=boolean, default=0
+;                       If set, the array will be removed frome the object and return.
+;                           This prevents two copies of the array from being in
+;                           memory.
+;       TOKEN_FMT:      in, optional, type=string
+;                       The MrTokens pattern that specifies how `TIME` should be
+;                           output. If provided and `TYPE` is undefined, automatically
+;                           sets `TYPE` = 'CUSTOM'.
 ;
 ; :Returns:
-;       TIME:               out, required, type=array
-;                           Array of time values to be stored.
+;       TIME:           out, required, type=array
+;                       Array of time values to be stored.
 ;-
-function MrTimeVar::GetData, type, $
+function MrTimeVar::GetData, type, t_ref, $
 DESTROY=destroy, $
-TOKEN_FMT=token_fmt, $
-NO_COPY=no_copy
+NO_COPY=no_copy, $
+TOKEN_FMT=token_fmt
 	compile_opt idl2
 	on_error, 2
 	
 	;Output type
-	if n_elements(type) eq 0 then type = 'ISO-8601'
-	
+	if n_elements(type) eq 0 then begin
+		if n_elements(token_fmt) eq 0 $
+			then type = 'ISO-8601' $
+			else type = 'CUSTOM'
+	endif
+
 	;Convert to ISO-8601
 	case strupcase(type) of
 		'CDF_TIME_TT2000': time = self -> iso2tt2000(*self.data)
 		'CDF_EPOCH':       time = self -> iso2epoch(*self.data)
 		'CDF_EPOCH16':     time = self -> iso2epoch16(*self.data)
 		'CDF_EPOCH_LONG':  time = self -> iso2epoch16(*self.data)
-		'SSM':             time = self -> iso2ssm(*self.data)
+		'JULDAY':          time = self -> iso2julday(*self.data)
+		'SSM':             time = self -> iso2ssm(*self.data, t_ref)
 		'TT2000':          time = self -> iso2tt2000(*self.data)
 		'ISO-8601':        time = *self.data
 		'CUSTOM':          MrTimeParser, *self.data, self.token_format, token_fmt, time
@@ -757,6 +884,8 @@ function MrTimeVar::fromISO, iso_time, type
 		'CDF_EPOCH16':     time  = self -> iso2epoch16(iso_time)
 		'CDF_EPOCH_LONG':  time  = self -> iso2epoch16(iso_time)
 		'CDF_TIME_TT2000': time  = self -> iso2tt2000(iso_time)
+		'JULDAY':          time  = self -> iso2julday(iso_time)
+		'SSM':             time  = self -> iso2ssm(iso_time, t_ref)
 		'TT2000':          time  = self -> iso2tt2000(iso_time)
 		'ISO-8601':        time  = iso_time
 		else: message, 'Unknown time type: "' + type + '".'
@@ -814,6 +943,16 @@ TOKEN_FMT=token_fmt
 		'CDF_TIME_TT2000': begin
 			iso_time  = self -> tt2000toISO(time)
 			token_fmt = '%Y-%M-%dT%H:%m:%S.%1%2%3%z'
+		endcase
+		
+		'JULDAY': begin
+			iso_time  = self -> julday2iso(time)
+			token_fmt = '%Y-%M-%dT%H:%m:%S.%1%z'
+		endcase
+		
+		'SSM': begin
+			iso_time  = self -> ssm2iso(time, t_ref)
+			token_fmt = '%Y-%M-%dT%H:%m:%S%f%z'
 		endcase
 		
 		'TT2000': begin
