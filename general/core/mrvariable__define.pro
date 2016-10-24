@@ -69,6 +69,7 @@
 ; :History:
 ;   Modification History::
 ;       2014/05/09  -   Written by Matthew Argall
+;       2016/10/24  -   Added the InnerProduct and OuterProduct methods. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -3266,6 +3267,81 @@ end
 
 
 ;+
+;   Compute the inner product of two tensors of rank > 1.
+;   This method generalizes the # operator for tensors of rank > 2.
+;
+; :Params:
+;       B:          in, required, type=numeric or MrVariable objref
+;                   A tensor with > 1 dimension.
+;
+; :Returns:
+;       RESULT:     out, required, type=MrVariable objref
+;                   Result of the inner product.
+;-
+function MrVariable::InnerProduct, B, $
+NAME=name
+	compile_opt strictarr
+	on_error, 2
+	
+	;Extract the data
+	if isa(B, 'MrVariable') $
+		then _B = B['DATA'] $
+		else _B = B
+	
+	;Default name
+	if n_elements(name) eq 0 then name = 'InnerProduct(' + self.name + ',B)'
+
+;-------------------------------------------------------
+; Dimensions ///////////////////////////////////////////
+;-------------------------------------------------------
+	
+	;Dimensionality of inputs
+	dimsA  = size(self, /DIMENSIONS)
+	dimsB  = size(B, /DIMENSIONS)
+	nDimsA = size(self, /N_DIMENSIONS)
+	nDimsB = size(B, /N_DIMENSIONS)
+	nDims  = nDimsA < nDimsB
+	
+	;Output dimensions
+	if nDims eq 1 $
+		then outDims = nDimsA < nDimsB ? dimsA : dimsB $
+		else outDims = nDimsA < nDimsB ? dimsA[0:-2] : dimsB[1:*]
+
+;-------------------------------------------------------
+; Reform Inputs ////////////////////////////////////////
+;-------------------------------------------------------
+	
+	;A is currently D1xD2xD3xD4x ... xDN
+	;   - Turn A into DixDN matrix
+	if nDimsA eq 1 $
+		then _A = A['DATA'] $
+		else _A = reform( A['DATA'], [ product(dimsA[0:-2]), dimsA[-1] ] )
+	
+	;B is currently D1xD2xD3xD4x ... xDN
+	;   - Turn B into D1xDi matrix
+	if nDimsB ge 2 $
+		then _B = reform( _B, [ dimsB[0], product(dimsB[1:*]) ] )
+
+;-------------------------------------------------------
+; Inner Product ////////////////////////////////////////
+;-------------------------------------------------------
+	
+	temp = temporary(_A) # temporary(_B)
+
+;-------------------------------------------------------
+; Finish Up ////////////////////////////////////////////
+;-------------------------------------------------------
+
+	;Reform back to the original shape, minus the contracted dimension.
+	temp = reform(temp, dimsOut, /OVERWRITE)
+	
+	;Create time series variable
+	result = MrVariable( temp, NAME=name, /NO_COPY )
+	return, result
+end
+
+
+;+
 ;   Perform interpolation on regularly or irregularly vectors.
 ;
 ;   Calling Sequence:
@@ -3545,8 +3621,83 @@ NO_COPY=no_copy
 
 	;Return a copy of the array
 	;   - Use Obj_Class() so that subclasses can inherit the method.
-	return, obj_new(obj_class(self), array, NAME=name, NO_COPY=no_copy) $
+	return, obj_new(obj_class(self), array, NAME=name, NO_COPY=no_copy)
 end 
+
+
+;+
+;   Compute the outer product of two tensors of rank > 1.
+;   This method generalizes the ## operator for tensors of rank > 2.
+;
+; :Params:
+;       B:          in, required, type=numeric or MrVariable objref
+;                   A tensor with > 1 dimension.
+;
+; :Returns:
+;       RESULT:     out, required, type=MrVariable objref
+;                   Result of the inner product.
+;-
+function MrVariable::OuterProduct, B, $
+NAME=name
+	compile_opt strictarr
+	on_error, 2
+	
+	;Extract the data
+	if isa(B, 'MrVariable') $
+		then _B = B['DATA'] $
+		else _B = B
+	
+	;Default name
+	if n_elements(name) eq 0 then name = 'OuterProduct(' + self.name + ',B)'
+
+;-------------------------------------------------------
+; Dimensions ///////////////////////////////////////////
+;-------------------------------------------------------
+	
+	;Dimensionality of inputs
+	dimsA  = size(self, /DIMENSIONS)
+	dimsB  = size(B, /DIMENSIONS)
+	nDimsA = size(self, /N_DIMENSIONS)
+	nDimsB = size(B, /N_DIMENSIONS)
+	nDims  = nDimsA < nDimsB
+	
+	;Output dimensions
+	if nDims eq 1 $
+		then outDims = nDimsA < nDimsB ? dimsA : dimsB $
+		else outDims = nDimsA < nDimsB ? dimsA[1:*] : dimsB[0:-2]
+
+;-------------------------------------------------------
+; Reform Inputs ////////////////////////////////////////
+;-------------------------------------------------------
+	
+	;A is currently D1xD2xD3xD4x ... xDN
+	;   - Turn A into DixDN matrix
+	if nDimsA eq 1 $
+		then _A = A['DATA'] $
+		else _A = reform( A['DATA'], [ dimsA[0], product(dimsA[1:*]) ] )
+	
+	;B is currently D1xD2xD3xD4x ... xDN
+	;   - Turn B into D1xDi matrix
+	if nDimsB ge 2 $
+		then _B = reform( _B, [ product(dimsB[0:-2]), dimsB[-1] ] )
+
+;-------------------------------------------------------
+; Inner Product ////////////////////////////////////////
+;-------------------------------------------------------
+	
+	temp = temporary(_A) ## temporary(_B)
+
+;-------------------------------------------------------
+; Finish Up ////////////////////////////////////////////
+;-------------------------------------------------------
+
+	;Reform back to the original shape, minus the contracted dimension.
+	temp = reform(temp, dimsOut, /OVERWRITE)
+	
+	;Create time series variable
+	result = MrVariable( temp, NAME=name, /NO_COPY )
+	return, result
+end
 
 
 ;+

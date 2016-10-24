@@ -101,6 +101,7 @@
 ;       2016/08/20  -   Prevent variables from being read twice - once as an attribute
 ;                           and once as a variable - when /SUPPORT_DATA is set. - MRA
 ;       2016/10/06  -   Added the SUFFIX keyword. - MRA
+;       2016/10/06  -   Major rewrite to support MrTimeSeries & simplify program flow. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -163,35 +164,16 @@ end
 ;                           Vector containing the counts to be used when reading each
 ;                               `VALUE`. The default is to read each record, taking
 ;                               into account `INTERVAL` and `OFFSET`.
-;       INTERVAL:           in, optional, type=intarr, default=1 for each dimension
-;                           Interval between values in each dimension.
 ;       NO_CLOBBER:         in, optional, type=boolean, default=0
 ;                           If set, variables with names that already exist in the
 ;                               MrVariable cache will be renamed by appending '_#' to
 ;                               the variable name, where "#" represents a number.
-;       OFFSET:             in, optional, type=intarr, default=0 for each dimension
-;                           Array indices within the specified record(s) at which to
-;                               begin reading. OFFSET is a 1-dimensional array
-;                               containing one element per CDF dimension.
-;       REC_COUNT:          in, optional, type=long, default=maxrec+1
-;                           Number of records to be read.
-;       REC_INTERVAL:       in, optional, type=integer, default=1
-;                           Interval between records when reading multiple records.
-;       STRING:             in, optional, type=boolean, default=0
-;                           If set, "CDF_CHAR" and "CDF_UCHAR" data will be converted
-;                               to strings. The are read from the file as byte-arrays.
 ;       VARINQ:             out, optional, type=structure
 ;                           Result of CDF_VarInq() on the variable for which data is
 ;                               returned.
 ;-
-pro MrVar_ReadCDF_GetData, cdfID, varname, $
-COUNT = count, $
-INTERVAL = interval, $
+function MrVar_ReadCDF_GetData, cdfID, varname, $
 NO_CLOBBER = no_clobber, $
-OFFSET = offset, $
-REC_INTERVAL = rec_interval, $
-SUFFIX = suffix, $
-STRING = string, $
 VARINQ = varinq
 	compile_opt idl2
 	on_error, 2
@@ -202,9 +184,6 @@ VARINQ = varinq
 ;-----------------------------------------------------
 ; Read Variable Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	tf_string = n_elements(string) eq 0 ? 1B : keyword_set(string)
-	if n_elements(suffix) eq 0 then suffix = ''
-
 	;Number of records -- read all
 	cdf_control, cdfID, GET_VAR_INFO=var_info, VARIABLE=varname
 	rec_count = var_info.maxrec + 1
@@ -221,98 +200,25 @@ VARINQ = varinq
 
 		;Get its data
 		cdf_varget, cdfID, varname, data, $
-		            COUNT        = count, $
-		            INTERVAL     = interval, $
-		            OFFSET       = offset, $
-		            REC_COUNT    = rec_count, $
-		            REC_INTERVAL = rec_interval, $
-		            STRING       = tf_string
+		            REC_COUNT = rec_count, $
+		            /STRING
 
 		;Turn on normal warnings.
 		!Quiet = 0
 	endif else begin
 		MrPrintF, 'logwarn', 'Variable has zero records: "' + varname + '".'
 	endelse
-	
-;-----------------------------------------------------
-; Determine Variable Type \\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
 
-	;What type of variable is it?
-	;   - For zero-dimensional CDFs, DIMVAR will have one element whose value is zero.
-	;   - Variables are still read in as 1xN
-	varinq = cdf_varinq(cdfID, varname)
-	nDims  = n_elements(varinq.dimvar)
-	
-	;Time series
-	if varinq.recvar then begin
-		;Scalar or time
-		if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
-			;Is the variable an epoch datatype?
-			if MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], varinq.datatype) $
-				then vartype = 'MrTimeVar' $
-				else vartype = 'MrScalarTS'
-		
-		;Vector
-		endif else if nDims eq 1 && varinq.dim[0] eq 3 then begin
-			vartype = 'MrVectorTS'
-		
-		;Matrix
-		;   - TODO: Should ANY 2D variable be a matrix?
-		;           Could check for a "TENSOR_ORDER" attribute.
-		endif else if nDims eq 2 then begin
-			vartype = 'MrMatrixTS'
-		
-		;Other
-		;   - TODO: Transpose time to leading dimension?
-		endif else begin
-			vartype = 'MrVariable'
-		endelse
-	
-	;Other
-	endif else begin
-		vartype = 'MrVariable'
-	endelse
-	
 ;-----------------------------------------------------
-; Cache Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Book-keeping \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-
-	;Get a MrArray variable
-	var = MrVar_ReadCDF_GetVar(varname, vartype, NO_CLOBBER=no_clobber)
-
-	;Record variance?
-	;   - Append to record-varying dimension (always after the last CDF dimension)
-	;   - ::Append can handle undefined data.
-	varinq = cdf_varinq(cdfID, varname)
-	if varinq.recvar eq 'VARY' then begin
-		case vartype of
-			'MrTimeVar':  var -> Append, data, varinq.datatype, /NO_COPY
-			'MrScalarTS': var -> Append, data, /NO_COPY
-			'MrVectorTS': var -> Append, data, /NO_COPY
-			'MrMatrixTS': var -> Append, data, /NO_COPY
-			'MrVariable': var -> Append, data, nDims+1, /NO_COPY
-			else: message, 'Unknown variable type: "' + vartype + '".'
-		endcase
-	
-	;No record variance
-	;   - Overwrite data
-	;   - Let variables with no data remain as-is
-	endif else if varinq.recvar eq 'NOVARY' && rec_count gt 0 then begin
-		case vartype of
-			'MrTimeVar':  var -> SetData, data, varinq.datatype, /NO_COPY
-			'MrScalarTS': var -> SetData, data, /NO_COPY
-			'MrVectorTS': var -> SetData, data, /NO_COPY
-			'MrMatrixTS': var -> SetData, data, /NO_COPY
-			'MrVariable': var -> SetData, data, /NO_COPY
-			else: message, 'Unknown variable type: "' + vartype + '".'
-		endcase
-	endif
 
 	;Store variables from current file
 	;   - Collection is necessary once per file when data has been read
 	file_vnames[file_vcount]  = varname
 	file_vcount              += 1
+	
+	return, data
 end
 
 
@@ -344,7 +250,8 @@ end
 ;                               same name already exists in the cache.
 ;-
 function MrVar_ReadCDF_GetVar, vname, vtype, $
-NO_CLOBBER=no_clobber
+NO_CLOBBER=no_clobber, $
+SUFFIX=suffix
 	compile_opt idl2
 	on_error, 2
 	
@@ -354,25 +261,28 @@ NO_CLOBBER=no_clobber
 	;Defaults
 	;   - Clobber existing variables
 	tf_clobber = ~keyword_set(no_clobber)
-	if n_elements(vtype) eq 0 then vtype = 'MrVariable'
 	
 	;Has the variable been read yet?
 	tf_has = max(cdf_vnames eq vname, imax)
 
 ;-----------------------------------------------------
-; Get the Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Get Existing Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	if tf_has then begin
 		var = MrVar_Get(cache_vnames[imax])
 
 ;-----------------------------------------------------
-; Create the Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Create New Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	endif else begin
+
+	;-----------------------------------------------------
+	; Clobber Duplicate Name \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
 		;Check if there is a variable by the same name already in the cache
 		old_var = MrVar_Get(vname+vsuffix, COUNT=count)
 
-		;If there is, and we clobber, then clobber its depend_# attributes
+		;If there is, and we clobber, then clobber its DEPEND_# attributes
 		if count gt 0 && tf_clobber then begin
 			;Step through each possible DEPEND_N
 			for i = 0, 3 do begin
@@ -389,25 +299,31 @@ NO_CLOBBER=no_clobber
 				endif
 			endfor
 		endif
-	
+
+	;-----------------------------------------------------
+	; Create & Cache Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
 		;We do not want to create new variables every time the same
 		;file is read, so default to clobbering any pre-existing
 		;variable by the same name.
-		var = obj_new( vtype, $
-		               /CACHE, $
-		               NAME       = vname + vsuffix, $
-		               NO_CLOBBER = ~tf_clobber )
+		oVar = obj_new( vtype, $
+		                /CACHE, $
+		                NAME       = vname + vsuffix, $
+		                NO_CLOBBER = ~tf_clobber )
+		
+		;Create an attribute
+		oVar -> AddAttr, 'CDF_NAME', vname
 		
 		;Keep track of variable information
 		;   - Collection is necessary only once per call (i.e. not for every file)
 		;   - Unique variable names across all files being read.
 		cdf_vnames[cdf_vcount]    = vname
-		cache_vnames[cdf_vcount]  = var.name
+		cache_vnames[cdf_vcount]  = oVar.name
 		cdf_vcount               += 1
 	endelse
 
 	;Return the variable
-	return, var
+	return, oVar
 end
 
 
@@ -420,7 +336,7 @@ end
 ;       VARNAME:            in, required, type=string/object
 ;                           Name of the variable whose data will be read.
 ;-
-pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
+pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 	compile_opt idl2
 	on_error, 2
 
@@ -431,7 +347,8 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 	;   - Variable attributes should be saved after global attributes
 	;   - I have seen some files where this is not the case
 	;   - So, loop over all attributes
-	cdfinq = cdf_inquire(cdfID)
+	cdfinq  = cdf_inquire(cdfID)
+	varname = oVar['CDF_NAME']
 
 ;-----------------------------------------------------
 ; Loop Over Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -467,27 +384,21 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 				;   - Creates and caches the variable
 				;   - Do not clobber other DEPEND_[0-3] data. They often
 				;     have the same name (e.g. Epoch)
-				MrVar_ReadCDF_GetData, cdfID, attrValue, $
-				                       /NO_CLOBBER
-				
-				;Get its variable attributes
-				MrVar_ReadCDF_GetVarAttrs, cdfID, attrValue
-			endif
-
-			;Add DEPEND_0 to the variable attributes
-			var  = MrVar_ReadCDF_GetVar(varname)
-			attr = MrVar_ReadCDF_GetVar(attrValue)
+				oAttr = MrVar_ReadCDF_ReadVar( cdfID, attrValue, /NO_CLOBBER )
+			endif else begin
+				oAttr = MrVar_ReadCDF_GetVar(attrValue)
+			endelse
 
 			; Delete the LABL_PTR_# variable from the cache
 			;   - But only if it has not already been read into the cache
 			;   - If /SUPPORT_DATA is set, it will be read into the cache as a variable
 			if nName eq 0 && stregex(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) then begin
-				var -> SetAttrValue, attrName, attr['DATA'], /CREATE
+				oVar -> SetAttrValue, attrName, oAttr['DATA'], /CREATE
 				MrVar_ReadCDF_Clobber, attrValue
 			
 			;Add DEPEND_0 to the variable attributes
 			endif else begin
-				var -> SetAttrValue, attrName, attr.name, /CREATE
+				oVar -> SetAttrValue, attrName, oAttr.name, /CREATE
 			endelse
 
 	;-----------------------------------------------------
@@ -495,14 +406,163 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, varname
 	;-----------------------------------------------------
 		endif else begin
 			;We have an attribute-value pair (i.e. not a pointer to a variable)
-			var  = MrVar_ReadCDF_GetVar(varname)
-			var -> SetAttrValue, attrName, attrValue, /CREATE
+			oVar -> SetAttrValue, attrName, attrValue, /CREATE
 		endelse
 	endfor
+end
+
+
+;+
+;    Determine the type of MrVariable object to create.
+;
+; :Private:
+;
+; :Params:
+;       CDFID:              in, required, type=string/long
+;                           CDF identifier of the CDF file being read.
+;       VARNAME:            in, required, type=string/object
+;                           Name of the variable whose data will be read.
+;
+; :Returns:
+;       VARTYPE:            out, required, type=string
+;                           The type of MrVariable object that best represents
+;                               data of `VARNAME`.
+;-
+function MrVar_ReadCDF_GetVarType, cdfID, varname
+	compile_opt idl2
+	on_error, 2
+	
+	;What type of variable is it?
+	;   - For zero-dimensional CDFs, DIMVAR will have one element whose value is zero.
+	;   - Variables are still read in as 1xN
+	varinq = cdf_varinq(cdfID, varname)
+	nDims  = n_elements(varinq.dimvar)
+	
+	;Is there a DEPEND_0 attribute?
+	cdf_attget_entry, cdfID, 'DEPEND_0', varname, attr_type, dep0_vname, tf_exists
+	if tf_exists eq 0 && MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], attr_type) $
+		then tf_timeseries = 1B $
+		else tf_timeseries = 0B
+	
+	;Scalar or time
+	if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
+		;Is the variable an epoch datatype?
+		if MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], varinq.datatype) $
+			then vartype = 'MrTimeVar' $
+			else vartype = tf_timeseries ? 'MrScalarTS' : 'MrVariable'
+	
+	;Vector
+	endif else if nDims eq 1 && varinq.dim[0] eq 3 then begin
+		vartype = tf_timeseries ? 'MrVectorTS' : 'MrVariable'
+	
+	;Matrix
+	;   - TODO: Should ANY 2D variable be a matrix?
+	;           Could check for a "TENSOR_ORDER" attribute.
+	endif else if nDims eq 2 then begin
+		vartype = tf_timeseries ? 'MrMatrixTS' : 'MrVariable'
+	
+	;Other
+	;   - TODO: Transpose time to leading dimension?
+	endif else begin
+		vartype = tf_timeseries ? 'MrTimeSeries' : 'MrVariable'
+	endelse
+	
+	return, vartype
+end
+
+
+;+
+;   Helper function for MrVar_ReadCDF. Retrieve or create a variable.
+;
+;   1. Check if the variable has been read
+;     a. Get the name from the cache
+;     b. Look for pre-existing variables with the same name
+;         i. Clobber DEPEND_0 attributes
+;        ii. Create new variable -- clobber pre-existing var if necessary
+;       iii. Keep a record of the variable so we know it has been created
+;   2. Return variable
+;     
+;
+;   NOTES:
+;       Uses the MrVar_ReadCDF_common common block
+;
+; :Params:
+;       VARNAME:            in, required, type=string
+;                           Name of the CDF variable to retrieve or create.
+;       VARTYPE:            in, optional, type=string, type='MrVariable'
+;                           Type of varible to be created. Should be a subclass
+;                               of MrVariable: {'MrScalarTS' | 'MrVectorTS' | 'MrMatrixTS'}
+;
+; :Keywords:
+;       NO_CLOBBER:         in, required, type=boolean, default=0
+;                           If set, variables will be renamed if one with the
+;                               same name already exists in the cache.
+;-
+function MrVar_ReadCDF_ReadVar, cdfID, varname, $
+NO_CLOBBER=no_clobber, $
+SUFFIX=suffix
+	compile_opt idl2
+	on_error, 2
+	
+	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, vsuffix
+
+;-----------------------------------------------------
+; Read Data & Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Which MrVariable type?
+	vartype = MrVar_ReadCDF_GetVarType(cdfID, varname)
+	
+	;Get a variable object
+	theVar = MrVar_ReadCDF_GetVar( varname, vartype, $
+	                               NO_CLOBBER = no_clobber, $
+	                               SUFFIX     = suffix )
+	
+	;Read attributes
+	MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+	
+	;Create IDL graphics keywords attributes
+	MrVar_ReadCDF_VarAttr2GfxKwd, varname
+	
+	;Read data
+	data = MrVar_ReadCDF_GetData(cdfID, varname)
+
+;-----------------------------------------------------
+; Add Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
 
 	;Save the CDF datatype as well
 	varinq = cdf_varinq(cdfID, varName)
-	var -> SetAttrValue, 'CDF_TYPE', varinq.datatype, /CREATE
+	oVar -> SetAttrValue, 'CDF_TYPE', varinq.datatype, /CREATE
+
+;-----------------------------------------------------
+; Append Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;
+	; Record variance?
+	;   - Append to record-varying dimension (always after the last CDF dimension)
+	;   - ::Append can handle undefined data.
+	; No record variance
+	;   - Overwrite data
+	;   - Let variables with no data remain as-is
+	;
+	
+	;Append
+	if varinq.recvar eq 'VARY' $
+		then data = [theVar['DATA'], data]
+
+	;Set the data
+	case vartype of
+		'MrVariable':   theVar -> SetData, data
+		'MrTimeVar':    theVar -> SetData, data, varinq.datatype, /NO_COPY
+		'MrTimeSeries': theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
+		'MrScalarTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
+		'MrVectorTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
+		'MrMatrixTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
+		else: message, 'Unknown variable type: "' + vartype + '".'
+	endcase
+	
+	return, theVar
 end
 
 
@@ -714,7 +774,6 @@ end
 ;-
 pro MrVar_ReadCDF, files, $
 NO_CLOBBER=no_clobber, $
-STRING=string, $
 SUFFIX=suffix, $
 SUPPORT_DATA=support_data, $
 TRANGE=trange, $
@@ -856,27 +915,11 @@ VERBOSE=verbose
 				cdf_attget_entry, cdfID, 'VAR_TYPE', varinq.name, cdf_type, var_type, tf_exists
 				if tf_exists && var_type ne 'data' then CONTINUE
 			endif
-
-			;Is it a time variable?
-			timevar[cdf_vcount] = max(varinq.datatype eq ['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'])
-
-			;Read the variable data
-			;   - TODO: Use VarInq.DataType to set the IS_EPOCH keyword.
-			;           Epoch variables are being read as scalars.
-			MrVar_ReadCDF_GetData, cdfID, varinq.name, $
-			                       REC_INTERVAL = rec_interval, $
-			                       NO_CLOBBER   = no_clobber, $
-			                       OFFSET       = offset, $
-			                       COUNT        = count, $
-			                       INTERVAL     = interval, $
-			                       STRING       = string, $
-			                       VARINQ       = data_inq
 			
-			;Get the variable attributes
-			MrVar_ReadCDF_GetVarAttrs, cdfID, varinq.name
-			
-			;Create IDL graphics keywords attributes
-			MrVar_ReadCDF_VarAttr2GfxKwd, varinq.name
+			;Read data and attributes
+			!Null = MrVar_ReadCDF_ReadVar( cdfID, varinq.name, $
+			                               NO_CLOBBER = no_clobber, $
+			                               SUFFIX     = suffix )
 		endfor
 		
 		;Close the data file

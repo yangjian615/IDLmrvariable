@@ -229,7 +229,7 @@ function MrTimeVar::iso2julday, iso
 	              fix(strmid(iso,  0, 4)), $      ;year
 	              fix(strmid(iso, 11, 2)), $      ;hour
 	              fix(strmid(iso, 14, 2)), $      ;minute
-	              double(strmid(iso, 17)), $      ;second
+	              double(strmid(iso, 17))  $      ;second
 	            )
 	
 	;Return the array
