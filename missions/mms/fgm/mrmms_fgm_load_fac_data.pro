@@ -211,7 +211,7 @@ VARNAMES=varnames
 			;EDP does not make a srvy product; slow and fast are kept separate.
 			if mode eq 'srvy' then MrPrintF, 'LogWarn', 'TODO: Combine slow and fast survey data.'
 			edp_mode = 'fast'
-			
+
 			;Load the data
 			MrMMS_Load_Data, sc, 'edp', edp_mode, level, $
 			                 OPTDESC   = 'dce', $
@@ -260,8 +260,10 @@ VARNAMES=varnames
 	;Specific time cadence desired
 	if n_elements(var) gt 0 then begin
 		;Get the variable and its time tags
-		oVar     = MrVar_Get(var)
-		depend_0 = oVar['DEPEND_0']
+		oVar = MrVar_Get(var)
+		if obj_isa(oVar, 'MrTimeVar') $
+			then depend_0 = oVar $
+			else depend_0 = oVar['DEPEND_0']
 
 		;Interpolate magnetic field
 		oB_fac = oB -> Interpol(oVar)
