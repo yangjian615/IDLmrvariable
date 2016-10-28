@@ -1170,13 +1170,15 @@ SPLINE=spline
 	if IsA(Xout, 'MrVariable') then begin
 		;Get the time variables
 		oT    = self.oTime
-		oTout = MrVar_Get(Xout['DEPEND_0'])
+		if obj_isa(Xout, 'MrTimeVar') $
+			then oTout = Xout $
+			else oTout = MrVar_Get(Xout['DEPEND_0'])
 		
 		;Reference time
 		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
 		if iMin eq 0 $
-			then t_ref = oT[0] $
-			else t_ref = oTout[0]
+			then t_ref = oT[[0]] $
+			else t_ref = oTout[[0]]
 		
 		;Convert to seconds since midnight
 		t     = oT    -> GetData('SSM', t_ref)
@@ -1251,7 +1253,7 @@ end
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
 ;-
-pro MrScalarTS::SetData, x1, x2, $
+pro MrScalarTS::SetData, time, data, $
 DIMENSION=dimension, $
 T_TYPE=t_type, $
 T_NAME=t_name, $
@@ -1264,7 +1266,7 @@ NO_COPY=no_copy
 	pDAta = self.data
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, x1, x2, $
+	self -> MrTimeSeries::SetData, time, data, $
 	                               DIMENSION = dimension, $
 	                               T_TYPE    = t_type, $
 	                               T_NAME    = t_name, $

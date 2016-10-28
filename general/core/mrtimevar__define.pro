@@ -261,7 +261,8 @@ function MrTimeVar::iso2ssm, iso, ref_date
 		then message, 'Input time is not a recognized ISO format.'
 	
 	;Reference date
-	if n_elements(ref_date) eq 0 then ref_date = strmid(iso[0], 0, 10)
+	;   - Make sure it is scalar
+	t_ref = n_elements(ref_date) eq 0 ? strmid(iso[0], 0, 10) : ref_date[0]
 
 	;This is ~100x faster than MrTimeParser
 	;   - Requires implicit array to be ISO time
@@ -277,9 +278,9 @@ function MrTimeVar::iso2ssm, iso, ref_date
 	t_ssm = hour*3600D + mnt*60D + sec + dec
 	
 	;Add number of days since the reference date
-	yr0    = fix(strmid(ref_date, 0, 4))
-	mo0    = fix(strmid(ref_date, 5, 2))
-	day0   = fix(strmid(ref_date, 8, 2))
+	yr0    = fix(strmid(t_ref, 0, 4))
+	mo0    = fix(strmid(t_ref, 5, 2))
+	day0   = fix(strmid(t_ref, 8, 2))
 	nDays  = julday(mo, day, yr) - julday(mo0, day0, yr0)
 	t_ssm += nDays*86400D
 	
@@ -578,7 +579,7 @@ function MrTimeVar::TT2000toISO, tt2000
 	      string(milli, FORMAT='(i03)') + $
 	      string(micro, FORMAT='(i03)') + $
 	      string(nano,  FORMAT='(i03)') + 'Z'
-	
+
 	;Return the array
 	return, iso
 end
@@ -759,6 +760,42 @@ TOKEN_FMT=token_fmt
 	
 	;Return the array
 	return, time
+end
+
+
+;+
+;   Get the median sampling interval of the implicit array.
+;
+; :Params:
+;       TYPE:           in, optional, type=string, default='SSM'
+;                       Specify the units in which the sampling interval is computed::
+;                           'CDF_EPOCH'       - CDF Epoch values (milliseconds)
+;                           'CDF_EPOCH16'     - CDF Epoch16 values (picoseconds)
+;                           'CDF_EPOCH_LONG'  - CDF Epoch16 values (picoseconds)
+;                           'CDF_TIME_TT2000' - CDF TT2000 values (nanoseconds)
+;                           'TT2000'          - CDF TT2000 values (nanoseconds)
+;                           'JULDAY'          - Julian date
+;                           'ISO-8601'        - ISO-8601 formatted string
+;                           'SSM'             - Seconds since midnight
+;                           'CUSTOM'          - Custom time string format
+;
+; :Returns:
+;       SI:             out, required, type=number
+;                       Median sampling interval. Units are those implied by `TYPE`.
+;-
+function MrTimeVar::GetSI, type
+	compile_opt idl2
+	on_error, 2
+	
+	;Default units
+	if n_elements(type) eq 0 then type = 'SSM'
+	
+	;Compute sampling interval
+	t  = self -> GetData(type)
+	si = median(t[1:*] - t)
+	
+	;Return the array
+	return, si
 end
 
 

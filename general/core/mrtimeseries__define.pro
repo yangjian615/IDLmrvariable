@@ -172,9 +172,11 @@ pro MrTimeSeries::CLEANUP
 	compile_opt idl2
 	on_error, 2
 	
-	;If the time variable is not cached, release it
-	if obj_valid(self.oTime) && ~MrVar_IsCached(self.oTime)$
-		then obj_destroy, self.oTime
+	;
+	; Do not destroy the time object.
+	;   - It may be used by another MrVariable object
+	;   - Automatic garbage collection will destroy it when not used
+	;
 	
 	;Superclass
 	self -> MrVariable::Cleanup
@@ -256,13 +258,13 @@ function MrTimeSeries::_OverloadAsterisk, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Multiply(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Multiply(' + dims + ',' + self.name + ')'
@@ -290,6 +292,7 @@ end
 ;       pData     = oTSvar['PTR']
 ;       isoTime   = oTSvar['TIME']
 ;       time      = oTSvar['TIME', T_TYPE]
+;       oTime     = oTSvar['TIMEVAR']
 ;       attrValue = oTSvar[AttrName]
 ;       data      = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
 ;
@@ -334,6 +337,7 @@ function MrTimeSeries::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, 
 		case strupcase(i1) of
 			'DATA':    return, *self.data
 			'TIME':    return,  self.oTime -> GetData(i2)
+			'TIMEVAR': return,  self.oTime
 			'POINTER': return,  self.data
 			'PTR':     return,  self.data
 			else:      return,  self -> GetAttrValue(i1)
@@ -519,13 +523,13 @@ function MrTimeSeries::_OverloadCaret, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Caret(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Caret(' + dims + ',' + self.name + ')'
@@ -667,13 +671,13 @@ function MrTimeSeries::_OverloadMinus, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Minus(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Minus(' + dims + ',' + self.name + ')'
@@ -768,13 +772,13 @@ function MrTimeSeries::_OverloadMOD, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Mod(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Mod(' + dims + ',' + self.name + ')'
@@ -870,13 +874,13 @@ function MrTimeSeries::_OverloadPlus, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Plus(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Plus(' + dims + ',' + self.name + ')'
@@ -972,13 +976,13 @@ function MrTimeSeries::_OverloadPound, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Pound(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Pound(' + dims + ',' + self.name + ')'
@@ -1074,13 +1078,13 @@ function MrTimeSeries::_OverloadPoundPound, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'PoundPound(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'PoundPound(' + dims + ',' + self.name + ')'
@@ -1176,13 +1180,13 @@ function MrTimeSeries::_OverloadSlash, left, right
 		;Determine name
 		;   - Scalar or TYPE[dims]
 		if side eq 'LEFT' then begin
-			if nPtsR eq 1 $
+			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Divide(' + self.name + ',' + dims + ')'
 		
 		endif else begin
-			if nPtsL eq 1 $
+			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Divide(' + dims + ',' + self.name + ')'
@@ -1276,48 +1280,6 @@ NO_COPY=no_copy
 				else *self.data = [ *self.data, data ]
 		endelse
 	endelse
-end
-
-
-;+
-;   Cache the variable for later use
-;
-; :Keywords:
-;       NO_CLOBBER:     in, optional, type=boolean, default=0
-;                       If set, and if the variable's name clashes with that of another
-;                           variable, the input variable will be renamed by appending
-;                           "_#" to its name, where # represents an integer. The default
-;                           is to replace the object already in the container.
-;       NAME_OUT:       out, optional, type=string
-;                       If `NO_CLOBBER` is set, then this is the new name of `VARIABLE`
-;                           after it is renamed. If `VARIABLE` is not renamed, the
-;                           original name is returned.
-;-
-pro MrTimeSeries::Cache, $
-NO_CLOBBER=no_clobber, $
-NAME_OUT=name_out
-	compile_opt idl2
-	on_error, 2
-
-	;Setup caching store
-	@mrvar_common
-	
-	;Create a cache in which to store MrVariables
-	if ~obj_valid(MrVarCache) then MrVarCache = MrVariable_Cache()
-
-;-------------------------------------------------------
-; Cache Time ///////////////////////////////////////////
-;-------------------------------------------------------
-	if ~MrVarCache -> IsContained(self.oTime) then begin
-		MrVarCache -> Add, self.oTime, CLOBBER=no_clobber, NAME_OUT=tname_out
-		self       -> SetAttrValue, 'DEPEND_0', tname_out
-	endif
-
-;-------------------------------------------------------
-; Cache Variable ///////////////////////////////////////
-;-------------------------------------------------------
-	;Add the array to the end of the container
-	MrVarCache -> Add, self, NO_CLOBBER=no_clobber, NAME_OUT=name_out
 end
 
 
@@ -1539,13 +1501,15 @@ SPLINE=spline
 	if IsA(Xout, 'MrVariable') then begin
 		;Get the time variables
 		oT    = self.oTime
-		oTout = MrVar_Get(Xout['DEPEND_0'])
+		if obj_isa(Xout, 'MrTimeVar') $
+			then oTout = Xout $
+			else oTout = MrVar_Get(Xout['DEPEND_0'])
 		
 		;Reference time
 		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
 		if iMin eq 0 $
-			then t_ref = oT[0] $
-			else t_ref = oTout[0]
+			then t_ref = oT[[0]] $
+			else t_ref = oTout[[0]]
 		
 		;Convert to seconds since midnight
 		t     = oT    -> GetData('SSM', t_ref)
@@ -1772,9 +1736,9 @@ NO_COPY=no_copy
 		;Object
 		if size(time, /TNAME) eq 'OBJREF' then begin
 			;MrTimeVar
-			if ~obj_isa(time, 'MrTimeVar') $
+			if obj_isa(time, 'MrTimeVar') $
 				then oTime = time $
-				else message, 'X1 must be a MrTimeSeries object.' 
+				else message, 'X1 must be a MrTimeVar object.' 
 	
 		;Name
 		endif else if size(time, /TNAME) eq 'STRING' then begin
@@ -1800,7 +1764,7 @@ NO_COPY=no_copy
 	;Object
 	if size(ts_var, /TNAME) eq 'OBJREF' then begin
 		;MrVariable
-		if obj_class(ts_var) eq 'MrVariable' $
+		if obj_isa(ts_var, 'MrVariable') $
 			then data = ts_var -> GetData() $
 			else message, 'Only "MrVariable" objects can be given.'
 	
@@ -1871,6 +1835,10 @@ NO_COPY=no_copy
 	;              if [dimension check fails] then self.data = pData
 	self.oTime = oTime
 	self.data  = ptr_new(data, /NO_COPY)
+	
+	;Copy attributes
+	if isa(ts_var, 'MrVariable') $
+		then ts_var -> CopyAttrTo, self
 	
 	;Set the DEPEND_0 attribute
 	self -> SetAttrValue, 'DEPEND_0', self.oTime.name, /CREATE

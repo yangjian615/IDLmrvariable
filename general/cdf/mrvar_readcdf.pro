@@ -269,7 +269,7 @@ SUFFIX=suffix
 ; Get Existing Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	if tf_has then begin
-		var = MrVar_Get(cache_vnames[imax])
+		oVar = MrVar_Get(cache_vnames[imax])
 
 ;-----------------------------------------------------
 ; Create New Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -396,7 +396,7 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 				oVar -> SetAttrValue, attrName, oAttr['DATA'], /CREATE
 				MrVar_ReadCDF_Clobber, attrValue
 			
-			;Add DEPEND_0 to the variable attributes
+			;Add DEPEND_[0-3] to the variable attributes
 			endif else begin
 				oVar -> SetAttrValue, attrName, oAttr.name, /CREATE
 			endelse
@@ -440,10 +440,13 @@ function MrVar_ReadCDF_GetVarType, cdfID, varname
 	
 	;Is there a DEPEND_0 attribute?
 	cdf_attget_entry, cdfID, 'DEPEND_0', varname, attr_type, dep0_vname, tf_exists
-	if tf_exists eq 0 && MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], attr_type) $
-		then tf_timeseries = 1B $
-		else tf_timeseries = 0B
-	
+	if tf_exists then begin
+		dep0_inq      = cdf_varinq(cdfID, dep0_vname)
+		tf_timeseries = MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], dep0_inq.datatype)
+	endif else begin
+		tf_timeseries = 0B
+	endelse
+
 	;Scalar or time
 	if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
 		;Is the variable an epoch datatype?
@@ -466,7 +469,7 @@ function MrVar_ReadCDF_GetVarType, cdfID, varname
 	endif else begin
 		vartype = tf_timeseries ? 'MrTimeSeries' : 'MrVariable'
 	endelse
-	
+
 	return, vartype
 end
 
@@ -522,7 +525,7 @@ SUFFIX=suffix
 	MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
 	
 	;Create IDL graphics keywords attributes
-	MrVar_ReadCDF_VarAttr2GfxKwd, varname
+	MrVar_ReadCDF_VarAttr2GfxKwd, theVar
 	
 	;Read data
 	data = MrVar_ReadCDF_GetData(cdfID, varname)
@@ -533,7 +536,7 @@ SUFFIX=suffix
 
 	;Save the CDF datatype as well
 	varinq = cdf_varinq(cdfID, varName)
-	oVar -> SetAttrValue, 'CDF_TYPE', varinq.datatype, /CREATE
+	theVar -> SetAttrValue, 'CDF_TYPE', varinq.datatype, /CREATE
 
 ;-----------------------------------------------------
 ; Append Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -548,17 +551,35 @@ SUFFIX=suffix
 	;
 	
 	;Append
-	if varinq.recvar eq 'VARY' $
-		then data = [theVar['DATA'], data]
-
+	if varinq.recvar eq 'VARY' then begin
+		;Data is read with dimensions of
+		;   - [DEPEND_1, DEPEND_2, DEPEND_3, NRECS=DEPEND_0]
+		;Transpose so that time is first:
+		;   - [NRECS=DEPEND_0, DEPEND_1, DEPEND_2, DEPEND_3]
+		ndims = size(data, /N_DIMENSIONS)
+		if ndims gt 1 then data = transpose(data, [nDims-1, bindgen(nDims-1)] )
+		
+		;Get the time object
+		if obj_isa(theVar, 'MrTimeSeries') then begin
+			if n_elements(theVar) eq 0 $
+				then oTime = MrVar_Get(theVar['DEPEND_0']) $
+				else oTime = theVar['TIMEVAR']
+		endif
+		
+		;Append data
+		if vartype eq 'MrTimeVar' $
+			then data = [theVar['DATA'], theVar -> toISO(data, varinq.datatype)] $
+			else data = [theVar['DATA'], data]
+	endif
+	
 	;Set the data
 	case vartype of
 		'MrVariable':   theVar -> SetData, data
-		'MrTimeVar':    theVar -> SetData, data, varinq.datatype, /NO_COPY
-		'MrTimeSeries': theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
-		'MrScalarTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
-		'MrVectorTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
-		'MrMatrixTS':   theVar -> SetData, theVar['DEPEND_0'], data, /NO_COPY
+		'MrTimeVar':    theVar -> SetData, data, /NO_COPY
+		'MrTimeSeries': theVar -> SetData, oTime, data, /NO_COPY
+		'MrScalarTS':   theVar -> SetData, oTime, data, /NO_COPY
+		'MrVectorTS':   theVar -> SetData, oTime, data, /NO_COPY
+		'MrMatrixTS':   theVar -> SetData, oTime, data, /NO_COPY
 		else: message, 'Unknown variable type: "' + vartype + '".'
 	endcase
 	
@@ -570,71 +591,66 @@ end
 ;    Helper function for MrCDF_nRead. Read and append data.
 ;
 ; :Params:
-;       CDFID:              in, required, type=string/long
-;                           CDF identifier of the CDF file being read.
-;       VARNAME:            in, required, type=string/object
-;                           Name of the variable whose data will be read.
+;       OVAR:               in, required, type=MrVariable objref
+;                           Variable for which the graphics keywords are set.
 ;-
-pro MrVar_ReadCDF_VarAttr2GfxKwd, varname
+pro MrVar_ReadCDF_VarAttr2GfxKwd, oVar
 	compile_opt idl2
 	on_error, 2
 
-	;Get the variable
-	var  = MrVar_ReadCDF_GetVar(varname)
-	
 	;PLOT_TITLE
-	if ~var -> HasAttr('PLOT_TITLE') then begin
+	if ~oVar -> HasAttr('PLOT_TITLE') then begin
 		case 1 of
-			var -> HasAttr('FIELDNAM'): var -> AddAttr, 'PLOT_TITLE', var['FIELDNAM']
-			var -> HasAttr('CATDESC'):  var -> AddAttr, 'PLOT_TITLE', var['CATDESC']
+			oVar -> HasAttr('FIELDNAM'): oVar -> AddAttr, 'PLOT_TITLE', oVar['FIELDNAM']
+			oVar -> HasAttr('CATDESC'):  oVar -> AddAttr, 'PLOT_TITLE', oVar['CATDESC']
 			else: ;Do nothing
 		endcase
 	endif
 
 	;TITLE (Axis)
-	if ~var -> HasAttr('TITLE') then begin
+	if ~oVar -> HasAttr('TITLE') then begin
 		case 1 of
-			var -> HasAttr('LABLAXIS'): title = var['LABLAXIS']
-			var -> HasAttr('FIELDNAM'): title = var['FIELDNAM']
+			oVar -> HasAttr('LABLAXIS'): title = oVar['LABLAXIS']
+			oVar -> HasAttr('FIELDNAM'): title = oVar['FIELDNAM']
 			else: ;Do nothing
 		endcase
-		if var -> HasAttr('UNITS') then title = (title eq '') ? var['UNITS'] : title + '!C' + var['UNITS']
-		var -> AddAttr, 'TITLE', temporary(title)
+		if oVar -> HasAttr('UNITS') then title = (title eq '') ? oVar['UNITS'] : title + '!C' + oVar['UNITS']
+		oVar -> AddAttr, 'TITLE', temporary(title)
 	endif
 	
 	;LABEL (Legend)
-	if ~var -> HasAttr('LABEL') then begin
-		if var -> HasAttr('LABL_PTR_1') then var -> AddAttr, 'LABEL', var['LABL_PTR_1']
+	if ~oVar -> HasAttr('LABEL') then begin
+		if oVar -> HasAttr('LABL_PTR_1') then oVar -> AddAttr, 'LABEL', oVar['LABL_PTR_1']
 	endif
 	
 	;MIN_VALUE
-	if ~var -> HasAttr('MIN_VALUE') then begin
-		if var -> HasAttr('VALIDMIN')   then var -> AddAttr, 'MIN_VALUE', var['VALIDMIN']
+	if ~oVar -> HasAttr('MIN_VALUE') then begin
+		if oVar -> HasAttr('VALIDMIN')   then oVar -> AddAttr, 'MIN_VALUE', oVar['VALIDMIN']
 	endif
 	
 	;MAX_VALUE
-	if ~var -> HasAttr('MAX_VALUE') then begin
-		if var -> HasAttr('VALIDMAX')   then var -> AddAttr, 'MAX_VALUE', var['VALIDMAX']
+	if ~oVar -> HasAttr('MAX_VALUE') then begin
+		if oVar -> HasAttr('VALIDMAX')   then oVar -> AddAttr, 'MAX_VALUE', oVar['VALIDMAX']
 	endif
 	
 	;AXIS_RANGE
-	if ~var -> HasAttr('AXIS_RANGE') then begin
-		if var -> HasAttr('SCALEMIN') && var -> HasAttr('SCALEMIN') $
-			then VAR -> AddAttr, 'AXIS_RANGE', [var['SCALEMIN'], var['SCALEMAX']]
+	if ~oVar -> HasAttr('AXIS_RANGE') then begin
+		if oVar -> HasAttr('SCALEMIN') && oVar -> HasAttr('SCALEMIN') $
+			then oVar -> AddAttr, 'AXIS_RANGE', [oVar['SCALEMIN'], oVar['SCALEMAX']]
 	endif
 	
 	;DIMENSION
-	if obj_isa(var, 'MrVectorTS') then begin
-		var -> AddAttr, 'DIMENSION', 1
-		var -> AddAttr, 'COLOR', ['Blue', 'Forest Green', 'Red']
+	if obj_isa(oVar, 'MrVectorTS') then begin
+		oVar -> AddAttr, 'DIMENSION', 1
+		oVar -> AddAttr, 'COLOR', ['Blue', 'Forest Green', 'Red']
 	endif
 
 	;SCALETYP
 	;   - 'log' or 'linear'
-	if ~var -> HasAttr('LOG') then begin
-		if var -> HasAttr('SCALETYP') then begin
-			tf_log = var['SCALETYP'] eq 'log' ? 1 : 0
-			var -> AddAttr, 'LOG', tf_log
+	if ~oVar -> HasAttr('LOG') then begin
+		if oVar -> HasAttr('SCALETYP') then begin
+			tf_log = oVar['SCALETYP'] eq 'log' ? 1 : 0
+			oVar -> AddAttr, 'LOG', tf_log
 		endif
 	endif
 end
@@ -665,7 +681,7 @@ pro MrVar_ReadCDF_TLimit, trange
 	dep0_names = strarr(cdf_vcount)
 
 ;-----------------------------------------------------
-; Data Variables First \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Pick out the Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Find epoch variables
 	nDep0       = 0
@@ -677,9 +693,15 @@ pro MrVar_ReadCDF_TLimit, trange
 			nDep0              += 1
 		endif
 	endfor
-	
-	;Step over each epoch variable
+
+;-----------------------------------------------------
+; Loop Over Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
 	for i = 0, nDep0 - 1 do begin
+
+	;-----------------------------------------------------
+	; Set Epoch Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
 		;Get the variable
 		epochVar = MrVar_Get(epoch_names[i])
 		
@@ -696,8 +718,13 @@ pro MrVar_ReadCDF_TLimit, trange
 		;Get the index range
 		idx = where(MrCDF_Epoch_Compare(temporary(time), range[0], range[1]), nKeep)
 		if nKeep eq 0 then message, 'No data found in time interval for variable "' + epochVar.name + '".'
-		
-		;Step over each variable
+
+		;Trim the time data
+		epochVar -> SetData, epochVar[idx]
+
+	;-----------------------------------------------------
+	; Set Data Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
 		for j = 0, cdf_vcount - 1 do begin
 			;Get the variable
 			;   - Skip if the variable does not have an DEPEND_0 attribute
@@ -705,15 +732,24 @@ pro MrVar_ReadCDF_TLimit, trange
 			theVar = MrVar_Get(cache_vnames[j])
 			if ~theVar -> HasAttr('DEPEND_0')      then continue
 			if theVar['DEPEND_0'] ne epochVar.name then continue
-
 			;Trim the variable data
 			case 1 of
-				obj_isa(theVar, 'MrScalarTS'): theVar -> SetData, theVar[idx]
-				obj_isa(theVar, 'MrVectorTS'): theVar -> SetData, theVar[idx,*]
-				obj_isa(theVar, 'MrTensorTS'): theVar -> SetData, theVar[idx,*,*]
-				theVar -> HasAttr('DEPEND_3'): theVar -> SetData, theVar[*,*,*,idx]
-				theVar -> HasAttr('DEPEND_2'): theVar -> SetData, theVar[*,*,idx]
-				theVar -> HasAttr('DEPEND_1'): theVar -> SetData, theVar[*,idx]
+				obj_isa(theVar, 'MrTimeSeries'): begin
+					case theVar.n_dimensions of
+						1: theVar -> SetData, epochVar, theVar[idx]
+						2: theVar -> SetData, epochVar, theVar[idx,*]
+						3: theVar -> SetData, epochVar, theVar[idx,*,*]
+						4: theVar -> SetData, epochVar, theVar[idx,*,*,*]
+						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
+					endcase
+				endcase
+				obj_isa(theVar, 'MrScalarTS'):   theVar -> SetData, epochVar, theVar[idx]
+				obj_isa(theVar, 'MrVectorTS'):   theVar -> SetData, epochVar, theVar[idx,*]
+				obj_isa(theVar, 'MrMatrixTS'):   theVar -> SetData, epochVar, theVar[idx,*,*]
+				theVar -> HasAttr('DEPEND_3'):   theVar -> SetData, theVar[idx,*,*,*]
+				theVar -> HasAttr('DEPEND_2'):   theVar -> SetData, theVar[idx,*,*]
+				theVar -> HasAttr('DEPEND_1'):   theVar -> SetData, theVar[idx,*]
+				theVar -> HasAttr('DEPEND_0'):   theVar -> SetData, theVar[idx]
 				else: begin
 					case theVar.n_dimensions of
 						1: theVar -> SetData, theVar[idx]
@@ -725,9 +761,6 @@ pro MrVar_ReadCDF_TLimit, trange
 				endcase
 			endcase
 		endfor
-		
-		;Trim the time data
-		epochVar -> SetData, epochVar[idx]
 	endfor
 end
 

@@ -70,6 +70,8 @@
 ;   Modification History::
 ;       2014/05/09  -   Written by Matthew Argall
 ;       2016/10/24  -   Added the InnerProduct and OuterProduct methods. - MRA
+;       2016/10/28  -   DEPEND_[0-3] and DELTA_(MINUS|PLUS)_VAR attributes can
+;                           have MrVariable objects as values. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -2216,7 +2218,7 @@ end
 ;                       If set, attributes that already exist will be over-written. The
 ;                           default is to issue a warning.
 ;-
-pro MrVariable::AddAttr, attrName, attrValue, $
+pro MrVariable::AddAttr_old, attrName, attrValue, $
 OVERWRITE=overwrite
 	compile_opt idl2
 	on_error, 2
@@ -2373,6 +2375,40 @@ OVERWRITE=overwrite
 	
 		message, 'Invalid datatype (' + size(attrName, /TNAME) + ')for ATTRNAME.'
 	endelse
+end
+
+
+
+
+;+
+;   Set attribute values.
+;
+; :Params:
+;       ATTRNAME:       in, required, type=string/hash/struct
+;                       The name of the attribute for which the value is to be changed,
+;                           or a hash or structure whos keys/tags are the attribute names.
+;                           If a hash, keys must be strings. Values cannot be complex
+;                           datatypes.
+;       ATTRVALUE:      in, optional, type=any
+;                       The value of the attribute(s) to be added. ATTRVALUE must be
+;
+; :Keyword:
+;       OVERWRITE:      in, optional, type=boolean, default=0
+;                       If set, attributes that already exist will be over-written. The
+;                           default is to issue a warning.
+;-
+pro MrVariable::AddAttr, attrName, attrValue, $
+OVERWRITE=overwrite
+	compile_opt idl2
+	on_error, 2
+	
+	;Default to not overwriting
+	tf_overwrite = keyword_set(overwrite)
+	
+	;Create the attribute in addition to setting its value
+	self -> SetAttrValue, attrName, attrValue, $
+	                      /CREATE, $
+	                      OVERWRITE=tf_overwrite
 end
 
 
@@ -3159,7 +3195,6 @@ end
 ;                           Type-code of `ARRAY`.
 ;-
 pro MrVariable::GetProperty, $
-DATA=data, $
 DIMENSIONS=dimensions, $
 N_DIMENSIONS=n_dimensions, $
 N_ELEMENTS=n_elements, $
@@ -3216,7 +3251,13 @@ end
 ;-
 pro MrVariable::Help
 	compile_opt idl2
-	on_error, 2
+	
+	catch, the_error
+	if the_error ne 0 then begin
+		catch, /CANCEL
+		MrPrintF, 'LogErr'
+		return
+	endif
 
 	;Get general help
 	help, self, OUTPUT=help_txt
@@ -3247,9 +3288,21 @@ pro MrVariable::Help
 		;   - Show maximum of 10 values
 		;   - Added benefit of creating row vector for strjoin
 		;   - Add ellipsis if there are more than 10 values
+		tname   = size(value, /TNAME)
 		nValues = n_elements(value)
-		if nValues eq 1 then begin
+		
+		;OBJECT
+		;   - SetAttributeValue allows only MrVariable objects.
+		if tname eq 'OBJREF' then begin
+			dims = value.dimensions
+			dims = 'Dims=[' + strjoin( strtrim(dims, 2), ',' ) + ']'
+			str_value = dims + ' ' + value.name + ' <' + obj_class(value) + '>'
+		
+		;SCALAR
+		endif else if nValues eq 1 then begin
 			str_value = strtrim(value, 2)
+		
+		;ARRAY
 		endif else begin
 			nPts = (nValues-1) < 10
 			str_value  = '[' + strjoin(strtrim(value[0:nPts], 2), ',')
@@ -3462,6 +3515,29 @@ SCALAR=scalar
 	if n_elements(type_name) gt 0 $
 		then return, IsA(*self.data, ARRAY=array, NULL=null, NUMBER=number, SCALAR=scalar) $
 		else return, IsA(*self.data, type_name, ARRAY=array, NULL=null, NUMBER=number, SCALAR=scalar)
+end
+
+
+;+
+;   Determine if the given object is identical to the implicit object (i.e. they
+;   reference the same heap variable).
+;
+; :Params:
+;       OVAR:           in, required, type=MrVariable objref
+;                       Test if this variable is the same as the implicit variable.
+;
+; :Returns:
+;       TF_SAME:        out, required, type=boolean
+;                       Returns true if `OVAR` and the implicit variable reference
+;                           the same heap variable. Returns false otherwise.
+;
+;-
+function MrVariable::IsIdentical, oVar
+	compile_opt idl2
+	on_error, 2
+
+	;Return the results.
+	return, obj_valid(self, /GET_HEAP_IDENTIFIER) eq obj_valid(oVar, /GET_HEAP_IDENTIFIER)
 end
 
 
@@ -3937,9 +4013,15 @@ end
 ; :Keyword:
 ;       CREATE:         in, optional, type=boolean, default=0
 ;                       If set, then attributes will be created if they do not exist.
+;       OVERWRITE:      in, optional, type=boolean, default=1
+;                       If set to zero, the attribute value will not be set if `ATTRNAME`
+;                           already exists as an attribute. Set OVERWRITE=0 if you are
+;                           creating new attributes but to not want to accidentally over-
+;                           write an existing attribute.
 ;-
 pro MrVariable::SetAttrValue, attrName, attrValue, $
-CREATE=create
+CREATE=create, $
+OVERWRITE=overwrite
 	compile_opt idl2
 	on_error, 2
 	
@@ -4028,25 +4110,68 @@ end
 ;
 ; :Keyword:
 ;       CREATE:         in, optional, type=boolean, default=0
-;                       If set, then the attribute will be created if it does not
-;                           already exist.
+;                       If set, the attribute will be created if it does not already exist.
+;       OVERWRITE:      in, optional, type=boolean, default=1
+;                       If set to zero, the attribute value will not be set if `ATTRNAME`
+;                           already exists as an attribute.
 ;-
 pro MrVariable::SetAttributeValue, attrName, attrValue, $
-CREATE=create
+CREATE=create, $
+OVERWRITE=overwrite
 	compile_opt idl2
 	on_error, 2
+	
+	tf_create    = keyword_set(create)
+	tf_overwrite = n_elements(overwrite) eq 0 ? 1B : keyword_set(overwrite)
+
+;-------------------------------------------------------
+; Check Attribute Name /////////////////////////////////
+;-------------------------------------------------------
 	
 	;Check inputs
 	if ~IsA(attrName, 'STRING', /SCALAR) $
 		then message, 'ATTRNAME must be a scalar string.'
 	
-	if self -> HasAttr(attrName) eq 0 && ~keyword_set(create) $
-		then message, 'Attribute name does not exist "' + attrName
+	;Keywords
+	tf_has = self -> HasAttr(attrName)
+	if tf_has  && ~tf_overwrite then message, 'Cannot set attribute value. Attr already exists: "' + attrName + '".'
+	if ~tf_has && ~tf_create    then message, 'Cannot set attribute value. Attr does not exist: "' + attrName + '".'
 
+;-------------------------------------------------------
+; Check Attribute Value ////////////////////////////////
+;-------------------------------------------------------
+	
+	;Check if the value is valid
 	if self -> AttrValue_IsValid(attrValue) eq 0 then begin
-		message, string(size(attrValue, /TNAME), attrName, $
-		                FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")')
+		;Attributes that can contain MrVariable objects
+		attrVars = ['DEPEND_0', 'DEPEND_1', 'DEPEND_2', 'DEPEND_3', $
+		            'DELTA_MINUS_VAR', 'DELTA_PLUS_VAR']
+
+		;Exceptions
+		if MrIsMember(attrVars, attrName) then begin
+			
+			;Allow objects, but only if they are of class MrVariable
+			if size(attrValue, /TNAME) eq 'OBJREF' then begin
+				if ~obj_isa(attrValue, 'MrVariable') $
+					then message, string( obj_class(attrValue), attrName, $
+					              FORMAT='(%"Invalid object class (%s) for attribute %s. Must be MrVariable.')
+			
+			;Other datatypes not allowed
+			endif else begin
+				message, string(size(attrValue, /TNAME), attrName, $
+				                FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")')
+			endelse
+		
+		;Otherwise, throw an error
+		endif else begin
+			message, string(size(attrValue, /TNAME), attrName, $
+			                FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")')
+		endelse
 	endif
+
+;-------------------------------------------------------
+; Set Attribute Value //////////////////////////////////
+;-------------------------------------------------------
 	
 	;Set attribute value
 	;   - Will simultaneously create the attribute

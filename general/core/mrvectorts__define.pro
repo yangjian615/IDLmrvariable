@@ -1365,13 +1365,15 @@ SPLINE=spline
 	if IsA(Xout, 'MrVariable') then begin
 		;Get the time variables
 		oT    = self.oTime
-		oTout = MrVar_Get(Xout['DEPEND_0'])
+		if obj_isa(Xout, 'MrTimeVar') $
+			then oTout = Xout $
+			else oTout = MrVar_Get(Xout['DEPEND_0'])
 		
 		;Reference time
 		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
 		if iMin eq 0 $
-			then t_ref = oT[0] $
-			else t_ref = oTout[0]
+			then t_ref = oT[[0]] $
+			else t_ref = oTout[[0]]
 		
 		;Convert to seconds since midnight
 		t     = oT    -> GetData('SSM', t_ref)
@@ -1391,14 +1393,14 @@ SPLINE=spline
 ;-------------------------------------------------------
 	;Allocate memory
 	y_out = make_array( [n_elements(t_out), 3], TYPE=size((*self.data)[0], /TYPE) )
-	
+
 	;Interpolate
-	y_out[0,0] = Interpol( (*self.data)[*,0], temporary(t), temporary(t_out), $
+	y_out[0,0] = Interpol( (*self.data)[*,0], t, t_out, $
 	                       LSQUADRATIC = lsquadratic, $
 	                       NAN         = nan, $
 	                       QUADRATIC   = quadratic, $
 	                       SPLINE      = spline )
-	y_out[0,1] = Interpol( (*self.data)[*,1], temporary(t), temporary(t_out), $
+	y_out[0,1] = Interpol( (*self.data)[*,1], t, t_out, $
 	                       LSQUADRATIC = lsquadratic, $
 	                       NAN         = nan, $
 	                       QUADRATIC   = quadratic, $
@@ -1550,7 +1552,7 @@ T_TYPE=t_type
 	pDAta = self.data
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, x1, x2, $
+	self -> MrTimeSeries::SetData, time, data, $
 	                               DIMENSION = dimension, $
 	                               T_TYPE    = t_type, $
 	                               T_NAME    = t_name, $

@@ -1493,7 +1493,7 @@ T_TYPE=t_type
 	pDAta = self.data
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, x1, x2, $
+	self -> MrTimeSeries::SetData, time, data, $
 	                               DIMENSION = dimension, $
 	                               T_TYPE    = t_type, $
 	                               T_NAME    = t_name, $

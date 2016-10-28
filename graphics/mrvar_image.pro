@@ -103,7 +103,12 @@ _REF_EXTRA=extra
 	endif else if n_elements(x) eq 0 && n_elements(y) eq 0 then begin
 		if ~oZ -> HasAttr('DEPEND_0') then message, 'Z does not have a DEPEND_0 attribute.'
 		if ~oZ -> HasAttr('DEPEND_1') then message, 'Z does not have a DEPEND_1 attribute.'
-		oX = MrVar_Get(oZ['DEPEND_0'])
+		
+		;Time series variable
+		if obj_isa(oZ, 'MrTimeSeries') $
+			then oX = oZ['TIMEVAR'] $
+			else oX = MrVar_Get(oZ['DEPEND_0'])
+		
 		oY = MrVar_Get(oZ['DEPEND_1'])
 	endif else begin
 		message, 'Incorrect number of defined input parameters.'

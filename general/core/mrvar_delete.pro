@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Names
+;       MrVar_Delete
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
