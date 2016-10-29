@@ -295,7 +295,9 @@ end
 ;                       A 1D distribution in time, averaged over energy and azimuth.
 ;-
 function MrDist4D::Spec_Theta, $
+CACHE=cache, $
 E_RANGE=e_range, $
+NAME=name, $
 NTHETA_BINS=nTheta_bins, $
 PHI_RANGE=phi_range
 	compile_opt idl2
@@ -309,6 +311,10 @@ PHI_RANGE=phi_range
 		if n_elements(oThetaBins) gt 0 then obj_destroy, oThetaBins
 		return, !Null
 	endif
+	
+	;Defaults
+	tf_cache = keyword_set(cache)
+	if n_elements(name) eq 0 then name = self.name + '_ThetaSpec'
 
 	;Allocate memory
 	dims      = size(self, /DIMENSIONS)
@@ -338,11 +344,17 @@ PHI_RANGE=phi_range
 		obj_destroy, oDist3D
 	endfor
 	
-	;Return the 2D distribution
-	oThetaSpec = MrTimeSeries( self.oTime, thetaSpec, /NO_COPY )
+	;Theta-time spectrogram
+	oThetaSpec = MrTimeSeries( self.oTime, thetaSpec, $
+	                           CACHE = tf_cache, $
+	                           NAME  = name, $
+	                           /NO_COPY )
+	
+	;Abscissa
+	binName    = name + '_ThetaBins'
 	oThetaBins = size(theta_bins, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, theta_bins, /NO_COPY ) $
-	                 : MrVariable( theta_bins, /NO_COPY )
+	                 ? MrTimeSeries( self.oTime, theta_bins, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( theta_bins, NAME=binName, /NO_COPY )
 	
 	;Theta attributes
 	oThetaBins -> AddAttr, 'UNITS', 'degrees'
@@ -375,7 +387,9 @@ end
 ;                       A 1D distribution in time, averaged over energy and polar angle.
 ;-
 function MrDist4D::Spec_Phi, $
+CACHE=cache, $
 E_RANGE=E_range, $
+NAME=name, $
 NPHI_BINS=nPhi_bins, $
 THETA_RANGE=theta_range
 	compile_opt idl2
@@ -389,6 +403,10 @@ THETA_RANGE=theta_range
 		if n_elements(oPhiBins) gt 0 then obj_destroy, oPhiBins
 		return, !Null
 	endif
+	
+	;Defaults
+	tf_cache = keyword_set(cache)
+	if n_elements(name) eq 0 then name = self.name + '_PhiSpec'
 
 	;Allocate memory
 	dims      = size(self, /DIMENSIONS)
@@ -418,11 +436,17 @@ THETA_RANGE=theta_range
 		obj_destroy, oDist3D
 	endfor
 	
-	;Return the 2D distribution
-	oPhiSpec = MrTimeSeries( self.oTime, phiSpec, /NO_COPY )
+	;Phi-time spectrogram
+	oPhiSpec = MrTimeSeries( self.oTime, phiSpec, $
+	                         CACHE = tf_cache, $
+	                         NAME  = name, $
+	                         /NO_COPY )
+	
+	;Abscissa
+	binName  = name + '_PhiBins'
 	oPhiBins = size(phi_bins, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, phi_bins, /NO_COPY ) $
-	                 : MrVariable( phi_bins, /NO_COPY )
+	                 ? MrTimeSeries( self.oTime, phi_bins, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( phi_bins, NAME=binName, /NO_COPY )
 	
 	;Phi attributes
 	oPhiBins -> AddAttr, 'UNITS', 'degrees'
@@ -455,7 +479,9 @@ end
 ;                       A 1D distribution in time, averaged over polar and azimuth angle.
 ;-
 function MrDist4D::Spec_E, $
+CACHE=cache, $
 PHI_RANGE=phi_range, $
+NAME=name, $
 NE_BINS=nE_bins, $
 THETA_RANGE=theta_range
 	compile_opt idl2
@@ -469,6 +495,10 @@ THETA_RANGE=theta_range
 		if n_elements(oEBins)  gt 0 then obj_destroy, oEBins
 		return, !Null
 	endif
+	
+	;Defaults
+	tf_cache = keyword_set(cache)
+	if n_elements(name) eq 0 then name = self.name + '_ESpec'
 
 	;Allocate memory
 	dims      = size(self, /DIMENSIONS)
@@ -498,11 +528,17 @@ THETA_RANGE=theta_range
 		obj_destroy, oDist3D
 	endfor
 	
-	;Return the 2D distribution
-	oESpec = MrTimeSeries( self.oTime, phiSpec, /NO_COPY )
-	oEBins = size(e_bins, /N_DIMENSIONS) eq 2 $
-	              ? MrTimeSeries( self.oTime, e_bins, /NO_COPY ) $
-	              : MrVariable( e_bins, /NO_COPY )
+	;Energy-time spectrogram
+	oESpec = MrTimeSeries( self.oTime, ESpec, $
+	                           CACHE = tf_cache, $
+	                           NAME  = name, $
+	                           /NO_COPY )
+	
+	;Ordinate
+	binName = name + '_EBins'
+	oEBins  = size(e_bins, /N_DIMENSIONS) eq 2 $
+	               ? MrTimeSeries( self.oTime, e_bins, NAME=binName, /NO_COPY ) $
+	               : MrVariable( e_bins, NAME=binName, /NO_COPY )
 	
 	;Phi attributes
 	oEBins -> AddAttr, 'UNITS', self.oEnergy['UNITS']
