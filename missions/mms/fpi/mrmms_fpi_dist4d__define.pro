@@ -71,10 +71,6 @@
 ; :Keywords:
 ;       CACHE:          in, optional, type=boolean, default=0
 ;                       If set, both `TIME` and `DATA` are added to the variable cache.
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent, 1-based dimension of `DATA`. If not provided,
-;                           the dimension of `DATA` that is equal in size to `TIME` is
-;                           chose as the default.
 ;       NAME:           in, optional, type=integer
 ;                       Name to be given to the variable object.
 ;       NO_CLOBBER:     in, optional, type=boolean, default=0
@@ -85,21 +81,12 @@
 ;                       If set `DATA` will be copied directly into the object
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
 ;-
 function MrMMS_FPI_Dist4D::INIT, sc, mode, species, $
 CACHE=cache, $
-DIMENSION=dimension, $
 NAME=name, $
 NO_CLOBBER=no_clobber, $
-NO_COPY=no_copy, $
-T_NAME=t_name, $
-T_TYPE=t_type
+NO_COPY=no_copy
 	compile_opt idl2
 
 	;Error handling
@@ -111,21 +98,18 @@ T_TYPE=t_type
 	endif
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = 'MrMMS_FPI_Dist4D'
 	particle = species eq 'e' ? species : 'H'
+	if n_elements(name) eq 0 then name = strjoin([sc, 'd' + species + 's', 'dist4d', mode], '_')
 
 
 ;-----------------------------------------------------
 ; Initialize Superclass \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	success = self -> MrDist4D::Init( CACHE      = cache, $
-		                              DIMENSION  = dimension, $
 		                              NAME       = name, $
 		                              NO_CLOBBER = no_clobber, $
 		                              NO_COPY    = no_copy, $
-		                              SPECIES    = particle, $
-		                              T_NAME     = t_name, $
-		                              T_TYPE     = t_type )
+		                              SPECIES    = particle )
 	if ~success then message, 'Unable to initialize superclass.'
 
 ;-----------------------------------------------------

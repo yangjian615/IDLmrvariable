@@ -135,7 +135,7 @@ TRANGE=trange
 	              TSTART      = trange[0], $
 	              TEND        = trange[1]
 	if success eq 0 then return, ''
-stop
+
 	;Attempt to get the data
 	files = !MrMMS -> Get(COUNT=count)
 	
