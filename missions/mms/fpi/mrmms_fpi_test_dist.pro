@@ -64,26 +64,28 @@ NO_LOAD=no_load
 		
 		;Set names and cache
 		theDist  = MrMMS_FPI_Dist4D(sc, mode, species, /CACHE)
-		theDist -> Load_FAC, sc, 'srvy', species
+		theDist -> Load_FAC, sc, 'srvy', 'ExB'
 	endif
 
 ;-------------------------------------------
 ; Load Data ////////////////////////////////
 ;-------------------------------------------
-	;Get data
-	distName   = strjoin([sc, instr, 'dist4d',   'l2', mode], '_')
-	eSpecName  = strjoin([sc, instr, 'espectra', 'l2', mode], '_')
-	paSpecName = strjoin([sc, instr, 'pad',      'l2', mode], '_')
+	;Variable Names
+	distName     = strjoin([sc, instr, 'dist4d',         mode], '_')
+	eSpecName    = strjoin([sc, instr, 'espectra', 'l2', mode], '_')
+	paSpecName   = strjoin([sc, instr, 'pad',      'l2', mode], '_')
+	momPADName   = strjoin([sc, instr, 'pitchangspec',   mode], '_')
+	momESPecName = strjoin([sc, instr, 'energyspectr',   mode], '_')
 stop
-	
+	;Moments have units of energy flux
+	oDist -> ConvertUnits, 'EFlux'
 	
 	;Create the energy and pitch angle spectra
 	oDist    = MrVar_Get(distName)
-	eSpectra = oDist -> ESpec()
-	pad      = oDist -> ThetaSpec()
-stop
+	eSpectra = oDist -> Spec_E(NAME=eSpecName, /CACHE)
+	pad      = oDist -> Spec_Theta(NAME=paSpecName, /CACHE)
 
-
-
-	win -> Refresh
+	;Create the plot
+	win = MrVar_PlotTS( [momESpecName, eSpecName, momPADName, paSpecName] )
+	return, win
 end

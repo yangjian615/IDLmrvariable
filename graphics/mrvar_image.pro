@@ -173,8 +173,7 @@ _REF_EXTRA=extra
 ;-------------------------------------------
 	cb = MrColorbar( NAME        = 'CB: ' + oZ.name, $
 	                 ORIENTATION = 1, $
-	                 TARGET      = im, $
-	                 TITLE       = oX -> GetAttrValue('TITLE', /NULL) )
+	                 TARGET      = im )
 	
 	;Set properties
 	MrVar_SetAxisProperties, cb, oZ, /CAXIS

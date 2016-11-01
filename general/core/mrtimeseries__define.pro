@@ -63,12 +63,20 @@
 ;
 ;           MrTimeSeries [op] MrTimeSeries = MrTimeSeries
 ;           MrTimeSeries [op] MrVariable   = MrVariable
-;           MrTimeSeries [op] Expression   = MrVariable
+;           MrVariable   [op] MrTimeSeries = MrVariable
+;           MrTimeSeries [op] Expression   = MrTimeSeries or MrVariable*
+;           Expression   [op] MrTimeSeries = MrTimeSeries or MrVariable*
+;
+;                                        * MrTimeSeries if expression is
+;                                          scalar or the size of its first
+;                                          dimension matches that of the
+;                                          implicit array. Otherwise,
+;                                          MrVariable.
 ;
 ;   CACHING
-;       The ::Cache method will cache the MrScalarTS object. All variables in the
+;       The ::Cache method will cache the MrTimeSeries object. All variables in the
 ;       cache are forced to have unique names. When the object is destroyed, it
-;       will automatically be removed from the cache.
+;       will be removed automatically from the cache.
 ;
 ; :Categories:
 ;   MrVariable, MrTimeSeries
@@ -220,9 +228,6 @@ function MrTimeSeries::_OverloadAsterisk, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -240,38 +245,54 @@ function MrTimeSeries::_OverloadAsterisk, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(result, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then result = (*self.data) * right $
-			else result = left * (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Multiply(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) * right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Multiply(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left * (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( result, NAME=name, /NO_COPY )
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -485,9 +506,6 @@ function MrTimeSeries::_OverloadCaret, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -505,38 +523,54 @@ function MrTimeSeries::_OverloadCaret, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(result, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then result = (*self.data) ^ right $
-			else result = left ^ (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Caret(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) ^ right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Caret(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left ^ (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( result, NAME=name, /NO_COPY )
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -633,9 +667,6 @@ function MrTimeSeries::_OverloadMinus, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -653,41 +684,54 @@ function MrTimeSeries::_OverloadMinus, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) - right $
-			else temp = left - (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Minus(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) - right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Minus(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left - (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -734,9 +778,6 @@ function MrTimeSeries::_OverloadMOD, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -754,41 +795,54 @@ function MrTimeSeries::_OverloadMOD, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) mod right $
-			else temp = left mod (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Mod(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) mod right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Mod(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left mod (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -836,9 +890,6 @@ function MrTimeSeries::_OverloadPlus, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -856,41 +907,54 @@ function MrTimeSeries::_OverloadPlus, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) + right $
-			else temp = left + (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;SELF is LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Plus(' + self.name + ',' + dims + ')'
-		
+
+			;Operation
+			result = *self.data + right
+			
+		;SELF is RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Plus(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left + *self.data
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -938,9 +1002,6 @@ function MrTimeSeries::_OverloadPound, left, right
 		
 		;Return object
 		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrVariable /////////////////////////
@@ -958,41 +1019,54 @@ function MrTimeSeries::_OverloadPound, left, right
 		
 		;Create a MrVariable object
 		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
 
 ;-------------------------------------------------------
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) # right $
-			else temp = left # (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Pound(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) # right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Pound(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left # (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -1068,33 +1142,49 @@ function MrTimeSeries::_OverloadPoundPound, left, right
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) ## right $
-			else temp = left ## (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'PoundPound(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) ## right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'PoundPound(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left ## (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -1170,33 +1260,49 @@ function MrTimeSeries::_OverloadSlash, left, right
 ; MrScalarTS with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
-		;Multiply the expressions
-		;   - Assume the user knows what they are doing.
-		;   - All IDL truncation effects apply (shortest in determines size out).
-		if side eq 'LEFT' $
-			then temp = (*self.data) / right $
-			else temp = left / (*self.data)
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
 		
-		;Determine name
-		;   - Scalar or TYPE[dims]
+		;LEFT
 		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(right) eq 1 $
 				then dims = strtrim(right[0], 2) $
 				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
 			name = 'Divide(' + self.name + ',' + dims + ')'
-		
+			
+			;Operation
+			result = (*self.data) / right
+			
+		;RIGHT
 		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = 'MrTimeSeries' $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
 			if n_elements(left) eq 1 $
 				then dims = strtrim(left[0], 2) $
 				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
 			name = 'Divide(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left / (*self.data)
 		endelse
 		
 		;Create a MrVariable object
-		result = MrVariable( temp, NAME=name, /NO_COPY )
-		
-		;Copy attributes
-		self -> CopyAttrTo, result
+		if classOut eq 'MrTimeSeries' $
+			then result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY) $
+			else result = obj_new( classOut, result, NAME=name, /NO_COPY )
 	endelse
 
 ;-------------------------------------------------------
@@ -1852,7 +1958,7 @@ end
 
 
 ;+
-;   Transpose the array.
+;   Transpose the array. Attributes are copied to the results.
 ;
 ; :Keywords:
 ;       P:          in, optional, type=intarr
@@ -1874,7 +1980,7 @@ function MrTimeSeries::Transpose, P
 	;   - Time dimension is always first
 	if n_elements(p) eq 0 then begin
 		;Transpose only does something if there are 3+ dimensions
-		nDims = size(self, /DIMENSIONS)
+		nDims = size(self, /N_DIMENSIONS)
 		if nDims gt 2 then begin
 			permute = [0, reverse( indgen( nDims-1 ) + 1 )]
 		
@@ -1901,7 +2007,7 @@ function MrTimeSeries::Transpose, P
 ; Transpose \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Create a time series object
-	result  = self -> Copy(NAME = 'Transpose(' + self.name + ')')
+	result  = self -> Copy('Transpose(' + self.name + ')')
 	result -> SetData, self.oTime, transpose(*self.data, permute)
 	
 	;Return

@@ -35,6 +35,13 @@
 ;+
 ;   Calculate moments and reduced distributions from a 3D distribution function.
 ;
+;   REFERENCES:
+;       [1] CIS Interface Control Document
+;               http://caa.estec.esa.int/documents/ICD/CAA_CIS_ICD_V3.4.2.pdf
+;               http://www.cosmos.esa.int/web/csa/documentation
+;       [2] FPI Dataset
+;               https://lasp.colorado.edu/mms/sdc/public/datasets/fpi/
+;
 ; :Categories:
 ;   MrVariable, MrTimeSeries, MrDist
 ;
@@ -148,8 +155,8 @@ UNITS=units
 ;-----------------------------------------------------
 ; Set Properties \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	self -> SetProperty, MASS    = mass, $
-	                     SPECIES = species
+	self -> SetProperty, MASS       = mass, $
+	                     SPECIES    = species
 
 	return, 1
 end
@@ -189,8 +196,8 @@ end
 ;                           'ENERGY'      - eV
 ;                           'EFLUX'       - eV / cm^2 / s / sr / eV    or    keV / cm^2 / s / sr / keV
 ;                           'DIFF FLUX'   - # / cm^2 / s / sr / keV
-;                           'PSD'         - s^2 / km^6
-;                           'DF'          - s^2 / km^6
+;                           'PSD'         - s^2 / m^6
+;                           'DF'          - s^2 / m^6
 ;       FROM_UNITS:     in, optional, type=string, default='PSD'
 ;                       Name of the units of `FLUX`.
 ;
@@ -204,77 +211,75 @@ end
 ; :Returns:
 ;       NEW_FLUX:       Distribution with new units.
 ;-
-function MrDist4D::ConvertUnits, flux, to_units, from_units, $
-SPECIES = species, $
-ENERGY  = energy
+pro MrDist4D::ConvertUnits, to_units
 	compile_opt idl2
 	on_error, 2
 	
-	to   = strupcase(to_units)
-	from = n_elements(from_units) eq 0 ? 'PSD' : strupcase(from_units)
-
-	;Proton mass, kg
-	m = 1.6726219e-27
-
-	;Mass relative to the proton mass.
-	case species of
-	   'i':   A = 1        ; H+
-	   'H':   A = 1        ; H+
-	   'He':  A = 4        ; He+
-	   'He2': A = 4        ; He++
-	   'O':   A = 16       ; O+
-	   'e':   A = 1./1836  ; e-
-	endcase
+	toUnits = strupcase(to_units)
 
 	;Conversion factor from energy flux to phase space density
 	;   - mass^2 * (sr / eV^2)
-	eflux_to_psd = A^2 * 0.5447 * 1.0e6
+	eflux_to_psd = self.mass^2 * 0.5447e6
+	
+	;Vectorize multiplication
+	dims  = size(*self.data, /DIMENSIONS)
+	if obj_isa(self.oEnergy, 'MrTimeSeries') $
+		then tempE = rebin( reform( self.oEnergy['DATA'], dims[0], 1, 1, dims[3] ), dims ) $
+		else tempE = rebin( reform( self.oEnergy['DATA'],       1, 1, 1, dims[3] ), dims )
 	
 	;Energy Flux
-	if from eq 'EFLUX' then begin
+	if self.units eq 'EFLUX' then begin
 		
 		;Convert to:
-		case to of
+		case toUnits of
 			'DIFF FLUX': new_flux = flux / energy*1e3
-			'PSD':       new_flux = eflux_to_psd * flux / energy^2
-			'DF':        new_flux = eflux_to_psd * flux / energy^2
+			'PSD':       new_flux = eflux_to_psd * flux / temporary(energy)^2
+			'DF':        new_flux = eflux_to_psd * flux / temporary(energy)^2
 			'EFLUX':     new_flux = flux
-			else: message, 'Cannot convert from "' + from + '" to "' + to + '".'
+			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
 		endcase
 	
 	;Differential flux
-	endif else if from eq 'DIFF FLUX' then begin
+	endif else if self.units eq 'DIFF FLUX' then begin
 		eflux = flux * energy * 1e-3
 		
 		;Convert to:
-		case to of
+		case toUnits of
 			'EFLUX':     new_flux = eflux
-			'PSD':       new_flux = eflux_to_psd * eflux / energy^2
-			'DF':        new_flux = eflux_to_psd * eflux / energy^2
+			'PSD':       new_flux = eflux_to_psd * eflux / temporary(energy)^2
+			'DF':        new_flux = eflux_to_psd * eflux / temporary(energy)^2
 			'DIFF FLUX': new_flux = flux
-			else: message, 'Cannot convert from "' + from + '" to "' + to + '".'
+			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
 		endcase
 	
 	;Phase space density
-	endif else if from eq 'PSD' || from eq 'DF' then begin
+	endif else if self.units eq 'PSD' || self.units eq 'DF' then begin
 		eflux = flux * energy * 1.e-3
 		
 		;Convert to:
-		case to of
-			'EFLUX':     new_flux = flux / eflux_to_psd * energy^2
-			'DIFF FLUX': new_flux = flux / eflux_to_psd * energy*1e3
+		case toUnits of
+			'EFLUX':     new_flux = flux / eflux_to_psd * temporary(energy)^2
+			'DIFF FLUX': new_flux = flux / eflux_to_psd * temporary(energy)*1e3
 			'PSD':       new_flux = flux
 			'DF':        new_flux = flux
-			else: message, 'Cannot convert from "' + from + '" to "' + to + '".'
+			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
 		endcase
 	
 	;Invalid
 	endif else begin
-		message, 'Invalid FROM_UNIT: "' + from_unit + '".'
+		message, 'Invalid FROM_UNIT: "' + self.units + '".'
 	endelse
 	
-	;Return results
-	return, new_flux
+	;Set properties
+	self.units = toUnits
+	case toUnits of
+		'EFLUX':     self -> SetAttrValue, 'UNITS', 'keV / cm^2 / s / sr / keV'
+		'ENERGY':    self -> SetAttrValue, 'UNITS', 'eV'
+		'DIFF FLUX': self -> SetAttrValue, 'UNITS', '# / cm^2 / s / sr / keV'
+		'PSD':       self -> SetAttrValue, 'UNITS', 's^2 / km^6'
+		else: message, 'Invalid units: "' + to_units + '".'
+	endcase
+	*self.data = temporary(new_flux)
 end
 
 
@@ -513,7 +518,7 @@ THETA_RANGE=theta_range
 		self -> Grid, 1
 		if n_elements(self.oPar_FAC) gt 0 then self -> Grid_FAC, 1
 	endif
-	
+
 	;Step over each time
 	for i = 0, nTime - 1 do begin
 		oDist3D = self -> GetDist3D(i)
@@ -793,11 +798,10 @@ pro MrDist4D::Grid, orientation
 	if n_elements(orientation) eq 0 then orientation = 1
 	
 	;Create a cartesian grid
-	self -> Grid_MakeCart, oX1, oX2, oX3, /DEGREES
+	self -> Grid_MakeCart, oX1, oX2, oX3
 	
 	;Convert to spherical coordinates
 	self -> Grid_cart2sphere, temporary(oX1), temporary(oX2), temporary(oX3), oX1, oX2, $
-	                          /DEGREES, $
 	                          ORIENTATION = orientation
 
 	;Save object properties

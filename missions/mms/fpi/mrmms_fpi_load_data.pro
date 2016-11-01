@@ -116,16 +116,16 @@ pro MrMMS_FPI_Load_Data_ESpectr, names
 	tempESpectr = MrVar_Get( names[0] )
 	oESpectr    = tempESpectr -> Copy()
 	for i = 1, nESpectr - 1 do begin
-		tempSpectr = MrVar_Get( names[i] )
-		oESpectr  += tempSpectr
+		tempESpectr = MrVar_Get( names[i] )
+		oESpectr   += tempESpectr
 	endfor
 	oESpectr /= nESpectr
 
 	;Save the variable
-	oESpectr    = oESpectr -> Transpose()
-	oESpectr   -> SetName, new_name
-	oESpectr   -> Cache
-	tempSpectr -> CopyAttrTo, oESpectr
+	oESpectr     = oESpectr -> Transpose()
+	oESpectr    -> SetName, new_name
+	oESpectr    -> Cache
+	tempESpectr -> CopyAttrTo, oESpectr
 	
 	;Set Attributes
 	oESPectr -> SetAttrValue, 'CATDESC',    'Omni-directional energy spectrum.'
@@ -233,7 +233,7 @@ pro MrMMS_FPI_Load_Data_PAD, names
 	oPAD    = tempPAD -> Copy()
 	for i = 1, nPad - 1 do begin
 		tempPAD  = MrVar_Get( names[i] )
-		oPAD    += tempPAD[i]
+		oPAD    += tempPAD
 	endfor
 	oPAD /= nPAD
 	

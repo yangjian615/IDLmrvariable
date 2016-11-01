@@ -203,7 +203,7 @@ end
 ;                       The 1D distribution with size nEnergy.
 ;-
 function MrDist3D::ESpec, energy, $
-PHI_RANGE=gyro_range, $
+PHI_RANGE=phi_range, $
 NE_BINS=nE_bins, $
 THETA_RANGE=pa_range
 	compile_opt idl2
@@ -220,12 +220,13 @@ THETA_RANGE=pa_range
 	nEnergy = dims[2]
 
 	;PA range over which to average
-	if n_elements(gyro_range) eq 0 then gyro_range = [0.0, 360.0]
-	if n_elements(pa_range)   eq 0 then pa_range   = [0.0, 180.0]
-	if n_elements(nE_bins)    gt 0 then MrPrintF, 'TODO: Allow NE_BINS to vary.'
+	if n_elements(phi_range)   eq 0 then phi_range   = [0.0, 360.0]
+	if n_elements(theta_range) eq 0 then theta_range = [0.0, 180.0]
+	if n_elements(nE_bins)     gt 0 then MrPrintF, 'LogWarn', 'TODO: Allow NE_BINS to vary.'
 
 	;Use original number of energy bins
-	nE_bins = nEnergy
+	;   - Do not use NE_BINS to prevent cyclic messages there ---^
+	nBins = nEnergy
 
 ;-----------------------------------------------------
 ; Coordinate Space \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -269,7 +270,7 @@ THETA_RANGE=pa_range
 ;-----------------------------------------------------
 	
 	;Allocate memory to reduced 2D distribution
-	dist1D = fltarr(nE_bins)
+	dist1D = fltarr(nBins)
 
 	;Loop over bins
 	k = 0
@@ -289,6 +290,13 @@ THETA_RANGE=pa_range
 ;		dist1D[i] = total( temp[isrc[0,*], isrc[1,*]] * w ) / total(w)
 		dist1D[i] = total( temp[inds] * weight[inds]) / total( weight[inds] )
 	endfor
+
+;-----------------------------------------------------
+; Output Bins \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Create bins
+	energy = *self.energy
 
 	;Return the 1D distribution
 	return, dist1D
@@ -337,7 +345,8 @@ PHI_RANGE=phi_range
 	if n_elements(nE_bins)     gt 0 then MrPrintF, 'logwarn', 'TODO: Allow nE_bins to change.'
 	
 	;Keep the number of energy bins the same.
-	nE_bins = nEnergy
+	;   - Do not use NE_BINS to prevent cyclic messages there ---^
+	nBins = nEnergy
 
 ;-----------------------------------------------------
 ; Coordinate Space \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -641,7 +650,8 @@ THETA_RANGE=theta_range
 	if n_elements(nE_bins)     gt 0 then MrPrintF, 'logwarn', 'TODO: Allow nE_bins to change.'
 	
 	;Keep the number of energy bins the same.
-	nE_bins = nEnergy
+	;   - Do not use NE_BINS to prevent cyclic messages there ---^
+	nBins = nEnergy
 
 ;-----------------------------------------------------
 ; Coordinate Space \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
