@@ -114,37 +114,15 @@
 ;                           must exist in the variable cache. 
 ;
 ; :Keywords:
-;       CACHE:          in, optional, type=boolean, default=0
-;                       If set, both `TIME` and `DATA` are added to the variable cache.
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent, 1-based dimension of `DATA`. If not provided,
-;                           the dimension of `DATA` that is equal in size to `TIME` is
-;                           chose as the default.
 ;       NAME:           in, optional, type=integer
 ;                       Name to be given to the variable object.
-;       NO_CLOBBER:     in, optional, type=boolean, default=0
-;                       If set, do not clobber variables of the same name. Instead,
-;                           rename this variable by appending "_#" to `NAME`, where
-;                           "#" represents a unique number. Ignored unless `CACHE` is set.
-;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
-;                           and will be left undefined (a MrTimeSeries object will not
-;                           be destroyed, but its array will be empty).
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrTimeSeries::Init is accepted here via
+;                           keyword inheritance.
 ;-
 function MrScalarTS::INIT, time, data, $
-CACHE=cache, $
-DIMENSION=dimension, $
 NAME=name, $
-NO_CLOBBER=no_clobber, $
-NO_COPY=no_copy, $
-T_NAME=t_name, $
-T_TYPE=t_type
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	;Error handling
@@ -160,13 +138,8 @@ T_TYPE=t_type
 	
 	;Initialize superclass
 	success = self -> MrTimeSeries::Init( time, data, $
-		                                  CACHE      = cache, $
-		                                  DIMENSION  = dimension, $
-		                                  NAME       = name, $
-		                                  NO_CLOBBER = no_clobber, $
-		                                  NO_COPY    = no_copy, $
-		                                  T_NAME     = t_name, $
-		                                  T_TYPE     = t_type )
+	                                      NAME          = name, $
+	                                      _STRICT_EXTRA = extra )
 	if ~success then message, 'Unable to initialize superclass.'
 
 	return, 1
@@ -230,13 +203,13 @@ function MrScalarTS::_OverloadAsterisk, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data * right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -251,7 +224,7 @@ function MrScalarTS::_OverloadAsterisk, left, right
 ;					temp[*,2] = *self.data * right[*,2]
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -275,13 +248,13 @@ function MrScalarTS::_OverloadAsterisk, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] * *self.data
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -291,7 +264,7 @@ function MrScalarTS::_OverloadAsterisk, left, right
 					temp = left['DATA'] * rebin(*self.data, outDims)
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -308,7 +281,7 @@ function MrScalarTS::_OverloadAsterisk, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -363,13 +336,13 @@ function MrScalarTS::_OverloadCaret, left, right
 	; SELF is on LEFT //////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data ^ right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -379,7 +352,7 @@ function MrScalarTS::_OverloadCaret, left, right
 					temp = rebin(*self.data, outDims) ^ right['DATA']
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -396,13 +369,13 @@ function MrScalarTS::_OverloadCaret, left, right
 	; SELF is on RIGHT /////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] ^ *self.data
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -412,7 +385,7 @@ function MrScalarTS::_OverloadCaret, left, right
 					temp = left['DATA'] ^ rebin(*self.data, outDims)
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -429,7 +402,7 @@ function MrScalarTS::_OverloadCaret, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -522,13 +495,13 @@ function MrScalarTS::_OverloadMinus, left, right
 	; SELF is on LEFT //////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data - right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 				
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -538,7 +511,7 @@ function MrScalarTS::_OverloadMinus, left, right
 					temp = rebin(*self.data, outDims) - right['DATA']
 				endcase
 	
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -555,13 +528,13 @@ function MrScalarTS::_OverloadMinus, left, right
 	; SELF is on RIGHT /////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] - *self.data
 					outClass = 'MrScalarTS'
 				endcase
 				
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -571,7 +544,7 @@ function MrScalarTS::_OverloadMinus, left, right
 					temp = left['DATA'] - rebin(*self.data, outDims)
 				endcase
 	
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -588,7 +561,7 @@ function MrScalarTS::_OverloadMinus, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -643,13 +616,13 @@ function MrScalarTS::_OverloadMOD, left, right
 	; SELF is on the LEFT //////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data mod right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 				
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -659,7 +632,7 @@ function MrScalarTS::_OverloadMOD, left, right
 					temp = rebin(*self.data, outDims) mod right['DATA']
 				endcase
 	
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -676,13 +649,13 @@ function MrScalarTS::_OverloadMOD, left, right
 	; SELF is on the RIGHT //////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] mod *self.data
 					outClass = 'MrScalarTS'
 				endcase
 				
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -692,7 +665,7 @@ function MrScalarTS::_OverloadMOD, left, right
 					temp = left['DATA'] mod rebin(*self.data, outDims)
 				endcase
 	
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -709,7 +682,7 @@ function MrScalarTS::_OverloadMOD, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -764,13 +737,13 @@ function MrScalarTS::_OverloadPlus, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data + right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -780,7 +753,7 @@ function MrScalarTS::_OverloadPlus, left, right
 					temp = rebin(*self.data, outDims) + right['DATA']
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -797,13 +770,13 @@ function MrScalarTS::_OverloadPlus, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] + *self.data
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -813,7 +786,7 @@ function MrScalarTS::_OverloadPlus, left, right
 					temp = left['DATA'] + rebin(*self.data, outDims)
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -830,7 +803,7 @@ function MrScalarTS::_OverloadPlus, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -867,7 +840,7 @@ function MrScalarTS::_OverloadPound, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadSlash(left, right)
+		result = self -> MrTimeSeries::_OverloadPound(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -910,7 +883,7 @@ function MrScalarTS::_OverloadPoundPound, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadSlash(left, right)
+		result = self -> MrTimeSeries::_OverloadPoundPound(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -1006,13 +979,13 @@ function MrScalarTS::_OverloadSlash, left, right
 	; SELF is on LEFT //////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					temp     = *self.data / right['DATA']
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -1022,7 +995,7 @@ function MrScalarTS::_OverloadSlash, left, right
 					temp = rebin(*self.data, outDims) / right['DATA']
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -1042,13 +1015,13 @@ function MrScalarTS::_OverloadSlash, left, right
 	; SELF is on RIGHT /////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					temp     = left['DATA'] / *self.data
 					outClass = 'MrScalarTS'
 				endcase
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					outDims  = [nPts, 3]
@@ -1058,7 +1031,7 @@ function MrScalarTS::_OverloadSlash, left, right
 					temp = left['DATA'] / rebin(*self.data, outDims)
 				endcase
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					;Output dimensions
 					nPts     = self -> GetNPts()
 					dims     = size( right, /DIMENSIONS )
@@ -1078,7 +1051,7 @@ function MrScalarTS::_OverloadSlash, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -1127,6 +1100,60 @@ end
 
 
 ;+
+;   High-pass, low-pass, band-pass, or band-stop filter data. The filter is created
+;   using IDL's DIGITAL_FILTER function and applied using IDL's CONVOL function.
+;
+; :Params:
+;       FLOW:           in, required, type=Numeric array
+;                       Lower frequency of the filter as a fraction of the nyquist.
+;       FHIGH:          in, required, type=Numeric array
+;                       Upper frequency of the filter as a fraction of the nyquist.
+;       A:              in, required, type=Numeric array
+;                       The filter power relative to the Gibbs phenomenon wiggles in
+;                           decibels. 50 is a good choice.
+;       NTERMS:         in, required, type=Numeric array
+;                       The number of terms used to construct the filter.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the result will be added to the cache.
+;       DOUBLE:         in, optional, type=boolean, default=0
+;                       If set, computations are performed in double-precision.
+;       NAME:           in, optional, type=string, default='Digital_Filter(<name>)'
+;                       A name to be given to the variable.
+;
+; :Returns:
+;       VAROUT:         out, required, type=object
+;                       A MrScalarTS object containing the filtered data.
+;-
+function MrScalarTS::Digital_Filter, fLow, fHigh, A, nTerms, $
+CACHE=cache, $
+DOUBLE=double, $
+NAME=name
+	compile_opt idl2
+	on_error, 2
+	
+	if n_elements(name) eq 0 then name = 'Digital_Filter(' + self.name + ')'
+	
+	;Create the filter
+	coeff = digital_filter(fLow, fHigh, A, nTerms, DOUBLE=double)
+	
+	;Apply the filter
+	dTemp = convol(self['DATA'], coeff)
+
+	;Create the output variable
+	varOut = MrScalarTS( self.oTime, dTemp, $
+	                     CACHE     = cache, $
+	                     DIMENSION = 1, $
+	                     NAME      = name, $
+	                     /NO_COPY )
+	
+	;Return the new variable
+	return, varOut
+end
+
+
+;+
 ;   Perform interpolation on regularly or irregularly vectors.
 ;
 ;   Calling Sequence:
@@ -1163,6 +1190,8 @@ QUADRATIC=quadratic, $
 SPLINE=spline
 	compile_opt idl2
 	on_error, 2
+	
+	if n_elements(name) eq 0 then name = 'Interpol(' + self.name + ')'
 	
 ;-------------------------------------------------------
 ; MrVariable Object ////////////////////////////////////
@@ -1237,27 +1266,12 @@ end
 ;                           must exist in the variable cache. 
 ;
 ; :Keywords:
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent dimension of `DATA` (1-based). If not
-;                           provided, the dimension of `DATA` that is equal in size to
-;                           `TIME` is chosen as the default. If zero or multiple
-;                           dimensions match in this way, an error will occur.
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
-;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
-;                           and will be left undefined (a MrTimeSeries object will not
-;                           be destroyed, but its array will be empty).
+;       _REF_EXTRA:     in, optional, type=integer
+;                       Any keyword accepted by MrTimeSeries::SetData is accepted here
+;                           via keyword inheritance.
 ;-
 pro MrScalarTS::SetData, time, data, $
-DIMENSION=dimension, $
-T_TYPE=t_type, $
-T_NAME=t_name, $
-NO_COPY=no_copy
+_REF_EXTRA=extra
 	compile_opt idl2
 	on_error, 2
 	
@@ -1266,11 +1280,7 @@ NO_COPY=no_copy
 	pDAta = self.data
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, time, data, $
-	                               DIMENSION = dimension, $
-	                               T_TYPE    = t_type, $
-	                               T_NAME    = t_name, $
-	                               NO_COPY   = no_copy
+	self -> MrTimeSeries::SetData, time, data, _STRICT_EXTRA=extra
 
 	;Check the results
 	if size(self, /N_DIMENSIONS) ne 1 then begin

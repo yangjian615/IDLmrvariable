@@ -626,7 +626,21 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 	nSubscripts = N_ELEMENTS(isRange)
 
 ;---------------------------------------------------------------------
-;Brute Force Subscripting ////////////////////////////////////////////
+; Attribute Name Given ///////////////////////////////////////////////
+;---------------------------------------------------------------------
+	if nSubscripts eq 1 && MrIsA(i1, 'STRING', /SCALAR) then begin
+		;Restricted names
+		;   - They have special uses within ::_OverloadBracketsRightSide
+		if MrIsMember(['DATA', 'PTR', 'POINTER'], i1) $
+			then message, '"' + i1 + '" cannot be an attribute name.'
+		
+		;Set the attribute
+		self -> SetAttributeValue, i1, value, /CREATE
+		return
+	endif
+
+;---------------------------------------------------------------------
+; Brute Force Subscripting ///////////////////////////////////////////
 ;---------------------------------------------------------------------
 	;
 	; Highly optimized code for three dimensions or lower. 
@@ -636,7 +650,7 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 	;<= 3D subscript range
 	if (nSubscripts le 3) then begin
 	;---------------------------------------------------------------------
-	;3D Subscripts ///////////////////////////////////////////////////////
+	; 3D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
 		if IsA(i3) then begin 
 			;[? ,? , min:max:interval]
@@ -683,7 +697,7 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 				endelse 
 			endelse 
 	;---------------------------------------------------------------------
-	;2D Subscripts ///////////////////////////////////////////////////////
+	; 2D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
 		endif else if IsA(i2) then begin
 			;[?, min:max:interval]
@@ -706,7 +720,7 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 				endelse
 			endelse
 	;---------------------------------------------------------------------
-	;1D Subscripts ///////////////////////////////////////////////////////
+	; 1D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
 		endif else begin
 			;min:max:interval
@@ -782,7 +796,7 @@ function MrVariable::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6
 
 	;String operations.
 	if IsA(i1, /SCALAR, 'STRING') then begin
-		case strupcase(i1) of
+		case i1 of
 			'DATA':    return, *self.data
 			'POINTER': return,  self.data
 			'PTR':     return,  self.data
@@ -1791,7 +1805,7 @@ function MrVariable::_OverloadNOT, left, right
 	on_error, 2
 
 	;Negate the array, making positive values negative, and vice versa
-	return, self -> GetNew(not (*self.data), NAME='NOT '+self.name)
+	return, self -> New(not (*self.data), NAME='NOT '+self.name)
 end
 
 
@@ -2128,7 +2142,7 @@ function MrVariable::_OverloadTilde, left, right
 	on_error, 2
 
 	;Negate the array, making positive values negative, and vice versa
-	return, self -> GetNew(~(*self.data), NAME='~'+self.name)
+	return, self -> New(~(*self.data), NAME='~'+self.name)
 end
 
 
@@ -2199,185 +2213,6 @@ function MrVariable::_OverloadXOR, left, right
 	;Create a new object based on the results
 	return, self -> New(result, /NO_COPY, NAME=name)
 end
-
-
-;+
-;   Set attribute values.
-;
-; :Params:
-;       ATTRNAME:       in, required, type=string/hash/struct
-;                       The name of the attribute for which the value is to be changed,
-;                           or a hash or structure whos keys/tags are the attribute names.
-;                           If a hash, keys must be strings. Values cannot be complex
-;                           datatypes.
-;       ATTRVALUE:      in, optional, type=any
-;                       The value of the attribute(s) to be added. ATTRVALUE must be
-;
-; :Keyword:
-;       OVERWRITE:      in, optional, type=boolean, default=0
-;                       If set, attributes that already exist will be over-written. The
-;                           default is to issue a warning.
-;-
-pro MrVariable::AddAttr_old, attrName, attrValue, $
-OVERWRITE=overwrite
-	compile_opt idl2
-	on_error, 2
-	
-	;Defaults
-	tf_overwrite = keyword_set(overwrite)
-
-;-------------------------------------------------------
-; Hash /////////////////////////////////////////////////
-;-------------------------------------------------------
-	if isa(attrName, 'HASH') then begin
-		;Step through each key
-		foreach val, attrName, key do begin
-			;KEY must be a string
-			if size(key, /TNAME) ne 'STRING' then begin
-				MrPrintF, 'LogWarn', 'Hash key must be a string: ' + strtrim(key, 2) + '.'
-				continue
-			endif
-			
-			;KEY must be new
-			if self -> HasAttr(key) && ~tf_overwrite then begin
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + key + '".', LEVEL=5
-				continue
-			endif
-			
-			;Validate datatype
-			if self -> AttrValue_IsValid(val) then begin
-				self.attributes[key] = val
-			endif else begin
-				MrPrintF, 'LogWarn', size(val, /TNAME), key, $
-				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
-				          LEVEL  = 5
-				continue
-			endelse
-		endforeach
-
-;-------------------------------------------------------
-; Structure ////////////////////////////////////////////
-;-------------------------------------------------------
-	endif else if isa(attrName, 'STRUCT') then begin
-		;Attributes must already exist
-		nTags  = n_tags(attrName)
-		tags   = tag_names(attrName)
-		tf_has = self -> HasAttr(tags)
-		
-		;Loop through each value
-		for i = 0, nTags - 1 do begin
-			tag = tags[i]
-		
-			;TAG must not exist
-			if tf_has[i] && ~tf_overwrite then begin
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + tag + '".', LEVEL=5
-				continue
-			endif
-			
-			;Validate datatype
-			if self -> AttrValue_IsValid(attrName.(i)) then begin
-				self.attributes[tag] = attrName.(i)
-			endif else begin
-				MrPrintF, 'LogWarn', size(attrName.(i), /TNAME), tag, $
-				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
-				          LEVEL  = 5
-				continue
-			endelse
-		endfor
-
-;-------------------------------------------------------
-; String ///////////////////////////////////////////////
-;-------------------------------------------------------
-	endif else if isa(attrName, 'STRING') then begin
-		;Check if attributes exist
-		tf_has = self -> HasAttr(attrName)
-
-	;-------------------------------------------------------
-	; Scalar Name //////////////////////////////////////////
-	;-------------------------------------------------------
-		if isa(attrName, /SCALAR) then begin
-			if tf_has && ~tf_overwrite then begin
-				;Issue a warning from the calling program
-				MrPrintF, 'LogWarn', 'Attribute already exists: "' + attrName + '".', LEVEL=5
-			endif else begin
-				;Validate datatype
-				if self -> AttrValue_IsValid(attrValue) then begin
-					self.attributes[attrName] = attrValue
-				endif else begin
-					MrPrintF, 'LogWarn', size(attrValue, /TNAME), attrName, $
-					          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
-					          LEVEL  = 5
-				endelse
-			endelse
-
-	;-------------------------------------------------------
-	; Scalar Value /////////////////////////////////////////
-	;-------------------------------------------------------
-		endif else if isa(attrValue, /SCALAR) then begin
-			;An array of names can be given.
-			names = attrName
-			
-			;
-			; TODO: Handle case below when NGOOD=0
-			;
-		
-			;Attribute names must not exist
-			if max(tf_has) eq 1 && ~tf_overwrite then begin
-				ibad = where(~tf_has, nbad, COMPLEMENT=igood, NCOMPLEMENT=ngood)
-				for i = 0, nbad do MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[ibad[i]] + '".', LEVEL=5
-				names = attrNames[igood]
-			endif
-			
-			;Validate datatype
-			if self -> AttrValue_IsValid(attrValue) then begin
-				self.attributes[names] = attrValue
-			endif else begin
-				MrPrintF, 'LogWarn', size(attrValue, /TNAME), attrName[0], $
-				          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
-				          LEVEL  = 5
-			endelse
-
-	;-------------------------------------------------------
-	; Array or List of Values //////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			;Restriction of Hash
-			if n_elements(attrName) ne n_elements(attrValue) $
-				then message, 'ATTRNAME and ATTRVALUE must have the same number of elements.'
-		
-			;Loop over each value
-			foreach val, attrValue, idx do begin
-				;Attribute must exist
-				if ~tf_has[idx] && ~tf_create then begin
-					MrPrintF, 'LogWarn', 'Attribute does not exist: "' + attrName[idx] + '".', LEVEL=5
-					continue
-				endif
-				
-				;Validate datatype
-				if self -> AttrValue_IsValid(attrValue[idx]) then begin
-					self.attributes[attrName[idx]] = attrValue[idx]
-				endif else begin
-					MrPrintF, 'LogWarn', size(attrValue[idx], /TNAME), attrName[idx], $
-					          FORMAT = '(%"Invalid attribute datatype (%s) for attribute %s")', $
-					          LEVEL  = 5
-				endelse
-			endforeach
-		endelse
-		
-;-------------------------------------------------------
-; Other ////////////////////////////////////////////////
-;-------------------------------------------------------
-	endif else begin
-		;
-		; Do not accept lists for ATTRNAME because numeric
-		; attribute names are not allowed.
-		;
-	
-		message, 'Invalid datatype (' + size(attrName, /TNAME) + ')for ATTRNAME.'
-	endelse
-end
-
-
 
 
 ;+
@@ -2983,10 +2818,10 @@ end
 ;                       Names of the attributes to be copied.
 ;
 ; :Keywords:
-;       OVERWRITE:      in, optional, type=boolean, default=0
+;       OVERWRITE:      in, optional, type=boolean, default=1
 ;                       If set, then existing attributes with names appearing in
-;                           `ATTRNAMES` will have their values overwritten. The
-;                           default is to issue a warning and skip the attribute.
+;                           `ATTRNAMES` will have their values overwritten. If set
+;                           to zero, issue a warning and skip the attribute.
 ;-
 pro MrVariable::CopyAttrTo, var, attrNames, $
 OVERWRITE=overwrite
@@ -2995,6 +2830,7 @@ OVERWRITE=overwrite
 	
 	;VAR must be a MrVariable
 	if ~obj_isa(var, 'MRVARIABLE') then message, 'VAR must be a MrVariable object.'
+	tf_overwrite = n_elements(overwrite) eq 0 ? 1B : keyword_set(overwrite)
 	
 	;Default to copying all attributes
 	if n_elements(attrName) eq 0 $
@@ -3002,7 +2838,7 @@ OVERWRITE=overwrite
 		else nAttrs    = n_elements(attrNames)
 
 	;Copy the variable attributes
-	for i = 0, nAttrs-1 do var -> AddAttr, attrNames[i], self[attrNames[i]], OVERWRITE=overwrite
+	for i = 0, nAttrs-1 do var -> AddAttr, attrNames[i], self[attrNames[i]], OVERWRITE=tf_overwrite
 end
 
 
@@ -4034,9 +3870,14 @@ OVERWRITE=overwrite
 		foreach val, attrName, key do begin
 			;Skip invalid attributes, but issue warning
 			catch, the_error
-			if the_error eq 0 $
-				then self -> SetAttributeValue, key, val, CREATE=create $
-				else MrPrintF, 'LogWarn', !error_state.msg
+			if the_error eq 0 then begin
+				self -> SetAttributeValue, key, val, $
+				                           CREATE    = create, $
+				                           OVERWRITE = overwrite
+			endif else begin
+				catch, /CANCEL
+				MrPrintF, 'LogWarn', !error_state.msg
+			endelse
 		endforeach
 
 ;-------------------------------------------------------
@@ -4053,9 +3894,14 @@ OVERWRITE=overwrite
 			
 			;Skip invalid attributes, but issue warning
 			catch, the_error
-			if the_error eq 0 $
-				then self -> SetAttributeValue, tags[i], attrName.(i), CREATE=create $
-				else MrPrintF, 'LogWarn', !error_state.msg
+			if the_error eq 0 then begin
+				self -> SetAttributeValue, tags[i], attrName.(i), $
+				                           CREATE    = create, $
+				                           OVERWRITE = overwrite
+			endif else begin
+				catch, /CANCEL
+				MrPrintF, 'LogWarn', !error_state.msg
+			endelse
 		endfor
 
 ;-------------------------------------------------------
@@ -4064,7 +3910,9 @@ OVERWRITE=overwrite
 	endif else if isa(attrName, 'STRING', /SCALAR) then begin
 		
 		;Set the attribute
-		self -> SetAttributeValue, attrName, attrValue, CREATE=create
+		self -> SetAttributeValue, attrName, attrValue, $
+		                           CREATE    = create, $
+		                           OVERWRITE = overwrite
 
 ;-------------------------------------------------------
 ; String Array with Array or List of Values ////////////
@@ -4080,9 +3928,14 @@ OVERWRITE=overwrite
 		
 			;Skip invalid attributes, but issue warning
 			catch, the_error
-			if the_error eq 0 $
-				then self -> SetAttributeValue, attrName[i], val, CREATE=create $
-				else MrPrintF, 'LogWarn', !error_state.msg
+			if the_error eq 0 then begin
+				self -> SetAttributeValue, attrName[i], val, $
+				                           CREATE    = create, $
+				                           OVERWRITE = overwrite
+			endif else begin
+				catch, /CANCEL
+				MrPrintF, 'LogWarn', !error_state.msg
+			endelse
 		endforeach
 		
 ;-------------------------------------------------------
@@ -4411,6 +4264,34 @@ INDEX=index
 	endif else begin
 		*self.data = (*self.data)[sort(*self.data)]
 	endelse
+end
+
+
+;+
+;   Smooth the implicit array.
+;
+; :Keywords:
+;       INDEX:      out, optional, type=intarr
+;                   The indices into the original array, in the order needed to sort.
+;-
+function MrVariable::Smooth, width, $
+CACHE=cache, $
+NAME=name, $
+_REF_EXTRA=extra
+	compile_opt idl2
+	on_error, 2
+	
+	if n_elements(name) eq 0 then name = 'Smooth(' + self.name + ')'
+	
+	;Smooth
+	temp = smooth(self['DATA'], width, _STRICT_EXTRA=extra)
+	
+	;Create a new variable
+	oResult = self -> Copy(name, CACHE=cache)
+	oResult -> SetData, temp, /NO_COPY
+	oResult['CATDESC'] = 'Smoothed version of "' + self.name + '".'
+	
+	return, oResult
 end
 
 

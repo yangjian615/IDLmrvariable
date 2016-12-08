@@ -114,37 +114,15 @@
 ;                           must exist in the variable cache. 
 ;
 ; :Keywords:
-;       CACHE:          in, optional, type=boolean, default=0
-;                       If set, both `TIME` and `DATA` are added to the variable cache.
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent, 1-based dimension of `DATA`. If not provided,
-;                           the dimension of `DATA` that is equal in size to `TIME` is
-;                           chose as the default.
 ;       NAME:           in, optional, type=integer
 ;                       Name to be given to the variable object.
-;       NO_CLOBBER:     in, optional, type=boolean, default=0
-;                       If set, do not clobber variables of the same name. Instead,
-;                           rename this variable by appending "_#" to `NAME`, where
-;                           "#" represents a unique number. Ignored unless `CACHE` is set.
-;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
-;                           and will be left undefined (a MrTimeSeries object will not
-;                           be destroyed, but its array will be empty).
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrTimeSeries::Init is accepted here via
+;                           keyword inheritance.
 ;-
 function MrMatrixTS::INIT, time, data, $
-CACHE=cache, $
-DIMENSION=dimension, $
 NAME=name, $
-NO_CLOBBER=no_clobber, $
-NO_COPY=no_copy, $
-T_NAME=t_name, $
-T_TYPE=t_type
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	;Error handling
@@ -156,17 +134,12 @@ T_TYPE=t_type
 	endif
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = 'MrVectorTS'
+	if n_elements(name) eq 0 then name = 'MrMatrixTS'
 	
 	;Initialize superclass
 	success = self -> MrTimeSeries::Init( time, data, $
-		                                  CACHE      = cache, $
-		                                  DIMENSION  = dimension, $
-		                                  NAME       = name, $
-		                                  NO_CLOBBER = no_clobber, $
-		                                  NO_COPY    = no_copy, $
-		                                  T_NAME     = t_name, $
-		                                  T_TYPE     = t_type )
+	                                      NAME          = name, $
+	                                      _STRICT_EXTRA = extra )
 	if ~success then message, 'Unable to initialize superclass.'
 
 	return, 1
@@ -230,8 +203,8 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -255,9 +228,9 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 ;					endfor
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS * MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS * MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data * right['DATA']
 				endcase
@@ -269,8 +242,8 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -281,9 +254,9 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 					temp = rebin(left['DATA'], outDims) * *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS * MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS * MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] * *self.data
 				endcase
@@ -295,7 +268,7 @@ function MrMatrixTS::_OverloadAsterisk, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -332,7 +305,7 @@ function MrMatrixTS::_OverloadCaret, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadCaret(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -350,8 +323,8 @@ function MrMatrixTS::_OverloadCaret, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -362,9 +335,9 @@ function MrMatrixTS::_OverloadCaret, left, right
 					temp = *self.data ^ rebin(right['DATA'], outDims)
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS ^ MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS ^ MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data ^ right['DATA']
 				endcase
@@ -376,8 +349,8 @@ function MrMatrixTS::_OverloadCaret, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -388,9 +361,9 @@ function MrMatrixTS::_OverloadCaret, left, right
 					temp = rebin(left['DATA'], outDims) ^ *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS ^ MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS ^ MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] ^ *self.data
 				endcase
@@ -402,7 +375,7 @@ function MrMatrixTS::_OverloadCaret, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -474,7 +447,7 @@ function MrMatrixTS::_OverloadMinus, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadMinus(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -492,8 +465,8 @@ function MrMatrixTS::_OverloadMinus, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -504,9 +477,9 @@ function MrMatrixTS::_OverloadMinus, left, right
 					temp = *self.data - rebin(right['DATA'], outDims)
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS - MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS - MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data - right['DATA']
 				endcase
@@ -518,8 +491,8 @@ function MrMatrixTS::_OverloadMinus, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -530,9 +503,9 @@ function MrMatrixTS::_OverloadMinus, left, right
 					temp = rebin(left['DATA'], outDims) - *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS - MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS - MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] - *self.data
 				endcase
@@ -544,7 +517,7 @@ function MrMatrixTS::_OverloadMinus, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -581,7 +554,7 @@ function MrMatrixTS::_OverloadMOD, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadMOD(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -599,8 +572,8 @@ function MrMatrixTS::_OverloadMOD, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -611,9 +584,9 @@ function MrMatrixTS::_OverloadMOD, left, right
 					temp = *self.data mod rebin(right['DATA'], outDims)
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS mod MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS mod MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data mod right['DATA']
 				endcase
@@ -625,8 +598,8 @@ function MrMatrixTS::_OverloadMOD, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -637,9 +610,9 @@ function MrMatrixTS::_OverloadMOD, left, right
 					temp = rebin(left['DATA'], outDims) mod *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS mod MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS mod MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] mod *self.data
 				endcase
@@ -651,7 +624,7 @@ function MrMatrixTS::_OverloadMOD, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -688,7 +661,7 @@ function MrMatrixTS::_OverloadPlus, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadPlus(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -706,8 +679,8 @@ function MrMatrixTS::_OverloadPlus, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -718,9 +691,9 @@ function MrMatrixTS::_OverloadPlus, left, right
 					temp = *self.data + rebin(right['DATA'], outDims)
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS + MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS + MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data + right['DATA']
 				endcase
@@ -732,8 +705,8 @@ function MrMatrixTS::_OverloadPlus, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -744,9 +717,9 @@ function MrMatrixTS::_OverloadPlus, left, right
 					temp = rebin(left['DATA'], outDims) + *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS + MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS + MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] + *self.data
 				endcase
@@ -758,7 +731,7 @@ function MrMatrixTS::_OverloadPlus, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -795,7 +768,7 @@ function MrMatrixTS::_OverloadPound, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadPound(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -817,9 +790,9 @@ function MrMatrixTS::_OverloadPound, left, right
 			lDims    = size(left,  /DIMENSIONS)
 			rDims    = size(right, /DIMENSIONS)
 			outClass = 'MrMatrixTS'
-			
+
 			;LEFT=Nx3x3, RIGHT=Nx3x3
-			if array_equal(lDims[2:3], 3) && array_equal(rDims[2:3], 3) then begin
+			if array_equal(lDims[1:2], 3) && array_equal(rDims[1:2], 3) then begin
 				temp = [ [ [left[*,0,0]*right[*,0,0] + left[*,0,1]*right[*,1,0] + left[*,0,2]*right[*,2,0]], $
 				           [left[*,1,0]*right[*,0,0] + left[*,1,1]*right[*,1,0] + left[*,1,2]*right[*,2,0]], $
 				           [left[*,2,0]*right[*,0,0] + left[*,2,1]*right[*,1,0] + left[*,2,2]*right[*,2,0]] ], $
@@ -835,10 +808,10 @@ function MrMatrixTS::_OverloadPound, left, right
 			;LEFT=anything else; RIGHT=anything else
 			endif else begin
 				;Pick the length with fewest elements
-				nPts = lDims[1] < rDims[1]
+				nPts = lDims[0] < rDims[0]
 				
 				;Allocate memory to results
-				temp = make_array(nPts, lDims[2], rDims[3], $
+				temp = make_array(nPts, lDims[1], rDims[2], $
 				                  TYPE=size( reform(left[0,*,*])#reform(right[0,*,*]), /TYPE))
 				
 				;Compute result
@@ -853,10 +826,10 @@ function MrMatrixTS::_OverloadPound, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': message, 'Operation now allowed: MrMatrixTS # MrScalarTS.'
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): message, 'Operation now allowed: MrMatrixTS # MrScalarTS.'
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Make sure the matrix is the correct size
 					mDims    = size(self, /DIMENSIONS)
 					outClass = mDims[1] eq 3 ? 'MrVectorTS' : 'MrTimeSeries'
@@ -877,10 +850,10 @@ function MrMatrixTS::_OverloadPound, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': message, 'Operation not valid: MrScalarTS # MrVectorTS'
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): message, 'Operation not valid: MrScalarTS # MrVectorTS'
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Make sure the matrix is the correct size
 					mDims    = size(self, /DIMENSIONS)
 					outClass = mDims[1] eq 3 ? 'MrVectorTS' : 'MrTimeSeries'
@@ -900,7 +873,10 @@ function MrMatrixTS::_OverloadPound, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(outClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, $
+		                 DIMENSION = 1, $
+		                 NAME      = name, $
+		                 /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -937,7 +913,7 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadPoundPound(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -961,7 +937,7 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 			outClass = 'MrMatrixTS'
 			
 			;LEFT=Nx3x3, RIGHT=Nx3x3
-			if array_equal(lDims[2:3], 3) && array_equal(rDims[2:3], 3) then begin
+			if array_equal(lDims[1:2], 3) && array_equal(rDims[1:2], 3) then begin
 				temp = [ [ [left[*,0,0]*right[*,0,0] + left[*,1,0]*right[*,0,1] + left[*,2,0]*right[*,0,2]], $
 				           [left[*,0,0]*right[*,1,0] + left[*,1,0]*right[*,1,1] + left[*,2,0]*right[*,1,2]], $
 				           [left[*,0,0]*right[*,2,0] + left[*,1,0]*right[*,2,1] + left[*,2,0]*right[*,2,2]] ], $
@@ -977,10 +953,10 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 			;LEFT=anything else; RIGHT=anything else
 			endif else begin
 				;Pick the length with fewest elements
-				nPts = lDims[1] < rDims[1]
+				nPts = lDims[0] < rDims[0]
 				
 				;Allocate memory to results
-				temp = make_array(nPts, lDims[3], rDims[2], $
+				temp = make_array(nPts, lDims[2], rDims[1], $
 				                  TYPE=size( reform(left[0,*,*]) ## reform(right[0,*,*]), /TYPE))
 				
 				;Compute result
@@ -995,10 +971,10 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': message, 'Operation now allowed: MrMatrixTS ## MrScalarTS.'
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): message, 'Operation now allowed: MrMatrixTS ## MrScalarTS.'
 			
-				'MRVECTORTS': begin
+				obj_isa(right, 'MRVECTORTS'): begin
 					;Make sure the matrix is the correct size
 					mDims    = size(self, /DIMENSIONS)
 					outClass = mDims[2] eq 3 ? 'MrVectorTS' : 'MrTimeSeries'
@@ -1019,10 +995,10 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': message, 'Operation not valid: MrScalarTS ## MrVectorTS'
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): message, 'Operation not valid: MrScalarTS ## MrVectorTS'
 			
-				'MRVECTORTS': begin
+				obj_isa(left, 'MRVECTORTS'): begin
 					;Make sure the matrix is the correct size
 					mDims    = size(self, /DIMENSIONS)
 					outClass = mDims[1] eq 3 ? 'MrVectorTS' : 'MrTimeSeries'
@@ -1042,7 +1018,7 @@ function MrMatrixTS::_OverloadPoundPound, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(outClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -1117,7 +1093,7 @@ function MrMatrixTS::_OverloadSlash, left, right
 ; Superclass ///////////////////////////////////////////
 ;-------------------------------------------------------
 	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+		result = self -> MrTimeSeries::_OverloadSlash(left, right)
 
 ;-------------------------------------------------------
 ; MrTimeSeries with MrTimeSeries ///////////////////////
@@ -1135,8 +1111,8 @@ function MrMatrixTS::_OverloadSlash, left, right
 	; SELF is LEFT /////////////////////////////////////////
 	;-------------------------------------------------------
 		if side eq 'LEFT' then begin
-			case obj_class(right) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(right, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = right -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -1147,9 +1123,9 @@ function MrMatrixTS::_OverloadSlash, left, right
 					temp = *self.data / rebin(right['DATA'], outDims)
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrMatrixTS / MrVectorTS.'
+				obj_isa(right, 'MRVECTORTS'): message, 'Operation not valid: MrMatrixTS / MrVectorTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(right, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = *self.data / right['DATA']
 				endcase
@@ -1161,8 +1137,8 @@ function MrMatrixTS::_OverloadSlash, left, right
 	; SELF is RIGHT ////////////////////////////////////////
 	;-------------------------------------------------------
 		endif else begin
-			case obj_class(left) of
-				'MRSCALARTS': begin
+			case 1 of
+				obj_isa(left, 'MRSCALARTS'): begin
 					;Output dimensions
 					nPts     = left -> GetNPts()
 					dims     = size(*self.data, /DIMENSIONS)
@@ -1173,9 +1149,9 @@ function MrMatrixTS::_OverloadSlash, left, right
 					temp = rebin(left['DATA'], outDims) / *self.data
 				endcase
 			
-				'MRVECTORTS': message, 'Operation not valid: MrVectorTS / MrMatrixTS.'
+				obj_isa(left, 'MRVECTORTS'): message, 'Operation not valid: MrVectorTS / MrMatrixTS.'
 
-				'MRMATRIXTS': begin
+				obj_isa(left, 'MRMATRIXTS'): begin
 					outClass = 'MrMatrixTS'
 					temp     = left['DATA'] / *self.data
 				endcase
@@ -1187,7 +1163,7 @@ function MrMatrixTS::_OverloadSlash, left, right
 	;-------------------------------------------------------
 	; Create Result ////////////////////////////////////////
 	;-------------------------------------------------------
-		result = obj_new(objClass, temp, NAME=name, /NO_COPY)
+		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
@@ -1464,27 +1440,12 @@ end
 ;                           must exist in the variable cache. 
 ;
 ; :Keywords:
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent dimension of `DATA` (1-based). If not
-;                           provided, the dimension of `DATA` that is equal in size to
-;                           `TIME` is chosen as the default. If zero or multiple
-;                           dimensions match in this way, an error will occur.
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
-;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
-;                           and will be left undefined (a MrTimeSeries object will not
-;                           be destroyed, but its array will be empty).
+;       _REF_EXTRA:     in, optional, type=integer
+;                       Any keyword accepted by MrTimeSeries::SetData is accepted here
+;                           via keyword inheritance.
 ;-
 pro MrMatrixTS::SetData, time, data, $
-DIMENSION=dimension, $
-NO_COPY=no_copy, $
-T_NAME=t_name, $
-T_TYPE=t_type
+_REF_EXTRA=extra
 	compile_opt idl2
 	on_error, 2
 	
@@ -1493,11 +1454,7 @@ T_TYPE=t_type
 	pDAta = self.data
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, time, data, $
-	                               DIMENSION = dimension, $
-	                               T_TYPE    = t_type, $
-	                               T_NAME    = t_name, $
-	                               NO_COPY   = no_copy
+	self -> MrTimeSeries::SetData, time, data, _STRICT_EXTRA=extra
 
 	;Check the results
 	;   - Make sure it is NxMxL (3 dimensions of any size)

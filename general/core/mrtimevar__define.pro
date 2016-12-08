@@ -85,12 +85,17 @@
 ;       NO_COPY:            in, optional, type=boolean, default=0
 ;                           If set, `DATA` will be copied directly into the object and
 ;                               will be left undefined.
+;       T_REF:              in, optional, type=string, default=''
+;                           A reference time from which `TIME` is measured. Applicable
+;                               only to certain values of `TYPE`. Must be formatted as
+;                               an ISO-8601 string.
 ;-
 function MrTimeVar::INIT, time, type, $
 CACHE=cache, $
 NAME=name, $
 NO_CLOBBER=no_clobber, $
-NO_COPY=no_copy
+NO_COPY=no_copy, $
+T_REF=t_ref
 	compile_opt idl2
 
 	;Error handling
@@ -101,14 +106,17 @@ NO_COPY=no_copy
 		return, 0
 	endif
 	
+	;Defaults
+	if n_elements(name) eq 0 then name = 'MrTimeVar'
+	
 	;Initialize superclass
-	success = self -> MrVariable::Init( NAME       = name, $
-	                                    CACHE      = cache, $
+	success = self -> MrVariable::Init( CACHE      = cache, $
+	                                    NAME       = name, $
 	                                    NO_CLOBBER = no_clobber )
 	if success eq 0 then return, 0
 
 	;Set time
-	if n_elements(time) gt 0 then self -> SetData, time, type, NO_COPY=no_copy
+	if n_elements(time) gt 0 then self -> SetData, time, type, NO_COPY=no_copy, T_REF=t_ref
 
 	return, 1
 end
@@ -272,7 +280,8 @@ function MrTimeVar::iso2ssm, iso, ref_date
 	hour = double(strmid(iso, 11, 2))
 	mnt  = double(strmid(iso, 14, 2))
 	sec  = double(strmid(iso, 17, 2))
-	dec  = double(strmid(iso, 19, strlen(iso[0])-20)) ;Capture the decimal, but not the time zone
+;	dec  = double(strmid(iso, 19, strlen(iso[0])-20)) ;Capture the decimal, but not the time zone
+	dec  = double(strmid(iso, 19)) ;Capture the decimal, but not the time zone
 	
 	;Calculate SSM
 	t_ssm = hour*3600D + mnt*60D + sec + dec
@@ -309,6 +318,12 @@ function MrTimeVar::iso2tt2000, iso
 	if ~MrTokens_IsMatch(iso[0], tpattern) $
 		then message, 'Input time is not a recognized ISO format.'
 	
+	;Provide enough decimal places
+	;   - 00.1 would turn into 00.001 without two trailing zeros.
+	seconds = strmid(iso, 17)
+	if strlen(seconds[0]) le 2 then seconds += '.0'
+	seconds += '000000000'
+	
 	;Compute TT2000 times
 	;   - StrMid is ~100x faster than MrTimeParser
 	;   - Requires implicit array to be ISO time
@@ -318,12 +333,12 @@ function MrTimeVar::iso2tt2000, iso
 	            fix(strmid(iso,  8, 2)), $      ;day
 	            fix(strmid(iso, 11, 2)), $      ;hour
 	            fix(strmid(iso, 14, 2)), $      ;minute
-	            fix(strmid(iso, 17, 2)), $      ;second
-	            fix(strmid(iso, 20, 3)), $      ;milli
-	            fix(strmid(iso, 23, 3)), $      ;micro
-	            fix(strmid(iso, 26, 3)), $      ;nano
+	            fix(strmid(seconds, 0, 2)), $   ;second
+	            fix(strmid(seconds, 3, 3)), $   ;milli
+	            fix(strmid(seconds, 6, 3)), $   ;micro
+	            fix(strmid(seconds, 9, 3)), $   ;nano
 	            /COMPUTE_EPOCH
-	
+
 	;Return the array
 	return, tt2000
 end
@@ -530,7 +545,7 @@ function MrTimeVar::ssm2iso, ssm, t_ref
 		then message, 'Input time is not a recognized ISO format.'
 	
 	;Get the reference time
-	iso_ref = strmid(t_ref, 0, 10)
+	iso_ref = strmid(t_ref[0], 0, 10)
 	
 	;Compute time from seconds
 	hour   = fix(ssm / 3600.0)
@@ -542,9 +557,6 @@ function MrTimeVar::ssm2iso, ssm, t_ref
 	      string(hour,   FORMAT='(i02)')     + ':' + $
 	      string(minute, FORMAT='(i02)')     + ':' + $
 	      string(second, FORMAT='(f013.10)') + 'Z'
-	
-	;Parse the julian date
-	caldat, jul, month, day, year, hour, minute, second
 	
 	;Return the array
 	return, iso
@@ -821,13 +833,18 @@ end
 ;                           If set `DATA` will be copied directly into the object
 ;                               and will be left undefined (a MrVariable object will not
 ;                               be destroyed, but its array will be empty).
+;       T_REF:              in, optional, type=string, default=''
+;                           A reference time from which `TIME` is measured. Applicable
+;                               only to certain values of `TYPE`. Must be formatted as
+;                               an ISO-8601 string.
 ;       TOKEN_FMT:          in, optional, type=string, default='%Y-%M-%dT%H:%m:%S%z'
 ;                           The MrTokens pattern that allows `TIME` to be broken down.
 ;                               If provided and `TYPE` is undefined, automatically sets
 ;                               `TYPE` = 'CUSTOM'. Ignored if `TIME` is not a string.
 ;-
 pro MrTimeVar::SetData, time, type, $
-NO_COPY=no_copy
+NO_COPY=no_copy, $
+T_REF=t_ref
 	compile_opt idl2
 	on_error, 2
 
@@ -850,20 +867,24 @@ NO_COPY=no_copy
 ;-----------------------------------------------------
 	endif else begin
 		;Times-strings
-		if n_elements(type) eq 0 && size(time, /TNAME) eq 'STRING' then begin
-			;Try to convert to the desired format
-			token_fmt = '%Y-%M-%dT%H:%m:%S%f'
-			tf_iso    = MrTokens_IsMatch(time[0], token_fmt)
+		if n_elements(type) eq 0 then begin
+			if size(time, /TNAME) eq 'STRING' then begin
+				;Try to convert to the desired format
+				token_fmt = '%Y-%M-%dT%H:%m:%S%f'
+				tf_iso    = MrTokens_IsMatch(time[0], token_fmt)
 
-			;Is it ISO?
-			if tf_iso then begin
-				type = 'ISO-8601'
+				;Is it ISO?
+				if tf_iso then begin
+					type = 'ISO-8601'
 			
-			;If not, identify types
+				;If not, identify types
+				endif else begin
+					;Identify type
+					type = self -> IdentifyType(time[0])
+					if type eq '' then message, 'Unrecognized time format.'
+				endelse
 			endif else begin
-				;Identify type
-				type = self -> IdentifyType(time[0])
-				if type eq '' then message, 'Unrecognized time format.'
+				message, 'TIME units unknown. Please provide TYPE.'
 			endelse
 		endif
 
@@ -872,8 +893,8 @@ NO_COPY=no_copy
 			iso_time = keyword_set(no_copy) ? temporary(time) : time
 		endif else begin
 			if keyword_set(no_copy) $
-				then iso_time = self -> toISO(temporary(time), type) $
-				else iso_time = self -> toISO(time, type)
+				then iso_time = self -> toISO(temporary(time), type, T_REF=t_ref) $
+				else iso_time = self -> toISO(time, type, T_REF=t_ref)
 		endelse
 	endelse
 ;-----------------------------------------------------
@@ -946,8 +967,15 @@ end
 ;                               'CDF_EPOCH_LONG'  - CDF Epoch16 values (picoseconds)
 ;                               'CDF_TIME_TT2000' - CDF TT2000 values (nanoseconds)
 ;                               'TT2000'          - CDF TT2000 values (nanoseconds)
+;                               'SSM'             - Seconds since midnight
 ;                               'ISO-8601'        - ISO-8601 formatted string
 ;                               'CUSTOM'          - Custom time string format
+;
+; :Keywords:
+;       T_REF:              in, optional, type=string, default=''
+;                           A reference time from which `TIME` is measured. Applicable
+;                               only to certain values of `TYPE`. Must be formatted as
+;                               an ISO-8601 string.
 ;       TOKEN_FMT:          out, optional, type=string
 ;                           MrTokens pattern identifying how to parse the results.
 ;
@@ -956,6 +984,7 @@ end
 ;                           ISO time strings corresponding to the input times.
 ;-
 function MrTimeVar::toISO, time, type, $
+T_REF=t_ref, $
 TOKEN_FMT=token_fmt
 	compile_opt idl2
 	on_error, 2
