@@ -193,16 +193,17 @@ VARNAMES=varnames
 			;Reminder warning
 			;   - GSE is not available yet
 			;   - FPI does not operate in slow survey, so there is no "srvy" product.
-			if coords eq 'gse' then begin
+			if _cs eq 'gse' then begin
 				MrPrintF, 'LogWarn', 'FPI data is not available in GSE. Using DBCS.'
 				fpi_cs = 'dbcs'
 			endif
 			
 			;Load the data
-			MrMMS_FPI_Load_Data, sc, 'fpi', fpi_mode, level, $
+			MrMMS_FPI_Load_Data, sc, fpi_mode, $
+			                     LEVEL     = level, $
 			                     OPTDESC   = 'des-moms', $
 			                     SUFFIX    = suffix, $
-			                     VARFORMAT = '*bulk?_' + fpi_coords + '*'
+			                     VARFORMAT = '*bulk?_' + fpi_cs + '*'
 	
 	;-------------------------------------------
 	; EDP //////////////////////////////////////
@@ -234,7 +235,7 @@ VARNAMES=varnames
 	              ? strjoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' ) + suffix $
 	              : strjoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' ) + suffix
 	oB      = MrVar_Get(b_vname)
-	
+
 	;Vector that defines the perpendicular direction
 	case _fac of
 		'VXB': oPerp = MrVar_Get( strjoin( [sc, 'des_bulkv', fpi_cs, fpi_mode], '_' ) + suffix )

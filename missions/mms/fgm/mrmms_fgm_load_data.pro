@@ -75,8 +75,8 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	endelse
 
 	;Grab the variable
-	oB    = MrVar_Get(b_name)
-	!Null = oB -> GetData(oT, /TVAR)
+	oB = MrVar_Get(b_name)
+	oT = oB['TIMEVAR']
 
 	;Separate magnitude from vector
 	Bxyz  = MrVectorTS( oT, oB[*,0:2], NAME=bvec_name, /CACHE )
@@ -85,23 +85,29 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	;Copy over all attributes
 	oB -> CopyAttrTo, Bxyz
 	oB -> CopyAttrTo, Bmag
+	
+	min_value = min(Bxyz['MIN_VALUE'])
+	max_value = max(Bxyz['MAX_VALUE'])
+	
+	;B
+	oB['COLOR']     = ['Blue', 'Forest Green', 'Red', 'Black']
+	oB['MIN_VALUE'] = min_value
+	oB['MAX_VALUE'] = max_value
+	oB['TITLE']     = 'B!C(nT)'
 
 	;BVEC - Set new attributes
-	Bxyz -> AddAttr,      'COLOR',     ['blue', 'forest green', 'red']
-	Bxyz -> AddAttr,      'DIMENSION', 1
-	Bxyz -> SetAttrValue, 'LABEL',     ['Bx', 'By', 'Bz']
-	Bxyz -> SetAttrValue, 'MIN_VALUE', min(Bxyz['MIN_VALUE'])
-	Bxyz -> SetAttrValue, 'MAX_VALUE', max(Bxyz['MAX_VALUE'])
-	Bxyz -> SetAttrValue, 'TITLE',     'B!C(nT)'
+	Bxyz['COLOR']     = ['blue', 'forest green', 'red']
+	Bxyz['DIMENSION'] = 1
+	Bxyz['LABEL']     = ['Bx', 'By', 'Bz']
+	Bxyz['MIN_VALUE'] = min_value
+	Bxyz['MAX_VALUE'] = min_value
+	Bxyz['TITLE']     = 'B!C(nT)'
 	
 	;BMAG - Set new attributes
-	Bmag -> AddAttr,      'COLOR',     'black'
-	Bmag -> SetAttrValue, 'MIN_VALUE', 0
-	Bmag -> SetAttrValue, 'MAX_VALUE', max(Bmag['MAX_VALUE'])
-	Bmag -> SetAttrValue, 'TITLE',     '|B|!C(nT)'
-	
-	;Destroy the old variable
-	MrVar_Delete, oB
+	Bmag['COLOR']     = 'black'
+	Bmag['MIN_VALUE'] = 0
+	Bmag['MAX_VALUE'] = max(Bmag['MAX_VALUE'])
+	Bmag['TITLE']     = '|B|!C(nT)'
 end
 
 
@@ -171,7 +177,7 @@ VARNAMES=varnames
 	;Check spacecraft
 	tf_instr = MrIsMember(['afg', 'dfg', 'fgm'], instr)
 	if ~array_equal(tf_instr, 1) then message, 'Invalid value for INSTR: "' + instr + '".'
-	
+
 	;Get the data
 	MrMMS_Load_Data, sc, instr, mode, level, $
 	                 OPTDESC   = optdesc, $

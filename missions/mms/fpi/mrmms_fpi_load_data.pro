@@ -128,18 +128,18 @@ pro MrMMS_FPI_Load_Data_ESpectr, names
 	tempESpectr -> CopyAttrTo, oESpectr
 	
 	;Set Attributes
-	oESPectr -> SetAttrValue, 'CATDESC',    'Omni-directional energy spectrum.'
-	oESPectr -> SetAttrValue, 'FIELDNAM',   'Energy Spectrum'
-	oESPectr -> SetAttrValue, 'LABLAXIS',   'E Specturm'
-	oESPectr -> SetAttrValue, 'PLOT_TITLE', 'Omni-directional energy spectrum.'
-	oESPectr -> SetAttrValue, 'LOG',        1
-	oESPectr -> AddAttr,      'SCALE',      1
-	oESPectr -> SetAttrValue, 'TITLE',      'E Flux'
-	oESPectr -> AddAttr,      'UNITS',      'eV / (cm^2 s sr eV)'
-	
+	oESPectr['CATDESC']    = 'Omni-directional energy spectrum.'
+	oESPectr['FIELDNAM']   = 'Energy Spectrum'
+	oESPectr['LABLAXIS']   = 'E Specturm'
+	oESPectr['PLOT_TITLE'] = 'Omni-directional energy spectrum.'
+	oESPectr['LOG']        = 1
+	oESPectr['SCALE']      = 1
+	oESPectr['TITLE']      = 'E Flux'
+	oESPectr['UNITS']      = 'eV / (cm^2 s sr eV)'
+
 	;DEPEND_1
 	eIndex  = MrVar_Get( oESPectr['DEPEND_1'] )
-	eIndex -> AddAttr, 'TITLE', 'E Index'
+	eIndex['TITLE'] = 'Energy!CeV'
 end
 
 
@@ -196,9 +196,9 @@ pro MrMMS_FPI_Load_Data_Dist, name
 		
 	;Set the distribution function dependencies
 	oDist  = MrVar_Get(dist_name)
-	oDist -> SetAttrValue, 'DEPEND_1', phi_name
-	oDist -> SetAttrValue, 'DEPEND_2', theta_name
-	oDist -> SetAttrValue, 'DEPEND_3', eTable_name
+	oDist['DEPEND_1'] = phi_name
+	oDist['DEPEND_2'] = theta_name
+	oDist['DEPEND_3'] = eTable_name
 end
 
 
@@ -236,7 +236,7 @@ pro MrMMS_FPI_Load_Data_PAD, names
 		oPAD    += tempPAD
 	endfor
 	oPAD /= nPAD
-	
+
 	;Save the variable
 	oPAD     = oPAD -> Transpose()
 	oPAD    -> SetName, new_name
@@ -244,18 +244,33 @@ pro MrMMS_FPI_Load_Data_PAD, names
 	tempPAD -> CopyAttrTo, oPAD
 	
 	;Set Attributes
-	oPAD -> SetAttrValue, 'CATDESC',    'Pitch angle ditribution'
-	oPAD -> SetAttrValue, 'FIELDNAM',   'Pitch angle ditribution'
-	oPAD -> SetAttrValue, 'LABLAXIS',   'PAD'
-	oPAD -> SetAttrValue, 'PLOT_TITLE', 'Pitch angle ditribution'
-	oPAD -> SetAttrValue, 'LOG',        1
-	oPAD -> AddAttr,      'SCALE',      1
-	oPAD -> SetAttrValue, 'TITLE',      'E Flux'
-	oPAD -> AddAttr,      'UNITS',      'eV / (cm^2 s sr eV)'
+	oPAD['CATDESC']    = 'Pitch angle ditribution'
+	oPAD['FIELDNAM']   = 'Pitch angle ditribution'
+	oPAD['LABLAXIS']   = 'PAD'
+	oPAD['PLOT_TITLE'] = 'Pitch angle ditribution'
+	oPAD['LOG']        = 1B
+	oPAD['SCALE']      = 1B
+	oPAD['TITLE']      = 'E Flux'
+	oPAD['UNITS']      = 'keV / (cm^2 s sr keV)'
 	
 	;DEPEND_1
 	paIndex = MrVar_Get( oPAD['DEPEND_1'] )
-	paIndex -> AddAttr, 'TITLE', 'PA Index'
+	paIndex['TITLE'] = 'PA!C(deg)'
+	
+	;LO
+	oPAD = MrVar_Get(names[0])
+	oPAD['LOG']   = 1B
+	oPAD['TITLE'] = 'EFlux Low!C' + oPAD['UNITS']
+	
+	;MID
+	oPAD = MrVar_Get(names[1])
+	oPAD['LOG'] = 1B
+	oPAD['TITLE'] = 'EFlux Mid!C' + oPAD['UNITS']
+	
+	;HI
+	oPAD = MrVar_Get(names[2])
+	oPAD['LOG'] = 1B
+	oPAD['TITLE'] = 'EFlux High!C' + oPAD['UNITS']
 end
 
 
@@ -293,9 +308,9 @@ pro MrMMS_FPI_Load_Data_Tensor, names
 	
 	;Set Attributes
 	oXX -> CopyAttrTo, oT
-	oT  -> AddAttr, 'COLOR',     ['Purple', 'Blue', 'Forest Green', 'Org4', 'Red', 'Magenta']
-	oT  -> AddAttr, 'DIMENSION', 1
-	oT  -> AddAttr, 'LABEL',     ['XX', 'XY', 'XZ', 'YX', 'YY', 'YZ', 'ZX', 'ZY', 'ZZ']
+	oT ['COLOR']     = ['Purple', 'Blue', 'Forest Green', 'Org4', 'Red', 'Magenta']
+	oT ['DIMENSION'] = 1
+	oT ['LABEL']     = ['XX', 'XY', 'XZ', 'YX', 'YY', 'YZ', 'ZX', 'ZY', 'ZZ']
 	
 	;Delete old variables
 	MrVar_Delete, [oXX, oXY, oXZ, oYY, oYZ, oZZ]
@@ -332,9 +347,9 @@ pro MrMMS_FPI_Load_Data_Vector, names
 	
 	;Set Attributes
 	oX -> CopyAttrTo, oV
-	oV -> AddAttr, 'COLOR',     ['Blue', 'Forest Green', 'Red']
-	oV -> AddAttr, 'DIMENSION', 1
-	oV -> AddAttr, 'LABEL',     ['X', 'Y', 'Z']
+	oV['COLOR']     = ['Blue', 'Forest Green', 'Red']
+	oV['DIMENSION'] = 1
+	oV['LABEL']     = ['X', 'Y', 'Z']
 	
 	;Delete the old variables
 	MrVar_Delete, [oX, oY, oZ]
@@ -416,21 +431,21 @@ VARNAMES=varnames
 	;
 	
 	;Search for the epoch variable
-	iEpoch = where( stregex(varnames, 'epoch', /BOOLEAN), nEpoch )
-	if nEpoch gt 0 then begin
-		;Extract the time as both TT2000 (original) and SSM
-		oEpoch   = MrVar_Get(varnames[iEpoch])
-		t_tt2000 = oEpoch -> GetData('TT2000')
-		t_ssm    = oEpoch -> GetData('SSM')
-		
-		;Nanoseconds between samples
-		dt = long64( (t_ssm[1:*] - temporary(t_ssm) / 2D ) * 1d9)
-		dt = [dt, dt[-1]]
-		
-		;Add this to the TT2000 times and reset the data
-		t_tt2000 += dt
-		oEpoch   -> SetData, t_tt2000, 'TT2000', /NO_COPY
-	endif
+;	iEpoch = where( stregex(varnames, 'epoch', /BOOLEAN), nEpoch )
+;	if nEpoch gt 0 then begin
+;		;Extract the time as both TT2000 (original) and SSM
+;		oEpoch   = MrVar_Get(varnames[iEpoch])
+;		t_tt2000 = oEpoch -> GetData('TT2000')
+;		t_ssm    = oEpoch -> GetData('SSM')
+;		
+;		;Nanoseconds between samples
+;		dt = long64( (t_ssm[1:*] - temporary(t_ssm) / 2D ) * 1d9)
+;		dt = [dt, dt[-1]]
+;		
+;		;Add this to the TT2000 times and reset the data
+;		t_tt2000 += dt
+;		oEpoch   -> SetData, t_tt2000, 'TT2000', /NO_COPY
+;	endif
 
 ;-----------------------------------------------------
 ; Load Distributions \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\

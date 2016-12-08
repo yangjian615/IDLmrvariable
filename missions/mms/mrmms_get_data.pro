@@ -60,8 +60,11 @@
 ;                           If set, requests will be sent to the team site (password
 ;                               required, L1A and above). Automatically set if `LEVEL`
 ;                               is below level 2. This option is sticky.
-;       TRANGE:             out, optional, type=string, default=MrVar_GetTRange()
+;       TRANGE:             in, optional, type=string, default=MrVar_GetTRange()
 ;                           Start and end times over which to read data.
+;       _REF_EXTRA:         in, optional, type=any
+;                           Any keyword accepted by MrMMS_SDC_Query::CD is also accepted
+;                               via keyword inheritance.
 ;
 ; :Returns:
 ;       FILES:              out, required, type=string/strarr
@@ -83,7 +86,8 @@ function MrMMS_Get_Data, sc, instr, mode, level, $
 COUNT=count, $
 OPTDESC=optdesc, $
 TEAM_SITE=team_site, $
-TRANGE=trange
+TRANGE=trange, $
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	catch, the_error
@@ -96,15 +100,18 @@ TRANGE=trange
 	
 	;Defaults
 	count = 0
+	if n_elements(sc)        eq 0 then sc        = ''
+	if n_elements(instr)     eq 0 then instr     = ''
+	if n_elements(mode)      eq 0 then mode      = ''
 	if n_elements(level)     eq 0 then level     = 'l2'
 	if n_elements(trange)    eq 0 then trange    = MrVar_GetTRange()
 	if n_elements(varformat) eq 0 then varformat = '*'
 	
 	;Check spacecraft
-	tf_sc    = MrIsMember('mms' + ['1', '2', '3', '4'], sc)
-	tf_mode  = MrIsMember(['slow', 'fast', 'srvy', 'brst'], mode)
-	tf_level = MrIsMember(['l1a', 'l1b', 'l2pre', 'l2', 'l2plus'], level)
-	tf_instr = MrIsMember(['afg', 'aspoc', 'dfg', 'dsp', 'edi', 'edp', 'epd-eis', 'feeps', 'fgm', 'fpi', 'hpca', 'mec', 'scm'], instr)
+	tf_sc    = MrIsMember(['', 'mms1', 'mms2', 'mms3', 'mms4'], sc)
+	tf_mode  = MrIsMember(['', 'slow', 'fast', 'srvy', 'brst'], mode)
+	tf_level = MrIsMember(['', 'l1a', 'l1b', 'l2pre', 'l2', 'l2plus'], level)
+	tf_instr = MrIsMember(['', 'afg', 'aspoc', 'dfg', 'dsp', 'edi', 'edp', 'epd-eis', 'feeps', 'fgm', 'fpi', 'hpca', 'mec', 'scm'], instr)
 	if ~array_equal(tf_sc, 1)    then message, 'SC must be "mms1", "mms2", "mms3", "mms4".'
 	if ~array_equal(tf_mode, 1)  then message, 'MODE must be "slow", "fast", "srvy", "brst".'
 	if ~array_equal(tf_level, 1) then message, 'LEVEL must be "l1a", "l1b", "l2pre", "l2", "l2plus".'
@@ -125,15 +132,16 @@ TRANGE=trange
 	!MrMMS -> CD, /RESET_PATH, $
 	              /RESET_QUERY, $
 	              /DOWNLOAD, $
-	              SUCCESS     = success, $
-	              SC_ID       = sc, $
-	              INSTR       = instr, $
-	              MODE        = mode, $
-	              LEVEL       = level, $
-	              OPTDESC     = optdesc, $
-	              TEAM_SITE   = team_site, $
-	              TSTART      = trange[0], $
-	              TEND        = trange[1]
+	              SUCCESS       = success, $
+	              SC_ID         = sc, $
+	              INSTR         = instr, $
+	              MODE          = mode, $
+	              LEVEL         = level, $
+	              OPTDESC       = optdesc, $
+	              TEAM_SITE     = team_site, $
+	              TSTART        = trange[0], $
+	              TEND          = trange[1], $
+	              _STRICT_EXTRA = extra
 	if success eq 0 then return, ''
 
 	;Attempt to get the data

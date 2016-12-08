@@ -53,6 +53,7 @@
 ;                           convention. - MRA
 ;       2016/10/06  -   Added the SUFFIX keyword. Renamed Epoch variables are now
 ;                           reflected in VARNAMES. - MRA
+;       2016/11/19  -   Load ancillary data products. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -98,63 +99,91 @@ pro MrMMS_Load_Data_RenameEpoch, varnames, suffix
 		oVar = MrVar_Get(varnames[i], COUNT=count)
 		if count eq 0 then continue
 		
-	;-----------------------------------------------------
-	; Check for DEPEND_0 \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;Change the DEPEND_0 attribute, if there is one
-		if oVar -> HasAttr('DEPEND_0') then begin
-			;Old epoch name
-			epoch_name = oVar['DEPEND_0']
-
-			;Rename only the "Epoch" variables.
-			;   - Allow "_#" in case /NO_CLOBBER caused Epoch to be renamed.
-			if stregex(epoch_name, '^Epoch', /BOOLEAN) then begin
+		;Skip if no DEPEND_0
+		if ~oVar -> HasAttr('DEPEND_0') then continue
 		
-			;-----------------------------------------------------
-			; Create New Name \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-			;-----------------------------------------------------
-				;Dissect the variable name
-				parts    = strsplit(varnames[i], '_', /EXTRACT)
+		;Get the name of the DEPEND_0 variable
+		dep0      = oVar['DEPEND_0']
+		dep0_type = size(dep0, /TNAME)
+		if dep0_type eq 'STRING' $
+			then old_name = dep0 $
+			else old_name = dep0.name
+		
+		;Skip if DEPEND_0 is not an "Epoch  variable
+		;   - DEPEND_0 can be a variable or variable name
+		;   - Allow "_#" in case /NO_CLOBBER caused Epoch to be renamed.
+		if ~stregex(old_name, '^Epoch', /BOOLEAN) then continue
+	
+	;-----------------------------------------------------
+	; Create New Name \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;Dissect the variable name
+		parts = strsplit(varnames[i], '_', /EXTRACT)
 
-				;Remove a suffix from EPOCH_NAME
-				;   - TODO: If /NO_CLOBBER was set, "_#" might be appended to the
-				;           end of the variable name. Change the regular expression
-				;           to '^(.*)' + suffix + '(_[0-9]+)?' and follow through.
-				epoch_base = stregex(epoch_name, '^(.*)' + suffix + '$', /SUBEXP, /EXTRACT)
-				epoch_base = epoch_base[1]
+		;Remove a suffix from OLD_NAME
+		;   - TODO: If /NO_CLOBBER was set, "_#" might be appended to the
+		;           end of the variable name. Change the regular expression
+		;           to '^(.*)' + suffix + '(_[0-9]+)?' and follow through.
+		epoch_base = stregex(old_name, '^(.*)' + suffix + '$', /SUBEXP, /EXTRACT)
+		epoch_base = epoch_base[1]
 
-				;Create a new name
-				;   - Variable names are suppose to follow the format
-				;       sc_instr_param[_coordsys][_optdesc]_mode_level[_suffix]
-				;   - We want to make "Epoch" look like
-				;       sc_instr_epoch_mode_level[_suffix]
-				;   - But some instruments do not follow the veriable naming
-				;     convention exactly.
-				;   - Here, we follow the naming convention of the instrument
-				if stregex(varnames[i], '(des|dis)', /BOOLEAN) $
-					then new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-1-nSeg:-1]], '_' ) $
-					else new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-2-nSeg:-1]], '_' )
-					
-			;-----------------------------------------------------
-			; Update DEPEND_0 Attribute \\\\\\\\\\\\\\\\\\\\\\\\\\
-			;-----------------------------------------------------
-				oVar -> SetAttrValue, 'DEPEND_0', new_name
-				
-			;-----------------------------------------------------
-			; Rename Epoch Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-			;-----------------------------------------------------
-				
-				;If the epoch variable itself has not been renamed, rename it
-				if MrVar_IsCached(epoch_name) then begin
-					;Set the variable name
-					oEpoch  = MrVar_Get(epoch_name)
-					oEpoch -> SetName, new_name
-					
-					;Update the variable name in VARNAMES
-					idx = where(varnames eq epoch_name)
-					varnames[idx] = new_name
-				endif
+		;Create a new name
+		;   - Variable names are suppose to follow the format
+		;       sc_instr_param[_coordsys][_optdesc]_mode_level[_suffix]
+		;   - We want to make "Epoch" look like
+		;       sc_instr_epoch_mode_level[_suffix]
+		;   - But some instruments do not follow the veriable naming
+		;     convention exactly.
+		;   - Here, we follow the naming convention of the instrument
+		case 1 of
+			;DIS/DES
+			stregex(varnames[i], '(des|dis)', /BOOLEAN): begin
+				new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-1-nSeg:-1]], '_' )
+			endcase
+			
+			;MEC
+			stregex(varnames[i], 'mec', /BOOLEAN): begin
+				if nSeg eq 0 $
+					then new_name = strjoin( [parts[0:1], strlowcase(epoch_base)], '_' ) $
+					else new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-nSeg:-1]], '_' )
+			endcase
+			
+			;ANYTHING ELSE
+			else: new_name = strjoin( [parts[0:1], strlowcase(epoch_base), parts[-2-nSeg:-1]], '_' )
+		endcase
+			
+	;-----------------------------------------------------
+	; Update DEPEND_0 Attribute \\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		oVar  -> SetAttrValue, 'DEPEND_0', new_name
+
+	;-----------------------------------------------------
+	; Rename Epoch Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;DEPEND_0 is a name
+		if dep0_type eq 'STRING' then begin
+			
+			;DEPEND_0's name needs to be updated if it is still in the cache
+			;   - Do only the first time DEPEND_0 is being renamed.
+			if MrVar_IsCached(old_name) then begin
+				;Set the variable name
+				oEpoch = MrVar_Get(old_name)
+				oDep0 -> SetName, new_name
+			
+				;Update the variable name in VARNAMES
+				idx = where(varnames eq old_name)
+				varnames[idx] = new_name
 			endif
+		
+		;DEPEND_0 is an object
+		;   - Do only the first time DEPEND_0 is being renamed.
+		endif else if dep0.name ne new_name then begin
+			;Update DEPEND_0's name
+			dep0 -> SetName, new_name
+			
+			;Update the variable name in VARNAMES
+			idx           = where(varnames eq old_name)
+			varnames[idx] = new_name
 		endif
 	endfor
 end
@@ -195,6 +224,9 @@ end
 ;                               others are ignored.
 ;       VARNAMES:           out, optional, type=string/strarr
 ;                           Names of the variables that have been loaded into the cache.
+;       _REF_EXTRA:         in, optional, type=any
+;                           Any keyword accepted by MrMMS_SDC_Query::CD is also accepted
+;                               via keyword inheritance.
 ;-
 pro MrMMS_Load_Data, sc, instr, mode, level, $
 OPTDESC=optdesc, $
@@ -203,7 +235,8 @@ SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
 VARFORMAT=varformat, $
-VARNAMES=varnames
+VARNAMES=varnames, $
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	catch, the_error
@@ -214,21 +247,28 @@ VARNAMES=varnames
 	endif
 	
 	;Defaults
+	if n_elements(sc)     eq 0 then sc     = ''
+	if n_elements(instr)  eq 0 then instr  = ''
+	if n_elements(mode)   eq 0 then mode   = ''
+	if n_elements(level)  eq 0 then level  = 'l2'
 	if n_elements(trange) eq 0 then trange = MrVar_GetTRange()
 	
+	;Do not let variable names get passed in
+	if n_elements(varnames) gt 0 then varnames = !Null
+	
 	;Check spacecraft
-	tf_sc    = MrIsMember('mms' + ['1', '2', '3', '4'], sc)
-	tf_mode  = MrIsMember(['slow', 'fast', 'srvy', 'brst'], mode)
-	tf_level = MrIsMember(['l1a', 'l1b', 'l2pre', 'l2', 'l2plus'], level)
-	tf_instr = MrIsMember(['afg', 'aspoc', 'dfg', 'dsp', 'edi', 'edp', 'epd-eis', 'feeps', 'fgm', 'fpi', 'hpca', 'mec', 'scm'], instr)
+	tf_sc    = MrIsMember(['', 'mms1', 'mms2', 'mms3', 'mms4'], sc)
+	tf_mode  = MrIsMember(['', 'slow', 'fast', 'srvy', 'brst'], mode)
+	tf_level = MrIsMember(['', 'l1a', 'l1b', 'l2pre', 'l2', 'l2plus'], level)
+	tf_instr = MrIsMember(['', 'afg', 'aspoc', 'dfg', 'dsp', 'edi', 'edp', 'epd-eis', 'feeps', 'fgm', 'fpi', 'hpca', 'mec', 'scm'], instr)
 	if ~array_equal(tf_sc, 1)    then message, 'SC must be "mms1", "mms2", "mms3", "mms4".'
 	if ~array_equal(tf_mode, 1)  then message, 'MODE must be "slow", "fast", "srvy", "brst".'
-	if ~array_equal(tf_level, 1) then message, 'LEVEL must be "l1a", "l1b", "l2pre", "l2", "l2plus".'
+	if ~array_equal(tf_level, 1) then message, 'LEVEL must be "l1a", "l1b", "ql", "l2pre", "l2", "l2plus".'
 	if ~array_equal(tf_instr, 1) then message, 'Invalid value for INSTR: "' + instr + '".'
 	
 	;Initialize MMS
 	MrMMS_Init
-	
+
 ;-----------------------------------------------------
 ; Web \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -241,16 +281,17 @@ VARNAMES=varnames
 	!MrMMS -> CD, /RESET_PATH, $
 	              /RESET_QUERY, $
 	              /DOWNLOAD, $
-	              SUCCESS     = success, $
-	              SC_ID       = sc, $
-	              INSTR       = instr, $
-	              MODE        = mode, $
-	              LEVEL       = level, $
-	              OPTDESC     = optdesc, $
-	              PUBLIC_SITE = public_site, $
-	              TEAM_SITE   = team_site, $
-	              TSTART      = trange[0], $
-	              TEND        = trange[1]
+	              SUCCESS       = success, $
+	              SC_ID         = sc, $
+	              INSTR         = instr, $
+	              MODE          = mode, $
+	              LEVEL         = level, $
+	              OPTDESC       = optdesc, $
+	              PUBLIC_SITE   = public_site, $
+	              TEAM_SITE     = team_site, $
+	              TSTART        = trange[0], $
+	              TEND          = trange[1], $
+	              _STRICT_EXTRA = extra
 	if success eq 0 then return
 	
 	;Attempt to get the data
@@ -258,40 +299,62 @@ VARNAMES=varnames
 	if count eq 0 then return
 
 ;-----------------------------------------------------
-; Read Files \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Read Ancillary Files \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	;Parse the file names
-	MrMMS_Parse_Filename, files, SC=fsc, INSTR=finstr, MODE=fmode, LEVEL=flevel, OPTDESC=foptdesc
+	;Find ancillary files
+	iAnc = where( !MrMMS -> IsAncillary(files), nAnc, $
+	              COMPLEMENT=iData, NCOMPLEMENT=nData )
 	
-	;Determine file types
-	fType = fsc + '_' + finstr + '_' + fmode + '_' + flevel
-	iOptDesc = where(foptdesc ne '', nOptDesc)
-	if nOptDesc gt 0 then fType[iOptDesc] += '_' + foptdesc[iOptDesc]
-	
-	;Pick unique file types
-	fbase = file_basename(files)
-	iUniq = uniq(fType, sort(fType))
-	nUniq = n_elements(iUniq)
+	;Read ancillary files
+	if nAnc gt 0 then begin
+		MrMMS_Anc_Load, files[iAnc], $
+		                VARFORMAT = varformat, $
+		                VARNAMES  = varnames
+	endif
 
-	;Step through each file type
-	for i = 0, nUniq - 1 do begin
-		;Find similar file types
-		iFiles = where(strmid( fbase, 0, strlen(fType[i])) eq fTYpe[i], nFiles)
-		if nFiles eq 0 then continue
+;-----------------------------------------------------
+; Read Data Files \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	if nData gt 0 then begin
+		;Parse the file names
+		files = files[iData]
+		MrMMS_Parse_Filename, files, SC=fsc, INSTR=finstr, MODE=fmode, LEVEL=flevel, OPTDESC=foptdesc
 		
-		;
-		; TODO: Sort files by time (and slow/fast srvy)
-		;
+		;Determine file types
+		fType = fsc + '_' + finstr + '_' + fmode + '_' + flevel
+		iOptDesc = where(foptdesc ne '', nOptDesc)
+		if nOptDesc gt 0 then fType[iOptDesc] += '_' + foptdesc[iOptDesc]
+		
+		;Pick unique file types
+		fbase = file_basename(files)
+		iUniq = uniq(fType, sort(fType))
+		nUniq = n_elements(iUniq)
 	
-		;Read files
-		MrVar_ReadCDF, files[iFiles], $
-		               SUFFIX       = suffix, $
-		               SUPPORT_DATA = support_data, $
-		               TRANGE       = trange, $
-		               VARFORMAT    = varformat, $
-		               VARNAMES     = varnames, $
-		               VERBOSE      = !MrMMS.verbose
-	endfor
+		;Step through each file type
+		for i = 0, nUniq - 1 do begin
+			;Find similar file types
+			iFiles = where(strmid( fbase, 0, strlen(fType[i])) eq fTYpe[i], nFiles)
+			if nFiles eq 0 then continue
+			
+			;
+			; TODO: Sort files by time (and slow/fast srvy)
+			;
+		
+			;Read files
+			MrVar_ReadCDF, files[iFiles], $
+			               SUFFIX       = suffix, $
+			               SUPPORT_DATA = support_data, $
+			               TRANGE       = trange, $
+			               VARFORMAT    = varformat, $
+			               VARNAMES     = temp_names, $
+			               VERBOSE      = !MrMMS.verbose
+			
+			;Save all of the variables
+			if n_elements(varnames) gt 0 $
+				then varnames = [varnames, temporary(temp_names)] $
+				else varnames = temporary(temp_names)
+		endfor
+	endif
 
 ;-----------------------------------------------------
 ; Rename the Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\\\
