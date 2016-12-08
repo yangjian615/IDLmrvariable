@@ -187,7 +187,9 @@ end
 ;
 ; :Params:
 ;       ENERGY:         out, optional, type=fltarr
-;                       Energy bins of the distribution.
+;                       Energy bin centers of the distribution.
+;       DE:             out, optional, type=fltarr
+;                       Half-width of the energy bins.
 ;
 ; :Keywords:
 ;       NE_BINS:        in, optional, type=integer
@@ -202,7 +204,7 @@ end
 ;       DIST1D:         out, required, type=fltarr(L)
 ;                       The 1D distribution with size nEnergy.
 ;-
-function MrDist3D::ESpec, energy, $
+function MrDist3D::ESpec, energy, dE, $
 PHI_RANGE=phi_range, $
 NE_BINS=nE_bins, $
 THETA_RANGE=pa_range
@@ -322,7 +324,7 @@ end
 ;       PHI_RANGE:      in, optional, type=fltarr(2), default=[0.0\, 360.0]
 ;                       The range in azimuthal angle (degrees) over which to average.
 ;-
-function MrDist3D::ThetaE, theta, energy, $
+function MrDist3D::ThetaE, theta, energy, dTheta, dE, $
 NE_BINS=nE_bins, $
 NTHETA_BINS=nTheta_bins, $
 PHI_RANGE=phi_range
@@ -340,6 +342,7 @@ PHI_RANGE=phi_range
 	nEnergy = dims[2]
 
 	;Amount to average over PHI
+	theta_range = [0, 180]
 	if n_elements(phi_range)   eq 0 then phi_range   = [0.0, 360.0]
 	if n_elements(nTheta_bins) eq 0 then nTheta_bins = nTheta
 	if n_elements(nE_bins)     gt 0 then MrPrintF, 'logwarn', 'TODO: Allow nE_bins to change.'
@@ -378,9 +381,9 @@ PHI_RANGE=phi_range
 	;   - Keep the number of Theta bins the same
 	;   - Average all PHI values within [-DELTA, DELTA] in each theta bin
 	cHist  = hist_nd(coords, $
-	                 MIN             = [phi_range[0],         0.0], $
-	                 MAX             = [phi_range[1],       180.0], $
-	                 NBINS           = [           1, nTheta_bins], $
+	                 MIN             = [phi_range[0], theta_range[0]], $
+	                 MAX             = [phi_range[1], theta_range[1]], $
+	                 NBINS           = [           1,    nTheta_bins], $
 	                 REVERSE_INDICES = ri)
 
 ;-----------------------------------------------------
@@ -413,8 +416,10 @@ PHI_RANGE=phi_range
 ;-----------------------------------------------------
 	
 	;Create bins
-	dTheta = 180.0 / nTheta_bins
-	theta  = findgen(nTheta_bins) * dTheta + dTheta / 2.0
+	dTheta  = (theta_range[1] - theta_range[0]) / nTheta_bins
+	theta   = theta_range[0] + dTheta*findgen(nTheta_bins) + dTheta/2.0
+	dTheta /= 2.0
+	
 	energy = *self.energy
 
 	;Return the 2D distribution
@@ -428,7 +433,9 @@ end
 ;
 ; :Params:
 ;       THETA:          out, optional, type=fltarr
-;                       Polar angle (degrees) bins of the distribution.
+;                       Angles (degrees) of the polar bin centers of the distribution.
+;       DTHETA:         out, optional, type=float
+;                       Half-width of the `THETA` bins.
 ;
 ; :Keywords:
 ;       E_RANGE:        in, optional, type=fltarr(2), default=[min, max]
@@ -443,7 +450,7 @@ end
 ;       DIST1D:         out, required, type=fltarr(L)
 ;                       The 1D distribution in polar angle.
 ;-
-function MrDist3D::ThetaSpec, theta, $
+function MrDist3D::ThetaSpec, theta, dTheta, $
 E_RANGE=e_range, $
 NTHETA_BINS=nTheta_bins, $
 PHI_RANGE=phi_range
@@ -465,6 +472,7 @@ PHI_RANGE=phi_range
 	nEnergy = dims[2]
 
 	;PA range over which to average
+	theta_range = [0, 180]
 	if n_elements(phi_range)   eq 0 then phi_range   = [0.0, 360.0]
 	if n_elements(nTheta_bins) eq 0 then nTheta_bins = nTheta
 
@@ -516,9 +524,9 @@ PHI_RANGE=phi_range
 	;   - Keep the number of Theta bins the same
 	;   - Average all relevant PHI and ENERGY values.
 	cHist  = hist_nd(coords, $
-	                 MIN             = [phi_range[0],          0.0, e_range[0]], $
-	                 MAX             = [phi_range[1],        180.0, e_range[1]], $
-	                 NBINS           = [           1,  nTheta_bins,          1], $
+	                 MIN             = [phi_range[0], theta_range[0], e_range[0]], $
+	                 MAX             = [phi_range[1], theta_range[1], e_range[1]], $
+	                 NBINS           = [           1,    nTheta_bins,          1], $
 	                 REVERSE_INDICES = ri)
 
 ;-----------------------------------------------------
@@ -545,8 +553,9 @@ PHI_RANGE=phi_range
 ;-----------------------------------------------------
 	
 	;Create bins
-	dTheta = 180.0 / nTheta_bins
-	theta  = findgen(nTheta_bins) * dTheta + dTheta / 2.0
+	dTheta  = (theta_range[1] - theta_range[0]) / nTheta_bins
+	theta   = theta_range[0] + dTheta*findgen(nTheta_bins) + dTheta/2.0
+	dTheta /= 2.0
 
 	;Return the 1D distribution
 	return, dist1D
@@ -627,7 +636,7 @@ end
 ;       DIST2D:         out, required, type=fltarr(L)
 ;                       The 2D distribution with size nEnergy.
 ;-
-function MrDist3D::PhiE, phi, energy, $
+function MrDist3D::PhiE, phi, energy, dPhi, dE, $
 NE_BINS=nE_bins, $
 NPHI_BINS=nphi_bins, $
 THETA_RANGE=theta_range
@@ -645,6 +654,7 @@ THETA_RANGE=theta_range
 	nEnergy = dims[2]
 
 	;Amount to average over THETA
+	phi_range = [-180, 180]
 	if n_elements(theta_range) eq 0 then theta_range = [0.0, 180.0]
 	if n_elements(nPhi_bins)   eq 0 then nPhi_bins   = nPhi
 	if n_elements(nE_bins)     gt 0 then MrPrintF, 'logwarn', 'TODO: Allow nE_bins to change.'
@@ -679,9 +689,9 @@ THETA_RANGE=theta_range
 ;-----------------------------------------------------
 	
 	cHist  = hist_nd(coords, $
-	                 MIN             = [       0.0, theta_range[0]], $
-	                 MAX             = [     360.0, theta_range[1]], $
-	                 NBINS           = [ nPhi_bins,              1], $
+	                 MIN             = [ phi_range[0], theta_range[0]], $
+	                 MAX             = [ phi_range[1], theta_range[1]], $
+	                 NBINS           = [    nPhi_bins,              1], $
 	                 REVERSE_INDICES = ri)
 
 ;-----------------------------------------------------
@@ -689,7 +699,7 @@ THETA_RANGE=theta_range
 ;-----------------------------------------------------
 
 	;Allocate memory to reduced 2D distribution
-	dist2D = fltarr(nPhi_bins, nE_bins)
+	dist2D = fltarr(nPhi_bins, nBins)
 
 	;Loop over each PHI bin
 	for j = 0, nEnergy - 1 do begin
@@ -711,8 +721,10 @@ THETA_RANGE=theta_range
 ;-----------------------------------------------------
 	
 	;Create bins
-	dPhi   = 360.0 / nPhi_bins
-	phi    = findgen(nPhi_bins)   * dPhi   + dPhi   / 2.0
+	dPhi  = (phi_range[1] - phi_range[0]) / nPhi_bins
+	phi   = phi_range[0] + dPhi*findgen(nPhi_bins) + dPhi/2.0
+	dPhi /= 2.0
+	
 	energy = *self.energy
 
 	;Return the 2D distribution
@@ -726,7 +738,9 @@ end
 ;
 ; :Params:
 ;       PHI:            out, optional, type=fltarr
-;                       Azimuth angle bins (degrees) of the distribution.
+;                       Azimuth angles (degrees) of the bin centers of the distribution.
+;       DPHI:           out, optional, type=float
+;                       Half-width of the `PHI` bins.
 ;
 ; :Keywords:
 ;       E_RANGE:        in, optional, type=fltarr(2), default=[min, max]
@@ -741,7 +755,7 @@ end
 ;       DIST1D:         out, required, type=fltarr(L)
 ;                       The 1D distribution with size nEnergy.
 ;-
-function MrDist3D::PhiSpec, phi, $
+function MrDist3D::PhiSpec, phi, dPhi, $
 E_RANGE=e_range, $
 NPHI_BINS=nPhi_bins, $
 THETA_RANGE=theta_range
@@ -759,6 +773,7 @@ THETA_RANGE=theta_range
 	nEnergy = dims[2]
 
 	;PA range over which to average
+	phi_range = [-180, 180]
 	if n_elements(theta_range) eq 0 then theta_range = [0.0, 180.0]
 	if n_elements(nPhi_bins)   eq 0 then nPhi_bins   = nPhi
 
@@ -796,7 +811,7 @@ THETA_RANGE=theta_range
 	;Velocity element
 	vsqr     = 2.0 * *self.energy / self.mass
 	dv       = sqrt( 1.0 / (2.0 * self.mass * *self.energy ) ) * dE
-	sinTheta = sin(theta*!dtor)
+	sinTheta = sin(*self.theta * !dtor)
 	
 	;Weight function
 	weight = rebin( reform(vsqr, 1, 1, nEnergy), nPhi, nTheta, nEnergy ) * $
@@ -811,9 +826,9 @@ THETA_RANGE=theta_range
 	;   - Keep the number of Theta bins the same
 	;   - Average all PHI values within [-DELTA, DELTA] in each theta bin
 	cHist  = hist_nd(coords, $
-	                 MIN             = [       0.0, theta_range[0], e_range[0]], $
-	                 MAX             = [     360.0, theta_range[1], e_range[1]], $
-	                 NBINS           = [ nPhi_bins,              1,          1], $
+	                 MIN             = [ phi_range[0], theta_range[0], e_range[0]], $
+	                 MAX             = [ phi_range[1], theta_range[1], e_range[1]], $
+	                 NBINS           = [    nPhi_bins,              1,          1], $
 	                 REVERSE_INDICES = ri)
 
 ;-----------------------------------------------------
@@ -845,8 +860,9 @@ THETA_RANGE=theta_range
 ;-----------------------------------------------------
 	
 	;Create bins
-	dPhi   = 360.0 / nPhi_bins
-	phi    = findgen(nPhi_bins) * dPhi + dPhi / 2.0
+	dPhi  = (phi_range[1] - phi_range[0]) / nPhi_bins
+	phi   = phi_range[0] + dPhi*findgen(nPhi_bins) + dPhi/2.0
+	dPhi /= 2.0
 
 	;Return the 1D distribution
 	return, dist1D
@@ -1071,30 +1087,22 @@ end
 ;   Set object properties.
 ;
 ; :Keywords:
-;       DEGREES:            in, optional, type=boolean
-;                           If set, the THETA and PHI properties have units of degrees.
 ;       MASS:               in, optional, type=float
 ;                           Mass (kg) of the species represented in the distribution.
-;       RADIANS:            in, optional, type=boolean
-;                           If set, the THETA and PHI properties have units of radians.
 ;       SPECIES:            in, optional, type=string
 ;                           Species of particle represented in the distribution. Options
-;                               are: { 'e' | 'p' | 'H' | 'He' | 'O' }
-;       UNITS:              in, optional, type=string
-;                           Units of the distribution function.
+;                               are: { 'e' | 'p' | 'H' | 'He' | 'O' }. This keyword
+;                               sets the MASS property and takes precendence over the
+;                               `MASS` keyword.
 ;-
 pro MrDist3D::SetProperty, $
-DEGREES=degrees, $
 MASS=mass, $
-RADIANS=radians, $
 SPECIES=species
 	compile_opt idl2
 	on_error, 2
 	
-	if n_elements(degrees) gt 0 then self.degrees = keyword_set(degrees)
-	if n_elements(mass)    gt 0 then self.mass    = mass
-	if n_elements(radians) gt 0 then self.degrees = ~keyword_set(radians)
-	if n_elements(species) gt 0 then self.mass    = MrConstants('m_' + species)
+	if n_elements(mass)    gt 0 then self.mass = mass
+	if n_elements(species) gt 0 then self.mass = MrConstants('m_' + species)
 end
 
 
@@ -1150,6 +1158,8 @@ NTHETA_BINS=nTheta_bins
 	endif
 	
 	;Bins & mass
+	phi_range   = [-180, 180]
+	theta_range = [0, 180]
 	if n_elements(nTheta_bins) eq 0 then nTheta_bins = nTheta_bins
 	if n_elements(nPhi_bins)   eq 0 then nPhi_bins   = nPhi_bins
 
@@ -1194,9 +1204,9 @@ NTHETA_BINS=nTheta_bins
 	;   - Keep the number of Theta bins the same
 	;   - Average all PHI values within [-DELTA, DELTA] in each theta bin
 	cHist  = hist_nd(coords, $
-	                 MIN             = [        0.0,         0.0, E_Range[0]], $
-	                 MAX             = [      360.0,       180.0, E_Range[1]], $
-	                 NBINS           = [  nPhi_bins, nTheta_bins,          1], $
+	                 MIN             = [ phi_range[0], theta_range[0], E_Range[0]], $
+	                 MAX             = [ phi_range[1], theta_range[1], E_Range[1]], $
+	                 NBINS           = [   nPhi_bins,     nTheta_bins,          1], $
 	                 REVERSE_INDICES = ri)
 
 ;-----------------------------------------------------
@@ -1228,13 +1238,15 @@ NTHETA_BINS=nTheta_bins
 ; Output Bins \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
-	;Size of each angular bin
-	dTheta = 180.0 / nTheta_bins
-	dPhi   = 360.0 / nPhi_bins
+	;Phi bins
+	dPhi  = (phi_range[1] - phi_range[0]) / nPhi_bins
+	phi   = phi_range[0] + dPhi*findgen(nPhi_bins) + dPhi/2.0
+	dPhi /= 2.0
 	
-	;Create bins
-	theta  = findgen(nTheta_bins) * dTheta + dTheta / 2.0
-	phi    = findgen(nPhi_bins)   * dPhi   + dPhi   / 2.0
+	;Theta bins
+	dTheta  = (theta_range[1] - theta_range[0]) / nTheta_bins
+	theta   = theta_range[0] + dTheta*findgen(nTheta_bins) + dTheta/2.0
+	dTheta /= 2.0
 
 	;Return the 2D distribution
 	return, dist2D
