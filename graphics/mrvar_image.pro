@@ -145,19 +145,127 @@ _REF_EXTRA=extra
 	endelse
 
 ;-------------------------------------------
+; Delta Plus and Minus /////////////////////
+;-------------------------------------------
+	;X DELTA_PLUS
+	if oX -> HasAttr('DELTA_PLUS_VAR') then begin
+		oDX = MrVar_Get( oX['DELTA_PLUS_VAR'] )
+		dxp = oDX['DATA']
+	endif else if oX -> HasAttr('DELTA_PLUS') then begin
+		dxp = oX['DELTA_PLUS']
+	endif
+	
+	;X DELTA_MINUS
+	if oX -> HasAttr('DELTA_MINUS_VAR') then begin
+		oDX = MrVar_Get( oX['DELTA_MINUS_VAR'] )
+		dxm = oDX['DATA']
+	endif else if oX -> HasAttr('DELTA_MINUS') then begin
+		dxm= oX['DELTA_MINUS']
+	endif
+	
+	;Y DELTA_PLUS
+	if oY -> HasAttr('DELTA_PLUS_VAR') then begin
+		oDY = MrVar_Get( oY['DELTA_PLUS_VAR'] )
+		dyp = oDY['DATA']
+	endif else if oY -> HasAttr('DELTA_PLUS') then begin
+		dyp = oY['DELTA_PLUS']
+	endif
+	
+	;Y DELTA_MINUS
+	if oY -> HasAttr('DELTA_MINUS_VAR') then begin
+		oDY = MrVar_Get( oY['DELTA_MINUS_VAR'] )
+		dym = oDY['DATA']
+	endif else if oY -> HasAttr('DELTA_MINUS') then begin
+		dym = oY['DELTA_MINUS']
+	endif
+	
+	;Make sure DELTA_PLUS and DELTA_MINUS are defined
+	if n_elements(dxm) gt 0 && n_elements(dxp) eq 0 then dxp = 0
+	if n_elements(dxp) gt 0 && n_elements(dxm) eq 0 then dxm = 0
+	if n_elements(dym) gt 0 && n_elements(dyp) eq 0 then dyp = 0
+	if n_elements(dyp) gt 0 && n_elements(dym) eq 0 then dym = 0
+
+	;Make sure both x and y are defined
+	if n_elements(dxm) eq 0 && n_elements(dym) gt 0 then begin
+		MrPrintF, 'LogWarn', 'No DELTA_(PLUS|MINUS) given for X.'
+		dxm = 0
+		dxp = x_data[1:*] - ox_data
+		dxp = [dxm, dxm[-1]]
+	endif
+	if n_elements(dxm) gt 0 && n_elements(dym) eq 0 then begin
+		MrPrintF, 'LogWarn', 'No DELTA_(PLUS|MINUS) given for Y.'
+		dym = 0
+		if size(oY, /N_DIMENSIONS) eq 2 then begin
+			dyp = oY[*,1:*] - oY['DATA']
+			dyp = [ [dyp], [dyp[*,-1]] ]
+		endif else begin
+			dyp = oY[1:*] - oY['DATA']
+			dyp = [dyp, dyp[-1]]
+		endelse
+	endif
+
+;-------------------------------------------
+; Define Pixel Areas ///////////////////////
+;-------------------------------------------
+	if n_elements(dxm) gt 0 || n_elements(dym) gt 0 then begin
+		;Plot the data
+		im = MrImage( oZ['DATA'], temporary(x_data), oY['DATA'], dxm, dym, dxp, dyp, $
+		              /AXES, $
+		              /CURRENT, $, $
+		              NAME          = oZ.name, $
+		              OVERPLOT      = overplot, $
+		              
+		              ;MrImage Keywords
+		              HIDE        = oZ -> GetAttrValue('HIDE',        /NULL), $
+		              KEEP_ASPECT = oZ -> GetAttrValue('KEEP_ASPECT', /NULL), $
+		              LAYOUT      = oZ -> GetAttrValue('LAYOUT',      /NULL), $
+		              POSITION    = oZ -> GetAttrValue('POSITION',    /NULL), $
+
+		              ;POLAR Plot Options
+		              POLAR          = oZ -> GetAttrValue('POLAR',          /NULL), $
+		              POL_AXSTYLE    = oZ -> GetAttrValue('POL_AXSTYLE',    /NULL), $
+		              POL_RCOLOR     = oZ -> GetAttrValue('POL_RCOLOR',     /NULL), $
+		              POL_RLINESTYLE = oZ -> GetAttrValue('POL_RLINESTYLE', /NULL), $
+		              POL_TCOLOR     = oZ -> GetAttrValue('POL_TCOLOR',     /NULL), $
+		              POL_TLINESTYLE = oZ -> GetAttrValue('POL_TLINESTYLE', /NULL), $
+		              POL_THICK      = oZ -> GetAttrValue('POL_THICK',      /NULL), $
+
+		              ;IMAGE_PLOTS Keywords
+		              AXISCOLOR     = oZ -> GetAttrValue('AXISCOLOR',     /NULL), $
+		              BOTTOM        = oZ -> GetAttrValue('BOTTOM',        /NULL), $
+		              CENTER        = oZ -> GetAttrValue('CENTER',        /NULL), $
+		              DATA_POS      = oZ -> GetAttrValue('DATA_POS',      /NULL), $
+		              LOG           = oZ -> GetAttrValue('LOG',           /NULL), $
+		              MISSING_VALUE = oZ -> GetAttrValue('MISSING_VALUE', /NULL), $
+		              MISSING_COLOR = oZ -> GetAttrValue('MISSING_COLOR', /NULL), $
+		              MISSING_INDEX = oZ -> GetAttrValue('MISSING_INDEX', /NULL), $
+		              NAN           = oZ -> GetAttrValue('NAN',           /NULL), $
+		              PAINT         = oZ -> GetAttrValue('PAINT',         /NULL), $
+		              RGB_TABLE     = oZ -> GetAttrValue('RGB_TABLE',     /NULL), $
+		              RANGE         = oZ -> GetAttrValue('AXIS_RANGE',    /NULL), $
+		              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL), $
+		              TOP           = oZ -> GetAttrValue('TOP',           /NULL) )
+
+;-------------------------------------------
 ; Display Image ////////////////////////////
 ;-------------------------------------------
-	;Plot the data
-	im = MrImage( oZ['DATA'], temporary(x_data), oY['DATA'], $
-	              /AXES, $
-	              /CURRENT, $, $
-	              NAME          = oZ.name, $
-	              OVERPLOT      = overplot, $
-	              LOG           = oZ -> GetAttrValue('LOG',           /NULL), $
-	              MISSING_COLOR = oZ -> GetAttrValue('MISSING_COLOR', /NULL), $
-	              MISSING_INDEX = oZ -> GetAttrValue('MISSING_INDEX', /NULL), $
-	              MISSING_VALUE = oZ -> GetAttrValue('MISSING_VALUE', /NULL), $
-	              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL) )
+	endif else begin
+		;Plot the data
+		im = MrImage( oZ['DATA'], temporary(x_data), oY['DATA'], $
+		              /AXES, $
+		              /CURRENT, $, $
+		              NAME          = oZ.name, $
+		              OVERPLOT      = overplot, $
+		              LOG           = oZ -> GetAttrValue('LOG',           /NULL), $
+		              MISSING_COLOR = oZ -> GetAttrValue('MISSING_COLOR', /NULL), $
+		              MISSING_INDEX = oZ -> GetAttrValue('MISSING_INDEX', /NULL), $
+		              MISSING_VALUE = oZ -> GetAttrValue('MISSING_VALUE', /NULL), $
+		              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL) )
+	endelse
+
+;-------------------------------------------
+; Set Axis Properties //////////////////////
+;-------------------------------------------
 	
 	;Set graphics properties
 ;	MrVar_SetGraphicsProperties, im, oZ, /XAXIS

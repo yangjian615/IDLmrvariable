@@ -54,11 +54,14 @@
 ;           SYM_THICK         SYM_THICK
 ;
 ; :Params:
-;       GFX[1-8]:   in, required, type=string/integer/objref
-;                   A MrVariable index, name, or object. Each variable will have an
-;                       item in the MrLegend object.
+;       VAR[1-8]:   in, required, type=string/integer/objref
+;                   A MrVariable index, name, or object. Each variable will contribute
+;                       items in the MrLegend object.
 ;
 ; :Keywords:
+;       ADD:        in, optional, type=objref
+;                   If the legend position is specified in relative or data coordinates,
+;                       then the data space is obtained from this MrGraphics data.
 ;       TARGET:     in, optional, type=objref
 ;                   If the legend position is specified in relative or data coordinates,
 ;                       then the data space is obtained from this MrGraphics data.
@@ -81,7 +84,8 @@
 ;   Modification History::
 ;       2016/06/08  -   Written by Matthew Argall
 ;-
-function MrVar_Legend, gfx1, gfx2, gfx3, gfx4, gfx5, gfx6, gfx7, gfx8, $
+function MrVar_Legend, var1, var2, var3, var4, var5, var6, var7, var8, $
+ADD=add, $
 TARGET=target, $
 _REF_EXTRA=extra
 	compile_opt strictarr
@@ -93,53 +97,105 @@ _REF_EXTRA=extra
 		MrPrintF, 'LogErr'
 		return, !Null
 	endif
+;-------------------------------------------
+; Add to Existing Legend //////////////////
+;-------------------------------------------
+	if keyword_set(add) then begin
+		;Heap ID of target
+		heapID = obj_valid(target, /GET_HEAP_IDENTIFIER)
+		if heapID eq 0 then message, 'TARGET must be a valid object if ADD is set.'
+
+		;Loop through all legends
+		tf_found = 0B
+		iLegend  = 0
+		all_lgds = target.window -> Get(/ALL, ISA='MRLEGEND', COUNT=nLegends)
+		while ~tf_found && iLegend lt nLegends do begin
+			
+			;Loop through all items
+			iItem     = 0L
+			all_items = all_lgds[iLegend] -> GetItem(COUNT=nItems)
+			while ~tf_found && iItem lt nItems do begin
+				
+				;Compare target of legend item to target of new graphic
+				if obj_valid((all_items[iItem]).target, /GET_HEAP_IDENTIFIER) eq heapID then begin
+					theLegend = all_items[iItem]
+					tf_found = 1B
+				endif
+				
+				;Next item
+				iItem += 1
+			endwhile
+			
+			;Next legend
+			iLegend += 1
+		endwhile
+		
+		;Cannot find
+		if ~tf_found then message, 'No legend found. Cannot add items.'
+		
+		;Start loop at first parameter
+		lgd    = all_lgds[iLegend-1]
+		iStart = 1
 
 ;-------------------------------------------
 ; Create Legend ////////////////////////////
 ;-------------------------------------------
-	;Get the first varaible
-	theVar = IsA(gfx1, 'MrVariable') ? gfx1 : MrVar_Get(gfx1)
-	
-	;Legend Label
-	case 1 of
-		theVar -> HasAttr('LABEL'): label = theVar['LABEL']
-		theVar.name ne '':          label = theVar.name
-		else:                       label = 'LEGEND_ITEM_1'
-	endcase
-	
-	;Create legend with first variable
-	lgd = MrLegend( TARGET           = target, $
-	                ;TEXT
-	                LABEL            = label, $
-	                FONT             = theVar -> GetAttrValue('FONT',      /NULL), $
-	                TEXT_COLOR       = theVar -> GetAttrValue('COLOR',     /NULL), $
-	                TEXT_SIZE        = theVar -> GetAttrValue('CHARSIZE',  /NULL), $
-	                TEXT_THICK       = theVar -> GetAttrValue('THICK',     /NULL), $
-	                ;LINE
-	                SAMPLE_COLOR     = theVar -> GetAttrValue('COLOR',     /NULL), $
-	                SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE', /NULL), $
-	                SAMPLE_WIDTH     = 3, $
-	                ;SYMBOL
-	                SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
-	                /SYM_CENTER, $
-	                SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
-	                SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
-	                SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL) )
+	endif else begin
+		;Get the first varaible
+		theVar = MrVar_Get(var1)
+		
+		;Legend Label
+		case 1 of
+			theVar -> HasAttr('LABEL'): label = theVar['LABEL']
+			theVar.name ne '':          label = theVar.name
+			else:                       label = 'LEGEND_ITEM_1'
+		endcase
+		
+		;Sample Color
+		case 1 of
+			theVar -> HasAttr('SAMPLE_COLOR'): sample_color = theVar['SAMPLE_COLOR']
+			theVar -> HasAttr('COLOR'):        sample_color = theVar['COLOR']
+			else: sample_color = !Null
+		endcase
+
+		;Create legend with first variable
+		lgd = MrLegend( TARGET           = target, $
+		                ;TEXT
+		                LABEL            = label, $
+		                FONT             = theVar -> GetAttrValue('FONT',      /NULL), $
+		                TEXT_COLOR       = theVar -> GetAttrValue('COLOR',     /NULL), $
+		                TEXT_SIZE        = theVar -> GetAttrValue('CHARSIZE',  /NULL), $
+		                TEXT_THICK       = theVar -> GetAttrValue('THICK',     /NULL), $
+		                ;LINE
+		                SAMPLE_COLOR     = sample_color, $
+		                SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE',    /NULL), $
+		                SAMPLE_WIDTH     = theVar -> GetAttrValue('SAMPLE_WIDTH', /NULL), $
+		                ;SYMBOL
+		                SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
+		                /SYM_CENTER, $
+		                SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
+		                SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
+		                SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL) )
+		
+		;Start loop at second parameter
+		iStart = 2
+	endelse
 
 ;-------------------------------------------
 ; Add More Items ///////////////////////////
 ;-------------------------------------------
 	
 	;Add more items individually
-	for i = 2, n_params() do begin
+	for i = iStart, n_params() do begin
 		case i of
-			2: theVar = IsA(gfx2, 'MrVariable') ? gfx2 : MrVar_Get(gfx2)
-			3: theVar = IsA(gfx3, 'MrVariable') ? gfx3 : MrVar_Get(gfx3)
-			4: theVar = IsA(gfx4, 'MrVariable') ? gfx4 : MrVar_Get(gfx4)
-			5: theVar = IsA(gfx5, 'MrVariable') ? gfx5 : MrVar_Get(gfx5)
-			6: theVar = IsA(gfx6, 'MrVariable') ? gfx6 : MrVar_Get(gfx6)
-			7: theVar = IsA(gfx7, 'MrVariable') ? gfx7 : MrVar_Get(gfx7)
-			8: theVar = IsA(gfx8, 'MrVariable') ? gfx8 : MrVar_Get(gfx8)
+			1: theVar = IsA(var1, 'MrVariable') ? var1 : MrVar_Get(var1)
+			2: theVar = IsA(var2, 'MrVariable') ? var2 : MrVar_Get(var2)
+			3: theVar = IsA(var3, 'MrVariable') ? var3 : MrVar_Get(var3)
+			4: theVar = IsA(var4, 'MrVariable') ? var4 : MrVar_Get(var4)
+			5: theVar = IsA(var5, 'MrVariable') ? var5 : MrVar_Get(var5)
+			6: theVar = IsA(var6, 'MrVariable') ? var6 : MrVar_Get(var6)
+			7: theVar = IsA(var7, 'MrVariable') ? var7 : MrVar_Get(var7)
+			8: theVar = IsA(var8, 'MrVariable') ? var8 : MrVar_Get(var8)
 			else: message, 'Incorrect number of parameter.'
 		endcase
 	
@@ -148,6 +204,13 @@ _REF_EXTRA=extra
 			theVar -> HasAttr('LABEL'): label = theVar['LABEL']
 			theVar.name ne '':          label = theVar.name
 			else:                       label = 'LEGEND_ITEM_' + strtrim(i, 2)
+		endcase
+		
+		;Sample Color
+		case 1 of
+			theVar -> HasAttr('SAMPLE_COLOR'): sample_color = theVar['SAMPLE_COLOR']
+			theVar -> HasAttr('COLOR'):        sample_color = theVar['COLOR']
+			else: sample_color = !Null
 		endcase
 		
 		;Add the legend item
@@ -159,9 +222,9 @@ _REF_EXTRA=extra
 	                TEXT_SIZE        = theVar -> GetAttrValue('CHARSIZE',  /NULL), $
 	                TEXT_THICK       = theVar -> GetAttrValue('THICK',     /NULL), $
 	                ;LINE
-	                SAMPLE_COLOR     = sym_color, $
-	                SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE', /NULL), $
-	                SAMPLE_WIDTH     = 3, $
+	                SAMPLE_COLOR     = sample_color, $
+	                SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE',    /NULL), $
+	                SAMPLE_WIDTH     = theVar -> GetAttrValue('SAMPLE_WIDTH', /NULL), $
 	                ;SYMBOL
 	                SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
 	                /SYM_CENTER, $

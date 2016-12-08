@@ -149,11 +149,14 @@ _REF_EXTRA=extra
 	             LINESTYLE   = oY -> GetAttrValue('LINESTYLE',  /NULL), $
 	             MAX_VALUE   = oY -> GetAttrValue('MAX_VALUE',  /NULL), $
 	             MIN_VALUE   = oY -> GetAttrValue('MIN_VALUE',  /NULL), $
+	             NOCLIP      = oY -> GetAttrValue('NOCLIP',     /NULL), $
 	             NSUM        = oY -> GetAttrValue('NSUM',       /NULL), $
 	             POLAR       = oY -> GetAttrValue('POLAR',      /NULL), $
 	             PSYM        = oY -> GetAttrValue('SYMBOL',     /NULL), $
 	             SYMCOLOR    = oY -> GetAttrValue('SYM_COLOR',  /NULL), $
 	             SYMSIZE     = oY -> GetAttrValue('SYM_SIZE',   /NULL), $
+	             THICK       = oY -> GetAttrValue('THICK',      /NULL), $
+	             TICKLEN     = oY -> GetAttrValue('TICKLEN',    /NULL), $
 	             TITLE       = oY -> GetAttrValue('PLOT_TITLE', /NULL) )
 	
 	;Set graphics properties
@@ -163,6 +166,32 @@ _REF_EXTRA=extra
 	;Set user-given properties
 	p1 -> SetProperty, XTITLE=xtitle, XTICKFORMAT=xtickformat
 	if n_elements(extra) gt 0 then p1 -> SetProperty, _STRICT_EXTRA=extra
+
+;-------------------------------------------
+; Create a Legend //////////////////////////
+;-------------------------------------------
+	if oY -> HasAttr('LABEL') then begin
+		;Do not draw the lines
+		if ~oY -> HasAttr('SAMPLE_WIDTH') then oY['SAMPLE_WIDTH'] = 0
+		
+		;Create the legend
+		if n_elements(overplot) eq 0 then begin
+			l1 = MrVar_Legend( oY, $
+			                   COLOR      = '', $
+			                   FILL_COLOR = '', $
+			                   LINESTYLE  = 'None', $
+			                   TARGET     = p1 )
+		
+		;Add a legend item
+		endif else begin
+			l1 = MrVar_Legend( oY, $
+			                   /ADD, $
+			                   COLOR      = '', $
+			                   FILL_COLOR = '', $
+			                   LINESTYLE  = 'NONE', $
+			                   TARGET     = overplot )
+		endelse
+	endif
 
 ;-------------------------------------------
 ; Finish ///////////////////////////////////
