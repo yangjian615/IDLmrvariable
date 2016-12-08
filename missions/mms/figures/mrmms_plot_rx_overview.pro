@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_Rx_Overview
+;       MrMMS_Plot_Rx_Overview
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -67,7 +67,7 @@
 ;   Modification History::
 ;       2016/09/21  -   Written by Matthew Argall
 ;-
-function MrMMS_Rx_Overview, sc, mode, $
+function MrMMS_Plot_Rx_Overview, sc, mode, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	compile_opt idl2
@@ -82,20 +82,39 @@ TRANGE=trange
 	
 	tf_load = ~keyword_set(no_load)
 	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
-	
+
 ;-------------------------------------------
-; Get Data /////////////////////////////////
+; Variable Names ///////////////////////////
 ;-------------------------------------------
 	level    = 'l2'
 	edp_mode = mode eq 'srvy' ? 'fast' : mode
 	fgm_mode = mode
 	fpi_mode = mode eq 'brst' ? mode : 'fast'
 	
-	coords = 'gse'
-	if coords eq 'gse' then begin
-		MrPrintF, 'LogWarn', 'FPI does not have data in GSE yet. Changing to DBCS.'
-		fpi_coords = 'dbcs'
-	endif
+	coords     = 'gse'
+	fpi_coords = 'dbcs'
+	
+	;Source names
+	b_vname       = sc + '_fgm_b_'             +     coords + '_' + fgm_mode + '_' + level
+	bvec_vname    = sc + '_fgm_bvec_'          +     coords + '_' + fgm_mode + '_' + level
+	E_vname       = sc + '_edp_dce_'           +     coords + '_' + edp_mode + '_' + level
+	ni_vname      = sc + '_dis_numberdensity_'                    + fpi_mode
+	ne_vname      = sc + '_des_numberdensity_'                    + fpi_mode
+	vi_vname      = sc + '_dis_bulkv_'         + fpi_coords + '_' + fpi_mode
+	ve_vname      = sc + '_des_bulkv_'         + fpi_coords + '_' + fpi_mode
+	ti_para_vname = sc + '_dis_temppara_'                         + fpi_mode
+	te_para_vname = sc + '_des_temppara_'                         + fpi_mode
+	ti_perp_vname = sc + '_dis_tempperp_'                         + fpi_mode
+	te_perp_vname = sc + '_des_tempperp_'                         + fpi_mode
+	Ee_vname      = sc + '_des_energyspectr_'                     + fpi_mode
+	Ei_vname      = sc + '_dis_energyspectr_'                     + fpi_mode
+	
+	;Derived names
+	j_vname = sc + '_fpi_currentdensity_' + fpi_coords + '_' + fpi_mode
+	
+;-------------------------------------------
+; Get Data /////////////////////////////////
+;-------------------------------------------
 	
 	;FGM
 	if tf_load then begin
@@ -111,33 +130,118 @@ TRANGE=trange
 		MrMMS_FPI_Load_Data, sc, fpi_mode, $
 		                     OPTDESC   = 'des-moms', $
 		                     VARFORMAT = ['*energyspectr*', $
-		                                  '*density_' + fpi_coords + '*']
+		                                  '*density*', $
+		                                  '*bulk?_' + fpi_coords + '*', $
+		                                  '*tempp*']
 	
 		;DIS
 		MrMMS_FPI_Load_Data, sc, fpi_mode, $
 		                     OPTDESC   = 'dis-moms', $
 		                     VARFORMAT = ['*energyspectr*', $
-		                                  '*density_' + fpi_coords + '*', $
-		                                  '*bulk?_'   + fpi_coords + '*']
+		                                  '*density*', $
+		                                  '*bulk?_'   + fpi_coords + '*', $
+		                                  '*tempp*']
 	endif
+	
+;-------------------------------------------
+; Current Density //////////////////////////
+;-------------------------------------------
+	;Grab data
+	n_e = MrVar_Get(ne_vname)
+	vi  = MrVar_Get(vi_vname)
+	ve  = MrVar_Get(ve_vname)
 
+	;Interpolate ions
+	vi_des = vi -> Interpol(ve)
+	
+	;Compute current density
+	j = 1e-3 * n_e * (vi_des - ve)
+	j -> SetName, j_vname
+	j -> Cache
+	
+	;Free data
+	obj_destroy, vi_des
+	
 ;-------------------------------------------
-; Variable Names ///////////////////////////
+; Attributes ///////////////////////////////
 ;-------------------------------------------
-	;Source names
-	B_vname  = sc + '_fgm_bvec_'          +     coords + '_' + fgm_mode + '_' + level
-	E_vname  = sc + '_edp_dce_'           +     coords + '_' + edp_mode + '_' + level
-	ni_vname = sc + '_dis_numberdensity_' + fpi_coords + '_' + fpi_mode
-	ne_vname = sc + '_des_numberdensity_' + fpi_coords + '_' + fpi_mode
-	vi_vname = sc + '_dis_bulkv_'         + fpi_coords + '_' + fpi_mode
-	Ee_vname = sc + '_des_energyspectr_'                     + fpi_mode
-	Ei_vname = sc + '_dis_energyspectr_'                     + fpi_mode
+	title = strupcase(sc)
+	
+	;B
+	oB = MrVar_Get(b_vname)
+	oB['LABEL'] = ['Bx', 'By', 'Bz', '|B|']
+	oB['PLOT_TITLE'] = title
+	
+	;NI
+	ni = MrVar_Get(ni_vname)
+	ni['COLOR'] = 'Blue'
+	ni['LABEL'] = 'ni'
+	ni['TITLE'] = 'N!Ccm$\up-3$'
+	
+	;NE
+	n_e['COLOR'] = 'Red'
+	n_e['LABEL'] = 'ne'
+	
+	;VI
+	vi['TITLE'] = 'Vi!C(km/s)'
+	vi['LABEL'] = ['Vx', 'Vy', 'Vz']
+	
+	;VE
+	ve['LABEL'] = ['Vx', 'Vy', 'Vz']
+	ve['TITLE'] = 'Ve!C(km/s)'
+	
+	;J
+	j['LABEL'] = ['Jx', 'Jy', 'Jz']
+	j['TITLE'] = 'J!C$\mu$A/m$\up2$'
+	
+	;TI_PARA
+	ti_perp = MrVar_Get(ti_perp_vname)
+	ti_para = MrVar_Get(ti_para_vname)
+	ti_para['TITLE'] = 'Ti!C(eV)'
+	ti_para['COLOR'] = 'Blue'
+	ti_para['LABEL'] = 'Para'
+	
+	;TI_PERP
+	ti_para['AXIS_RANGE'] = [0, max( [ti_para.max, ti_perp.max] ) * 1.1]
+	ti_perp['TITLE']      = 'Ti!C(eV)'
+	ti_perp['COLOR']      = 'Red'
+	ti_perp['LABEL']      = 'Perp'
+	
+	;TE_PARA
+	te_perp = MrVar_Get(te_perp_vname)
+	te_para = MrVar_Get(te_para_vname)
+	te_para['AXIS_RANGE'] = [0, max( [te_para.max, te_perp.max] ) * 1.1]
+	te_para['COLOR']      = 'Blue'
+	te_para['LABEL']      = 'Para'
+	te_para['TITLE']      = 'Te!C(eV)'
+	
+	;TE_PERP
+	te_perp['TITLE'] = 'Te!C(eV)'
+	te_perp['COLOR'] = 'Red'
+	te_perp['LABEL'] = 'Perp'
+	
+	;E
+	E = MrVar_Get(e_vname)
+	E['TITLE'] = 'E!C(mV/m)'
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
-	win = MrVar_PlotTS( [B_vname, E_vname, ni_vname, vi_vname, Ee_vname, Ei_vname], $
-	                    YSIZE = 700)
+	
+	;Plot
+	win = MrVar_PlotTS( [B_vname, Ee_vname, Ei_vname, ni_vname, vi_vname, ve_vname, j_vname, ti_para_vname, te_para_vname, E_vname], $
+	                    XSIZE = 800, $
+	                    YSIZE = 800)
+	win -> Refresh, /DISABLE
+	
+	;Overplot
+	win = MrVar_OPlotTS( [ni_vname, ti_para_vname, te_para_vname], $
+	                     [ne_vname, ti_perp_vname, te_perp_vname] )
+	
+	win[0] -> SetLayout, [1,1]
+	win    -> TrimLayout
+	win    -> SetProperty, OXMARGIN=[12,10]
 
+	win -> Refresh
 	return, win
 end
