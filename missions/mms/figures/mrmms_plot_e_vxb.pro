@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_EDI_Q0_GPDist
+;       MrMMS_Plot_E_VxB
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -33,8 +33,7 @@
 ;       
 ; PURPOSE:
 ;+
-;   Compute the pitch and gyrophase angle of EDI particle trajectory information.
-;   Resulting data is added to the MrVariable cache.
+;   Plot the parallel and perpendicular components of the electric field.
 ;
 ; :Categories:
 ;   MMS, EDI, MrVariable
@@ -79,8 +78,9 @@
 ;   Modification History::
 ;       2014/06/28  -   Written by Matthew Argall
 ;-
-function MrMMS_E_VxB, $
-NO_LOAD=no_load
+function MrMMS_Plot_E_VxB, sc, mode, $
+NO_LOAD=no_load, $
+TRANGE=trange
 	compile_opt idl2
 	
 	catch, the_error
@@ -91,9 +91,7 @@ NO_LOAD=no_load
 		return, !Null
 	endif
 	
-	sc   = 'mms1'
-	mode = 'srvy'
-	MrVar_SetTRange, ['2016-01-01T00:59:00', '2016-01-01T01:01:00']
+	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
 	tf_load = ~keyword_set(no_load)
 	
 ;-------------------------------------------
@@ -111,7 +109,7 @@ NO_LOAD=no_load
 		
 		;EDP E-Field
 		MrMMS_Load_Data, sc, 'edp', edp_mode, level, $
-		                 OPTDESC   = 'dce'
+		                 OPTDESC   = 'dce', $
 		                 VARFORMAT = '*_dce_dsl_*'
 	
 		;DES
@@ -220,7 +218,7 @@ NO_LOAD=no_load
 	Ex_perp = E_des[*,0] - E_des[*,0] * b_hat_des[*,0]
 	Ey_perp = E_des[*,1] - E_des[*,1] * b_hat_des[*,1]
 	Ez_perp = E_des[*,2] - E_des[*,2] * b_hat_des[*,2]
-	Eperp = MrVectorTS( [ [temporary(Ex_perp)], [temporary(Ey_perp)], [temporary(Ez_perp)] ] )
+	Eperp = MrVectorTS( E_des['TIMEVAR'], [ [temporary(Ex_perp)], [temporary(Ey_perp)], [temporary(Ez_perp)] ] )
 
 	;Set properties
 	Epar -> SetName, Epar_vname
@@ -268,6 +266,14 @@ NO_LOAD=no_load
 	                     [Ex_dis_vname, Ey_dis_vname, Ez_dis_vname] )
 	
 	;Create legends
+	oB = MrLegend( ALIGNMENT    = 'NW', $
+	               POSITION     = [1.0, 1.0], $
+	               /RELATIVE, $
+	               LABEL        = ['Bx', 'By', 'Bz'], $
+	               TARGET       = win[B_vname], $
+	               TEXT_COLOR   = ['Blue', 'Red', 'Forest Green'], $
+	               SAMPLE_WIDTH = 0.0 )
+	                
 	oLx = MrLegend( ALIGNMENT    = 'NW', $
 	                POSITION     = [1.0, 1.0], $
 	                /RELATIVE, $

@@ -63,6 +63,9 @@
 ;       VARFORMAT:          out, optional, type=string, default='*'
 ;                           Variables that match this search pattern will be read,
 ;                               others are ignored.
+;       _REF_EXTRA:         in, optional, type=any
+;                           Any keyword accepted by MrMMS_SDC_Query::CD is also accepted
+;                               via keyword inheritance.
 ;       
 ; :Author:
 ;   Matthew Argall::
@@ -80,7 +83,8 @@ function MrMMS_Get_Filenames, sc, instr, mode, level, $
 COUNT=count, $
 OPTDESC=optdesc, $
 TEAM_SITE=team_site, $
-TRANGE=trange
+TRANGE=trange, $
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	catch, the_error
@@ -123,16 +127,17 @@ TRANGE=trange
 	!MrMMS -> CD, /RESET_PATH, $
 	              /RESET_QUERY, $
 	              /FILE_NAMES, $
-	              SUCCESS     = success, $
-	              SC_ID       = sc, $
-	              INSTR       = instr, $
-	              MODE        = mode, $
-	              LEVEL       = level, $
-	              OPTDESC     = optdesc, $
-	              PUBLIC_SITE = public_site, $
-	              TEAM_SITE   = team_site, $
-	              TSTART      = trange[0], $
-	              TEND        = trange[1]
+	              SUCCESS       = success, $
+	              SC_ID         = sc, $
+	              INSTR         = instr, $
+	              MODE          = mode, $
+	              LEVEL         = level, $
+	              OPTDESC       = optdesc, $
+	              PUBLIC_SITE   = public_site, $
+	              TEAM_SITE     = team_site, $
+	              TSTART        = trange[0], $
+	              TEND          = trange[1], $
+	              _STRICT_EXTRA = extra
 	if ~success then return, ''
 	
 	;Attempt to get the data

@@ -71,6 +71,7 @@
 ;   Modification History::
 ;       2016/06/30  -   Written by Matthew Argall
 ;       2016/08/30  -   Bump "End_Date" field up to next day if time is not 00:00:00. - MRA
+;       2016/11/19  -   Incorporate ancillary data products. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -100,6 +101,7 @@ function MrMMS_SDC_Query::_OverloadPrint
 	;Print the array
 	return, outStr
 end
+
 
 ;+
 ;   Build a URI
@@ -157,12 +159,13 @@ end
 ;                           with `TEAM`.
 ;
 ;       ANC_PRODUCT:    in, optional, type=string/strarr
-;                       Ancillary data product names. Should only be used with `ANCILLARY`.
+;                       Ancillary data product names. Setting this keyword will
+;                           automatically set `ANCILLARY`.
 ;       FILES:          in, optional, type=string/strarr, default=''
 ;                       Names of the files to be downloaded. If set, then `RESET_QUERY`, 
 ;                           will be set.
 ;       INSTR:          in, optional, type=string/strarr
-;                       Instrument ID.
+;                       Instrument ID. If INSTR='hk', the `HK` keyword will be auto-set.
 ;       LEVEL:          in, optional, type=string/strarr
 ;                       Data quality level.
 ;       MODE:           in, optional, type=string/strarr
@@ -232,20 +235,25 @@ VERSION=version
 	
 	;If FILES is provided, other query parameters are ignored.
 	if n_elements(files) gt 0 then tf_reset_query = 1B
-
-	;Download files by their file name
-;	if n_elements(files) gt 0 then begin
-;		tf_download    = 1B
-;		tf_names       = 0B
-;		tf_info        = 0B
-;		tf_v_info      = 0B
-;		tf_science     = 1B
-;		tf_anc         = 0B
-;		tf_hk          = 0B
-;		tf_reset_query = 1B
-;	endif else begin
-;		files = ''
-;	endelse
+	
+;---------------------------------------------------------------------
+; Defaults & Restrictions ////////////////////////////////////////////
+;---------------------------------------------------------------------
+	;Default values
+	if n_elements(sc_id)   eq 0 then sc_id   = tf_reset_query ? '' : (*self.field_values).sc_id
+	if n_elements(instr)   eq 0 then instr   = tf_reset_query ? '' : (*self.field_values).instrument_id
+	if n_elements(mode)    eq 0 then mode    = tf_reset_query ? '' : (*self.field_values).data_rate_mode
+	if n_elements(level)   eq 0 then level   = tf_reset_query ? '' : (*self.field_values).data_level
+	if n_elements(optdesc) eq 0 then optdesc = tf_reset_query ? '' : (*self.field_values).descriptor
+	if n_elements(version) eq 0 then version = tf_reset_query ? '' : (*self.field_values).version
+	if n_elements(ancprod) eq 0 then ancprod = tf_reset_query ? '' : (*self.field_values).product
+	if n_elements(files)   eq 0 then files   = tf_reset_query ? '' : (*self.field_values).file
+	if n_elements(tstart)  eq 0 then tstart  = tf_reset_query ? '' : self.tstart
+	if n_elements(tend)    eq 0 then tend    = tf_reset_query ? '' : self.tend
+	
+	;Set ANCILLARY and HK keywords automatically
+	if ancprod[0] ne ''   then tf_anc = 1B
+	if instr[0]   eq 'hk' then tf_hk  = 1B
 	
 	;Restrictions
 	if tf_v_info && (tf_anc || tf_hk) then message, 'V_INFO cannot be used with ANCILLARY or HK.'
@@ -336,18 +344,23 @@ VERSION=version
 	;Query string
 	;   - Does not like empty fields
 	uri_query = ''
-	if sc_id[0]   ne '' then uri_query += ( n_elements(sc_id)    eq 1 ? 'sc_id='          + sc_id   : 'sc_id='          + strjoin(sc_id,   ',') ) + '&'
-	if instr[0]   ne '' then uri_query += ( n_elements(instr)    eq 1 ? 'instrument_id='  + instr   : 'instrument_id='  + strjoin(instr,   ',') ) + '&'
-	if mode[0]    ne '' then uri_query += ( n_elements(mode)     eq 1 ? 'data_rate_mode=' + mode    : 'data_rate_mode=' + strjoin(mode,    ',') ) + '&'
-	if level[0]   ne '' then uri_query += ( n_elements(level)    eq 1 ? 'data_level='     + level   : 'data_level='     + strjoin(level,   ',') ) + '&'
-	if optdesc[0] ne '' then uri_query += ( n_elements(optdesc)  eq 1 ? 'descriptor='     + optdesc : 'descriptor='     + strjoin(optdesc, ',') ) + '&'
-	if version[0] ne '' then uri_query += ( n_elements(version)  eq 1 ? 'version='        + version : 'version='        + strjoin(version, ',') ) + '&'
-	if ancprod[0] ne '' then uri_query += ( n_elements(ancprod)  eq 1 ? 'product='        + ancprod : 'ancprod='        + strjoin(ancprod, ',') ) + '&'
-	if files[0]   ne '' then uri_query += ( n_elements(files)    eq 1 ? 'file='           + files   : 'file='           + strjoin(files,   ',') ) + '&'
+	if sc_id[0]   ne '' then uri_query += ( n_elements(sc_id)   eq 1 ? 'sc_id='          + sc_id   : 'sc_id='          + strjoin(sc_id,   ',') ) + '&'
+	if instr[0]   ne '' then uri_query += ( n_elements(instr)   eq 1 ? 'instrument_id='  + instr   : 'instrument_id='  + strjoin(instr,   ',') ) + '&'
+	if mode[0]    ne '' then uri_query += ( n_elements(mode)    eq 1 ? 'data_rate_mode=' + mode    : 'data_rate_mode=' + strjoin(mode,    ',') ) + '&'
+	if level[0]   ne '' then uri_query += ( n_elements(level)   eq 1 ? 'data_level='     + level   : 'data_level='     + strjoin(level,   ',') ) + '&'
+	if optdesc[0] ne '' then uri_query += ( n_elements(optdesc) eq 1 ? 'descriptor='     + optdesc : 'descriptor='     + strjoin(optdesc, ',') ) + '&'
+	if version[0] ne '' then uri_query += ( n_elements(version) eq 1 ? 'version='        + version : 'version='        + strjoin(version, ',') ) + '&'
+	if ancprod[0] ne '' then uri_query += ( n_elements(ancprod) eq 1 ? 'product='        + ancprod : 'ancprod='        + strjoin(ancprod, ',') ) + '&'
+	if files[0]   ne '' then uri_query += ( n_elements(files)   eq 1 ? 'file='           + files   : 'file='           + strjoin(files,   ',') ) + '&'
 	
 	
 	;The query requires two dates from two different days
 	;   - If we want data from a single day, then some fudging needs to be done
+	;   - Also, if TSTART=2015-288 and TEND=2015-289, then the ancillary file
+	;     returned will be 2015-288 to 2015-289. This file, however, contains
+	;     only 2 minutes of data from 288. There is another file from 2015-287
+	;     to 2015-288. In order to find it, TSTART must be 2015-287. Thus, here,
+	;     we bump TSTART and TEND by one day for ancillary files
 	date_start = tstart
 	date_end   = tend
 	if date_start ne '' && date_end ne '' then begin
@@ -357,8 +370,23 @@ VERSION=version
 		time_end   = strmid(tend,  11,  8)
 		if time_end eq '' then time_end = '00:00:00'
 
-		;Are they the same?
-		if date_start eq date_end || time_end ne '00:00:00' then begin
+		;Bump down DATE_START if:
+		;   - ANCILLARY data is being downloaded
+		if tf_anc then begin
+			;Parse the date
+			month = fix(strmid(date_start, 5, 2))
+			day   = fix(strmid(date_start, 8, 2))
+			year  = fix(strmid(date_start, 0, 4))
+			
+			;Bump the end date up by one day
+			cdf_tt2000, tt_end, year, month, day-1, /COMPUTE_EPOCH
+			date_start = strmid(cdf_encode_tt2000(tt_end), 0, 10)
+		endif
+
+		;Bump up DATE_END if:
+		;   - DATE_START = DATE_END
+		;   - ANCILLARY data is being downloaded
+		if date_start eq date_end || time_end ne '00:00:00' || tf_anc then begin
 			;Parse the date
 			month = fix(strmid(date_end, 5, 2))
 			day   = fix(strmid(date_end, 8, 2))
@@ -405,7 +433,7 @@ VERSION=version
 	endif else begin
 		if tf_reset_query && files[0] eq '' then self.tend = ''
 	endelse
-	
+
 	;Trim the trailing "&"
 	uri_query = strmid(uri_query, 0, strlen(uri_query)-1)
 
@@ -417,6 +445,78 @@ VERSION=version
 	                               PATH     = uri_path, $
 	                               QUERY    = uri_query, $
 	                               SCHEME   = uri_scheme )
+	
+	return, uri
+end
+
+
+;+
+;   Build a URI
+;
+; :Keywords:
+;       DOWNLOAD:       in, optional, type=boolean, default=0
+;                       If set, the path will be returned to the default path. This is
+;                           equivalent to setting `PUBLIC`, `DOWNLOAD`, and `SCIENCE`.
+;-
+function MrMMS_SDC_Query::BuildLocalName, $
+DROPBOX=dropbox
+	compile_opt idl2
+	on_error, 2
+	
+	;Defaults
+	tf_dropbox = keyword_set(dropbox)
+	
+	;Define the directory structure to use
+	if tf_dropbox $
+		then dropbox_root = self.dropbox_root $
+		else sdc_root     = self.local_root
+
+;-----------------------------------------------------
+; Use File Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	if (*self.field_values).file[0] ne '' then begin
+		;Separate ancillary files from the rest
+		ftemp = strsplit((*self.field_values).file, ',', /EXTRACT)
+		iAnc  = where( self -> IsAncillary(ftemp), nAnc, $
+		               COMPLEMENT=iData, NCOMPLEMENT=nData)
+		
+		;DROPBOX is a flat directory structure
+		if tf_dropbox then begin
+			uri = filepath(temporary(ftemp), ROOT_DIR=dropbox_root)
+		
+		;SDC directory structure
+		endif else begin
+			uri_root = strarr(nAnc + nData)
+			if nAnc  gt 0 then uri_root[iAnc]  = MrMMS_Anc_Build_Path( ftemp[iAnc], SDC_ROOT=sdc_root )
+			if nData gt 0 then uri_root[iData] = MrMMS_Build_Path( ftemp[iData], SDC_ROOT=sdc_root )
+			uri = temporary(uri_root) + temporary(ftemp)
+		endelse
+		
+;-----------------------------------------------------
+; Use Query Field Values \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Directories from field-value pairs
+	;   - TSTART (& TEND) will be made from MrTokens
+	;   - VERSION will be the asterisk
+	endif else begin
+		;Ancillary
+		if (*self.field_values).product ne '' then begin
+			uri = MrMMS_Anc_Build_Filename( strsplit( (*self.field_values).sc_id,   ',', /EXTRACT ), $
+			                                strsplit( (*self.field_values).product, ',', /EXTRACT ), $
+			                                DIRECTORY = dropbox_root, $
+			                                SDC_ROOT  = sdc_root )
+		
+		;Data
+		endif else begin
+			uri = MrMMS_Build_Filename( strsplit( (*self.field_values).sc_id,          ',', /EXTRACT ), $
+			                            strsplit( (*self.field_values).instrument_id,  ',', /EXTRACT ), $
+			                            strsplit( (*self.field_values).data_rate_mode, ',', /EXTRACT ), $
+			                            strsplit( (*self.field_values).data_level,     ',', /EXTRACT ), $
+			                            DIRECTORY = dropbox_root, $
+			                            OPTDESC   = strsplit( (*self.field_values).descriptor, ',', /EXTRACT ), $
+			                            SDC_ROOT  = sdc_root )
+		endelse
+	endelse
 	
 	return, uri
 end
@@ -443,15 +543,20 @@ _REF_EXTRA=extra
 	compile_opt idl2
 	on_error, 2
 	
-	;URI or Keywords must be given
-	if (n_elements(uri) gt 0) + (n_elements(extra) gt 0) ne 1 $
-		then message, 'Either a URI or URI keywords must be given.'
-
-	;Create the URI
-	if n_elements(uri) eq 0 then uri = self -> BuildURI( _STRICT_EXTRA = extra )
-
-	;Set the URI
-	self -> SetURI, uri, success
+	;URI Given
+	if n_elements(uri) gt 0 then begin
+		self -> SetURI, uri, success
+		if n_elements(extra) gt 0 then void = self -> BuildURI( _STRICT_EXTRA=extra )
+	
+	;Keywords given
+	endif else if n_elements(extra) gt 0 then begin
+		newURI = self -> BuildURI( _STRICT_EXTRA=extra )
+		self -> SetURI, newURI, success
+	
+	;Nothing given
+	endif else begin
+		message, 'No inputs given. Specify a URI or keywords.'
+	endelse
 	
 	;Success status
 	if ~success && ~arg_present(success) then message, 'Cannot change directories.'
@@ -526,12 +631,15 @@ COUNT=count
 	;Time filter
 	;   - Required because ::GetFileNames ignores the hour, minute, second
 	;   - Must do survey and burst separately because their times overlap
-	iBrst = where( stregex(filenames, 'brst', /BOOLEAN), nBrst, COMPLEMENT=iSrvy, NCOMPLEMENT=nSrvy )
+	iAnc  = where( stregex(filenames, '(DEF|PRED|ATTVAL|NAV|TIMEBIAS)', /BOOLEAN), nAnc )
+	iBrst = where( stregex(filenames, 'brst', /BOOLEAN), nBrst )
+	iSrvy = where( stregex(filenames, '(slow|fast|srvy)', /BOOLEAN), nSrvy )
 	if nSrvy gt 0 then srvy_files = self -> FilterTime(filenames[iSrvy], self.tstart, self.tend, COUNT=nSrvy)
 	if nBrst gt 0 then brst_files = self -> FilterTime(filenames[iBrst], self.tstart, self.tend, COUNT=nBrst)
+	if nAnc  gt 0 then anc_files  = self -> FilterTime_Anc(filenames[iAnc], self.tstart, self.tend, COUNT=nAnc)
 
 	;Check results
-	count = nSrvy + nBrst
+	count = nSrvy + nBrst + nAnc
 	if count eq 0 then return, ''
 	
 ;---------------------------------------------------------------------
@@ -542,20 +650,32 @@ COUNT=count
 	;   - If a specific file is downloaded (as is done below), only the most recent
 	;     version of a file will be downloaded. If an older version is specified, no
 	;     file is returned.
-	files = strarr(count)
 	if nSrvy gt 0 then srvy_files = self -> FilterVersion(srvy_files, COUNT=nSrvy)
 	if nBrst gt 0 then brst_files = self -> FilterVersion(brst_files, COUNT=nBrst)
-	
+	if nAnc  gt 0 then anc_files  = self -> FilterVersion_Anc(anc_files, COUNT=nAnc)
+
 ;---------------------------------------------------------------------
 ; Combine Results ////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	case 1 of
-		nSrvy gt 0 && nBrst gt 0: files = [temporary(srvy_files), temporary(brst_files)]
-		nSrvy gt 0: files = temporary(srvy_files)
-		nBrst gt 0: files = temporary(brst_files)
-		else:       files = ''
-	endcase
-	count = nSrvy + nBrst
+	count = 0
+	
+	;ANCILLARY
+	if nAnc gt 0 then begin
+		files  = count eq 0 ? temporary(anc_files) : [files, temporary(anc_files)]
+		count += nAnc
+	endif
+	
+	;SRVY
+	if nSrvy gt 0 then begin
+		files  = count eq 0 ? temporary(srvy_files) : [files, temporary(srvy_files)]
+		count += nSrvy
+	endif
+	
+	;BRST
+	if nBrst gt 0 then begin
+		files  = count eq 0 ? temporary(brst_files) : [files, temporary(brst_files)]
+		count += nBrst
+	endif
 	
 	;Return
 	return, files
@@ -677,6 +797,41 @@ end
 
 
 ;+
+;   Filter files by time. Burst and Srvy files should be filtered separately.
+;
+; :Private:
+;
+; :Params:
+;       FILENAMES:      in, required, type=string/strarr
+;                       File names to be filtered.
+;       TSTART:         in, required, type=string
+;                       Start time of filter.
+;       TEND:           in, required, type=string
+;                       End time of filter.
+;
+; :Keywords:
+;       COUNT:          out, optional, type=integer
+;                       Number of files that pass the filter.
+;
+; :Returns:
+;       FILES_OUT:      Files that pass the filter.
+;-
+function MrMMS_SDC_Query::FilterTime_Anc, filenames, tstart, tend, $
+COUNT=count
+	compile_opt idl2
+	on_error, 2
+	
+	;Filter using superclass
+	files_out = self -> MrURI::FilterTime( 'MMS*_%Y%D_%Y%D.V*', filenames, $
+	                                       COUNT     = count, $
+	                                       TIMEORDER = '%Y%D', $
+	                                       TPATTERN  = '%Y%D_%Y%D' )
+	
+	return, files_out
+end
+
+
+;+
 ;   Filter files by version number.
 ;
 ; :Private:
@@ -762,6 +917,87 @@ VERSION=version
 			fv        = fv[*,iv]
 			files_out = files_out[iv]
 		endfor
+	endelse
+	
+	;Return
+	if count eq 0 then files_out = ''
+	if count eq 1 then files_out = files_out[0]
+	return, files_out
+end
+
+
+;+
+;   Filter ancillary files by version number.
+;
+; :Private:
+;
+; :Params:
+;       FILENAMES:      in, required, type=string/strarr
+;                       File names to be filtered.
+;
+; :Keywords:
+;       COUNT:          out, optional, type=integer
+;                       Number of files that pass the filter.
+;       LATEST_VERSION: in, optional, type=boolean, default=0
+;                       If set, only the newest version of the files is returned. This
+;                           is the default if `MIN_VERSION` and `VERSION` are not set.
+;       MIN_VERSION:    in, optional, type=string, default=''
+;                       A version number formatted as 'X.Y.Z'. Files with
+;                           versions smaller this version will be filtered out.
+;       VERSION:        in, optional, type=string, default=''
+;                       A version number formatted as 'X.Y.Z'. Only files of
+;                           this version will be returned.
+;
+; :Returns:
+;       FILES_OUT:      Files that pass the filter.
+;-
+function MrMMS_SDC_Query::FilterVersion_Anc, filenames, $
+COUNT=count, $
+LATEST_VERSION=latest_version, $
+MIN_VERSION=min_version, $
+VERSION=version
+	compile_opt idl2
+	on_error, 2
+	
+	;Defaults
+	tf_latest = keyword_set(latest_version)
+	tf_checkv = n_elements(version)     gt 0
+	tf_minv   = n_elements(min_version) gt 0
+	if tf_checkv + tf_minv + tf_latest  eq 0 then tf_latest = 1B
+	if tf_checkv + tf_minv + tf_latest  gt 1 $
+		then message, 'VERSION, MIN_VERSION and LATEST_VERSION are mutually exclusive.'
+
+	;Results
+	files_out = filenames
+	count     = n_elements(filenames)
+
+	;Extract version number from file
+	fversion = stregex(files_out, 'V([0-9]+)$', /SUBEXP, /EXTRACT)
+	fv = fix( reform(fversion[1,*]) )
+
+;------------------------------------;
+; Minimum Version                    ;
+;------------------------------------;
+	if tf_minv then begin
+		;Select file versions
+		iv = where( fv ge fix(min_version), count )
+		if count gt 0 then files_out = files_out[iv]
+
+;------------------------------------;
+; Exact Version                      ;
+;------------------------------------;
+	endif else if tf_checkv then begin
+		;Select secific versions
+		iv = where( fv eq fix(version), count )
+		if count gt 0 then files_out = files_out[iv]
+
+;------------------------------------;
+; Latest Version                     ;
+;------------------------------------;
+	endif else begin
+		;Select latest version
+		iv = where( fv eq max(fv), count )
+		if count gt 0 then files_out = files_out[iv]
 	endelse
 	
 	;Return
@@ -952,6 +1188,8 @@ COUNT=count
 				then file_mkdir, file_dirname(local_files[i])
 			
 			;Download the file.
+			;   - TODO: If ::Download failes, remove element from FILES_OUT.
+			;           Alos, if operation is cancelled, let MrMMS_Load_Data know
 			files_out[iDownload[i]] = self -> Download(local_files[i])
 			if self.verbose then MrPrintF, 'LogText', files_out[iDownload[i]], FORMAT='(%"File downloaded to \"%s\".")'
 		endfor
@@ -1144,8 +1382,11 @@ end
 ;                       Names of the files that match search criteria.
 ;       MODIFIED:       out, optional, type=strarr
 ;                       Dates files were modified, formatted as 'YYYY-MM-DDThh:mm:ss'.
-;       TIMETAG:        out, optional, type=strarr
+;       START_DATE:     out, optional, type=strarr
 ;                       Time tag of files, formatted as 'YYYY-MM-DDThh:mm:ss'.
+;       END_DATE:       out, optional, type=strarr
+;                       End time tag of files, formatted as 'YYYY-MM-DDThh:mm:ss'. Values
+;                           are equal to the empty string for non-ancillary files.
 ;
 ; :Keywords:
 ;       COUNT:          out, optional, type=integer
@@ -1155,7 +1396,7 @@ end
 ;       TT2000:         in, optional, type=boolean, default=0
 ;                       If set, `TIMETAG` and `MODIFIED` will be returned as tt2000 values.
 ;-
-pro MrMMS_SDC_Query::GetFileInfo, filenames, filesize, modified, timetag, $
+pro MrMMS_SDC_Query::GetFileInfo, filenames, filesize, modified, start_date, end_date, $
 COUNT=nFiles, $
 SORT=tf_sort, $
 TT2000=tt2000
@@ -1224,12 +1465,12 @@ TT2000=tt2000
 	json = json_parse(jsonstr)
 
 	;Parse further
-	nFiles    = n_elements(json['files'])
-	filenames = strarr(nFiles)
-	timetag   = strarr(nFiles)
-	modified  = strarr(nFiles)
-	filesize  = ulonarr(nFiles)
-
+	nFiles     = n_elements(json['files'])
+	filenames  = strarr(nFiles)
+	start_date = strarr(nFiles)
+	end_date   = strarr(nFiles)
+	modified   = strarr(nFiles)
+	filesize   = ulonarr(nFiles)
 	foreach value, json['files'], idx do begin
 		;Get the file info
 		file_hash = json['files', idx]
@@ -1237,8 +1478,17 @@ TT2000=tt2000
 		;Extract the file info
 		filenames[idx] = file_hash['file_name']
 		modified[idx]  = file_hash['modified_date']
-		timetag[idx]   = file_hash['timetag']
 		filesize[idx]  = file_hash['file_size']
+		
+		;Extract file times
+		;   - Normal data files have TIMETAG key
+		;   - Ancillary data files have START_DATE and END_DATE keys
+		if file_hash -> HasKey('timetag') then begin
+			start_date[idx] = file_hash['timetag']
+		endif else begin
+			start_date[idx] = file_hash['start_date']
+			end_date[idx]   = file_hash['end_date']
+		endelse
 	endforeach
 	
 ;-----------------------------------------------------
@@ -1247,28 +1497,35 @@ TT2000=tt2000
 	
 	;Sort
 	if keyword_set(tf_sort) then begin
-		isort = sort(filenames)
-		filenames = filenames[isort]
-		modified  = modified[isort]
-		timetag   = timetag[isort]
-		filesize  = filesize[temporary(isort)]
+		isort      = sort(filenames)
+		filenames  = filenames[isort]
+		modified   = modified[isort]
+		start_date = start_date[isort]
+		end_date   = end_date[isort]
+		filesize   = filesize[temporary(isort)]
 	endif
 	
 	;Scalar
 	if nFiles eq 1 then begin
-		filenames = filenames[0]
-		modified  = modified[0]
-		timetag   = timetag[0]
-		filesize  = filesize[0]
+		filenames  = filenames[0]
+		modified   = modified[0]
+		start_date = start_date[0]
+		end_date   = end_date[0]
+		filesize   = filesize[0]
 	endif
 	
 	;TT2000 times
 	if keyword_set(tt2000) then begin
-		;Convert TIMETAG to TT2000
-		cdf_tt2000, timetag, fix(strmid(timetag,  0, 4)), fix(strmid(timetag,  5, 2)), fix(strmid(timetag,  8, 2)), $
-		                     fix(strmid(timetag, 11, 2)), fix(strmid(timetag, 14, 2)), fix(strmid(timetag, 17, 2)), $
-		                     /COMPUTE_EPOCH
-		                     
+		;Convert START_DATE to TT2000
+		cdf_tt2000, start_date, fix(strmid(start_date,  0, 4)), fix(strmid(start_date,  5, 2)), fix(strmid(start_date,  8, 2)), $
+		                        fix(strmid(start_date, 11, 2)), fix(strmid(start_date, 14, 2)), fix(strmid(start_date, 17, 2)), $
+		                        /COMPUTE_EPOCH
+		
+		;Convert END_DATE to TT2000
+		cdf_tt2000, end_date, fix(strmid(end_date,  0, 4)), fix(strmid(end_date,  5, 2)), fix(strmid(end_date,  8, 2)), $
+		                      fix(strmid(end_date, 11, 2)), fix(strmid(end_date, 14, 2)), fix(strmid(end_date, 17, 2)), $
+		                      /COMPUTE_EPOCH
+		
 		;Convert MODIFIED to TT2000
 		cdf_tt2000, modified, fix(strmid(modified,  0, 4)), fix(strmid(modified,  5, 2)), fix(strmid(modified,  8, 2)), $
 		                      fix(strmid(modified, 11, 2)), fix(strmid(modified, 14, 2)), fix(strmid(modified, 17, 2)), $
@@ -1366,7 +1623,7 @@ sort=tf_sort
 	;Create string array
 	filenames = strsplit(names, ',', /EXTRACT)
 	count     = n_elements(filenames)
-	
+
 	;Sort the results alphabetically
 	if keyword_set(tf_sort) then begin
 		temp_base = self -> Path_BaseName(filenames)
@@ -1407,49 +1664,17 @@ SORT=tf_sort
 		return, ''
 	endif
 
-;-----------------------------------------------------
-; Create Local File Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	
-	;Directories from field-value pairs
-	;   - TSTART will be made from MrTokens
-	;   - VERSION will be the asterisk
-	if (*self.field_values).file[0] eq '' then begin
-		uri = MrMMS_Build_Filename( strsplit( (*self.field_values).sc_id,          ',', /EXTRACT ), $
-		                            strsplit( (*self.field_values).instrument_id,  ',', /EXTRACT ), $
-		                            strsplit( (*self.field_values).data_rate_mode, ',', /EXTRACT ), $
-		                            strsplit( (*self.field_values).data_level,     ',', /EXTRACT ), $
-		                            OPTDESC  = strsplit( (*self.field_values).descriptor, ',', /EXTRACT ), $
-		                            SDC_ROOT = self.local_root )
-		
-	;Directories from file names
-	endif else begin
-		ftemp    = strsplit((*self.field_values).file, ',', /EXTRACT)
-		uri_root = MrMMS_Build_Path( ftemp, SDC_ROOT=self.local_root )
-		uri      = uri_root + temporary(ftemp)
-	endelse
+	;Use file names?
+	tf_files = (*self.field_values).file[0] ne ''
 
 ;-----------------------------------------------------
-; Dropbox \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Separate File Types \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	uri = self -> BuildLocalName()
+	
 	if self.dropbox_root ne '' then begin
-		;Directories from field-value pairs
-		if (*self.field_values).file[0] eq '' then begin
-			uri_dropbox = MrMMS_Build_Filename( strsplit( (*self.field_values).sc_id,          ',', /EXTRACT ), $
-			                                    strsplit( (*self.field_values).instrument_id,  ',', /EXTRACT ), $
-			                                    strsplit( (*self.field_values).data_rate_mode, ',', /EXTRACT ), $
-			                                    strsplit( (*self.field_values).data_level,     ',', /EXTRACT ), $
-			                                    OPTDESC   = strsplit( (*self.field_values).descriptor, ',', /EXTRACT ), $
-			                                    DIRECTORY = self.dropbox_root )
-		
-		;Directories from file names
-		endif else begin
-			ftemp       = strsplit((*self.field_values).file, ',', /EXTRACT)
-			uri_dropbox = self.dropbox_root + path_sep() + temporary(ftemp)
-		endelse
-		
-		;Combine with local results
-		uri = [uri, temporary(uri_dropbox)]
+		uri_dropbox = self -> BuildLocaName(/DROPBOX)
+		uri         = [uri, temporary(uri_dropbox)]
 	endif
 
 ;-----------------------------------------------------
@@ -1509,8 +1734,11 @@ end
 ;                       Names of the files that match search criteria.
 ;       MODIFIED:       out, optional, type=strarr
 ;                       Dates files were modified, formatted as 'YYYY-MM-DDThh:mm:ss'.
-;       TIMETAG:        out, optional, type=strarr
+;       START_DATE:     out, optional, type=strarr
 ;                       Time tag of files, formatted as 'YYYY-MM-DDThh:mm:ss'.
+;       END_DATE:       out, optional, type=strarr
+;                       End time tag of files, formatted as 'YYYY-MM-DDThh:mm:ss'. Values
+;                           are equal to the empty string for non-ancillary files.
 ;
 ; :Keywords:
 ;       COUNT:          out, optional, type=integer
@@ -1520,7 +1748,7 @@ end
 ;       TT2000:         in, optional, type=boolean, default=0
 ;                       If set, `TIMETAG` and `MODIFIED` will be returned as tt2000 values.
 ;-
-pro MrMMS_SDC_Query::GetLocalInfo, filenames, filesize, modified, timetag, $
+pro MrMMS_SDC_Query::GetLocalInfo, filenames, filesize, modified, start_date, end_date, $
 COUNT=count, $
 SORT=tf_sort, $
 TT2000=tt2000
@@ -1532,20 +1760,49 @@ TT2000=tt2000
 
 	;Get files
 	file_uris = self -> GetLocalNames(COUNT=count, /FILTER)
-	if count eq 0 then help, /tr
+	iAnc      = where( self -> IsAncillary(file_uris), nAnc, COMPLEMENT=iData, NCOMPLEMENT=nData)
 
 	;Parse the files for their paths
 	self -> ParseURI, file_uris, PATH=file_path 
-	
+
 	;FILENAMES
 	filenames = self -> Path_Basename(file_path)
 	
-	;TIMETAG
-	MrMMS_Parse_Filename, filenames, TSTART=timetag
-	MrMMS_Parse_Time, timetag, year, month, day, hour, minute, second, INTEGER=tf_tt2000
-	if tf_tt2000 $
-		then cdf_tt2000, timetag, year, month, day, hour, minute, second, /COMPUTE_TT2000 $
-		else timetag = year + '-' + month + '-' + day + 'T' + hour + ':' + minute + ':' + second
+	;START_DATE & END_DATE
+	start_date = tf_tt2000 ? lon64arr(count) : strarr(count)
+	end_date   = tf_tt2000 ? lon64arr(count) : strarr(count)
+	if nData gt 0 then begin
+		;Extract and parse the timetag
+		MrMMS_Parse_Filename, filenames[iData], TSTART=temp
+		MrMMS_Parse_Time, temp, year, month, day, hour, minute, second, INTEGER=tf_tt2000
+		
+		;Create return value
+		if tf_tt2000 $
+			then cdf_tt2000, temp, year, month, day, hour, minute, second, /COMPUTE_TT2000 $
+			else temp = year + '-' + month + '-' + day + 'T' + hour + ':' + minute + ':' + second
+		
+		;Store data
+		start_date[iData] = temporary(temp)
+	endif
+	if nAnc gt 0 then begin
+		MrMMS_Anc_Parse_Filename, filenames[iAnc], TSTART=tstart, TEND=tend
+		
+		;Date_Start
+		MrMMS_Anc_Parse_Time, tstart, year, doy, month, day, INTEGER=tf_tt2000
+		if tf_tt2000 $
+			then cdf_tt2000, temp_start, year, month, day, 0, 0, 0, /COMPUTE_TT2000 $
+			else temp_start = year + '-' + month + '-' + day + 'T00:00:00'
+		
+		;Date_End
+		MrMMS_Anc_Parse_Time, tend, year, doy, month, day, INTEGER=tf_tt2000
+		if tf_tt2000 $
+			then cdf_tt2000, temp_end, year, month, day, 0, 0, 0, /COMPUTE_TT2000 $
+			else temp_end = year + '-' + month + '-' + day + 'T00:00:00'
+		
+		;Store data
+		start_date[iAnc] = temporary(temp_start)
+		end_date[iAnc]   = temporary(temp_end)
+	endif
 	
 	;FILESIZE
 	finfo    = file_info(file_path)
@@ -1576,11 +1833,12 @@ TT2000=tt2000
 	
 	;SORT
 	if keyword_set(tf_sort) then begin
-		isort     = sort(filenames)
-		filenames = filenames[isort]
-		filesize  = filesize[isort]
-		modified  = modified[isort]
-		tiemtag   = timetag[temporary(isort)]
+		isort      = sort(filenames)
+		filenames  = filenames[isort]
+		filesize   = filesize[isort]
+		modified   = modified[isort]
+		start_date = start_date[isort]
+		end_date   = start_date[temporary(isort)]
 	endif
 end
 
@@ -1766,6 +2024,29 @@ function MrMMS_SDC_Query::GetURI
 	                               QUERY  = self.query )
 	
 	return, uri
+end
+
+
+;+
+;   Determine if file names correspond to ancillary files.
+;
+; :Private:
+;
+; :Params:
+;       FILENAMES:      in, required, type=string/strarr
+;                       Names of files.
+;
+; :Returns:
+;       TF_ANCE:        out, required, type=byte/bytarr
+;                       Returns true for each file that is an ancillary file and fase for
+;                           all other files.
+;-
+function MrMMS_SDC_Query::IsAncillary, filenames
+	compile_opt idl2
+	on_error, 2
+	
+	;Return
+	return, stregex(filenames, 'MMS[1-4]_[A-Z]+_[0-9]{4}[0-9]{3}_[0-9]{4}[0-9]{3}\.V[0-9]+', /BOOLEAN)
 end
 
 
@@ -2374,7 +2655,7 @@ _REF_EXTRA = extra
 	;Set the local data root
 	if n_elements(local_root) eq 0 then begin
 		local_root = filepath('', ROOT_DIR=file_search('~', /TEST_DIRECTORY, /EXPAND_TILDE), $
-		                          SUBDIRECTORY=['MrWebData', 'https', 'lasp.colorado.edu', 'mms'] )
+		                          SUBDIRECTORY=['MrWebData', 'mms'] )
 		MrPrintF, 'LogWarn', 'Setting local data root to: "' + local_root + '".'
 	endif
 
@@ -2393,30 +2674,32 @@ _REF_EXTRA = extra
 	                       start_date:     '', $
 	                       end_date:       '', $
 	                       file:           '' }
-	
+
 	;Create the SDC GUI
-	self -> CD, uri, $
-	            ANC_PRODUCT = ancprod, $
-	            ANCILLARY   = ancillary, $
-	            DOWNLOAD    = download, $
-	            HK          = hk, $
-	            FILES       = files, $
-	            FILE_INFO   = info, $
-	            FILE_NAMES  = names, $
-	            INSTR       = instr, $
-	            LEVEL       = level, $
-	            MODE        = mode, $
-	            OPTDESC     = optdesc, $
-	            PUBLIC_SITE = public, $
-	            RESET_PATH  = reset_path, $
-	            RESET_QUERY = reset_query, $
-	            SCIENCE     = science, $
-	            SC_ID       = sc_id, $
-	            TEAM_SITE   = team, $
-	            TEND        = tend, $
-	            TSTART      = tstart, $
-	            V_INFO      = v_info, $
-	            VERSION     = version
+	if n_elements(uri) gt 0 then self -> CD, uri
+	
+	;Set properties via the BuildURI method
+	newURI = self -> BuildURI( ANC_PRODUCT = ancprod, $
+	                           ANCILLARY   = ancillary, $
+	                           DOWNLOAD    = download, $
+	                           HK          = hk, $
+	                           FILES       = files, $
+	                           FILE_INFO   = info, $
+	                           FILE_NAMES  = names, $
+	                           INSTR       = instr, $
+	                           LEVEL       = level, $
+	                           MODE        = mode, $
+	                           OPTDESC     = optdesc, $
+	                           PUBLIC_SITE = public, $
+	                           RESET_PATH  = reset_path, $
+	                           RESET_QUERY = reset_query, $
+	                           SCIENCE     = science, $
+	                           SC_ID       = sc_id, $
+	                           TEAM_SITE   = team, $
+	                           TEND        = tend, $
+	                           TSTART      = tstart, $
+	                           V_INFO      = v_info, $
+	                           VERSION     = version )
 
 	return, 1
 end

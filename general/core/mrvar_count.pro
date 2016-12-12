@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Reames
+;       MrVar_Count
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -33,18 +33,11 @@
 ;
 ; PURPOSE:
 ;+
-;   Rename a MrVariable.
+;   Count the number of variables in the variable cache.
 ;
-; :Params:
-;       OLD_NAME:       out, optional, type=string
-;                       Name of the MrVariable that is to be renamed.
-;       NEW_NAME:       in, required, type=string
-;                       New name to be given to the variable.
-;
-; :Keywords:
-;       CHECK_DEPEND:   in, optional, type=boolean, default=0
-;                       If set, then all other variables will have their DEPEND_#
-;                           variable attributes updated accordingly.
+; :Returns:
+;       COUNT:          out, optional, type=integer
+;                       The number of variables in the cache.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -59,45 +52,18 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016-06-17  -   Written by Matthew Argall
+;       2016-11-19  -   Written by Matthew Argall
 ;-
 ;*****************************************************************************************
-pro MrVar_Rename, old_name, new_name, $
-CHECK_DEPEND=check_depend
+function MrVar_Count
 	compile_opt idl2
 	on_error, 2
 
 	;Ensure MrVar has been initialized
 	@mrvar_common
-
-;-------------------------------------------
-; Rename the Variable //////////////////////
-;-------------------------------------------
 	
-	;Retrieve and rename the variable
-	theVar  = MrVarCache[old_name]
-	theVar -> SetName, new_name
-
-;-------------------------------------------
-; Update DEPEND_# //////////////////////////
-;-------------------------------------------
-	
-	;Change dependent variable names as well
-	if keyword_set(check_depend) then begin
-		count = MrVarCache -> Count()
-		for i = 0, count-1 do begin
-			theVar = MrVarCache -> Get(POSITION=i)
-			
-			;Step over each DEPEND_#
-			for j = 0, 3 do begin
-				attrname = string('DEPEND_', i, FORMAT='(a0, i1)')
-				dep_name = var -> GetVarAttr(attrName, /NULL)
-			
-				;Change the DEPEND_# attribute value
-				if dep_name ne !Null then begin
-					if dep0_name eq old_name then var -> SetAttrValue, attrName, new_name
-				endif
-			endfor
-		endfor
-	endif
+	;Search the cache
+	if obj_valid(MrVarCache) $
+		then return, MrVarCache -> Count() $
+		else return, 0
 end

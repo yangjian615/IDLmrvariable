@@ -288,7 +288,17 @@ SUFFIX=suffix
 			for i = 0, 3 do begin
 				;Look for dependent variable
 				depN    = 'DEPEND_' + string(i, FORMAT='(i0)')
-				depName = old_var -> GetAttrValue(depN, /NULL)
+				depVal  = old_var -> GetAttrValue(depN, /NULL)
+				
+				;If DEPEND_N was an object, it may have been made
+				;invalid by clobbering a different variable.
+				if size(depVal, /TNAME) eq 'OBJREF' then begin
+					if obj_valid(depVal) $
+						then depName = depVal.name $
+						else old_var -> RemoveAttr, depN
+				endif else begin
+					depName = depVal
+				endelse
 
 				;Remove dependent variable
 				;   - If the variable has already been read, then it has
@@ -360,20 +370,33 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 		if tf_exists eq 0 then continue
 
 	;-----------------------------------------------------
-	; DEPEND_[0-3] or LABL_PTR_[1-3] \\\\\\\\\\\\\\\\\\\\\
+	; DELTA_(PLUS|MINUS)_VAR or DEPEND_[0-3] or LABL_PTR_[1-3] 
 	;-----------------------------------------------------
-		if stregex(attrName, '(DEPEND|LABL_PTR)_[0-3]', /BOOLEAN) then begin
+		if stregex(attrName, '(DELTA_(PLUS|MINUS)_VAR|(DEPEND|LABL_PTR)_[0-3])', /BOOLEAN) then begin
+			
 			;
-			; The DEPEND_[0-3] attribute value is the name of a CDF
-			; variable. We want to mimick this behavior in the
-			; MrVariable cache. So, we read the DEPEND_# variable
-			; into the cache as if it were a regular variable, then
-			; set the DEPEND_# attribute value to its MrVariable name.
+			; Bug in MMS_FPI_DES-DIST files has DELTA_PLUS|MINUS_VAR refer
+			; back to the parent variable.
 			;
-			; Like DEPEND_#, LABL_PTR_# is a pointer to another CDF variable.
-			; Unlike DEPEND_#, LABL_PTR_# attribute will not become a pointer
-			; to a variable in the MrVariable cache. Instead, follow LABL_PTR_#
-			; to its data and use that as the attribute value.
+			if varname eq attrValue then continue
+			
+			;
+			; The DELTA_PLUS_VAR, DELTA_MINUS_VAR, DEPEND_[0-3], and LABL_PTR_[0-3]
+			; attributes are all pointers to other variables. Their attribute value
+			; is the name of another variable within the CDF. We will deal with them
+			; in slightly different manners:
+			;
+			; DEPEND_[0-3]
+			; Follow the pointer to the variable, read and cache its data, then set
+			; the DEPEND_[0-3] attribute value equal to the cached variable name.
+			;
+			; LABL_PTR_[1-3]
+			; Follow the pointer to the variable, read its data, then use it as the
+			; variable attribute value.
+			;
+			; DELTA_PLUS_VAR, DELTA_MINUS_VAR
+			; Follow the pointer to the variable, read and cache its data, then set
+			; the DEPEND_[0-3] attribute value equal to the cached variable name.
 			;
 
 			;ATTRVALUE is the name of the variable that serves as DEPEND_[0-3]
@@ -396,7 +419,7 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 				oVar -> SetAttrValue, attrName, oAttr['DATA'], /CREATE
 				MrVar_ReadCDF_Clobber, attrValue
 			
-			;Add DEPEND_[0-3] to the variable attributes
+			;Add DEPEND_[0-3] or DELTA_(PLUS|MINUS)_VAR to the variable attributes
 			endif else begin
 				oVar -> SetAttrValue, attrName, oAttr.name, /CREATE
 			endelse
@@ -521,9 +544,39 @@ SUFFIX=suffix
 	                               NO_CLOBBER = no_clobber, $
 	                               SUFFIX     = suffix )
 	
-	;Read attributes
-	MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+	;
+	; Infinite Loop Notice:
+	;   Consider variable "A". Its DEPEND_0 attribute points to the
+	;   "Epoch" variable, which, in turn, has a time-dependent
+	;   DELTA_PLUS_VAR attribute with value "Epoch_Plus". Because
+	;   "Epoch_Plus" is time-dependent, its DEPEND_0 attribute
+	;   points back to the "Epoch" variable. To prevent an infinite
+	;   loop, we must
+	;
+	;     1) Mark "Epoch" as read before obtaining its attributes
+	;
+	;   This will allow other variables to pull "Epoch" out of cache
+	;   for use as a DEPEND_0 attribute. It short-circuits the
+	;   infinite loop by having "Epoch_Plus" pull "Epoch" out of the
+	;   cache instead of cyclically calling MrVar_ReadCDF_ReadVar.
+	;
+	;     2) Retrieve attributes of non-Epoch variables before marking as read
+	;
+	;   MrTimeSeries objects require a time array to be provided
+	;   with the data array. For that, the DEPEND_0 attribute must
+	;   be retrieved and read from the file.
+	;
+	;   To accomplish this, we
+	;     A) Get the attributes of MrTimeVar variables only after
+	;        its data has been read.
+	;     B) Get the attributes of all other variables types before
+	;        trying to create the MrTimeSeries objects.
+	;
 	
+	;Read attributes
+	if varType ne 'MrTimeVar' $
+		then MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+
 	;Create IDL graphics keywords attributes
 	MrVar_ReadCDF_VarAttr2GfxKwd, theVar
 	
@@ -583,6 +636,10 @@ SUFFIX=suffix
 		else: message, 'Unknown variable type: "' + vartype + '".'
 	endcase
 	
+	;Read attributes
+	if varType eq 'MrTimeVar' $
+		then MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+	
 	return, theVar
 end
 
@@ -612,7 +669,7 @@ pro MrVar_ReadCDF_VarAttr2GfxKwd, oVar
 		case 1 of
 			oVar -> HasAttr('LABLAXIS'): title = oVar['LABLAXIS']
 			oVar -> HasAttr('FIELDNAM'): title = oVar['FIELDNAM']
-			else: ;Do nothing
+			else: title = ''
 		endcase
 		if oVar -> HasAttr('UNITS') then title = (title eq '') ? oVar['UNITS'] : title + '!C' + oVar['UNITS']
 		oVar -> AddAttr, 'TITLE', temporary(title)
@@ -726,36 +783,39 @@ pro MrVar_ReadCDF_TLimit, trange
 	; Set Data Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
 		for j = 0, cdf_vcount - 1 do begin
-			;Get the variable
-			;   - Skip if the variable does not have an DEPEND_0 attribute
-			;   - Skip if the DEPEND_0 attribute is not the one we are looking at
+			;Skip if the variable does not have an DEPEND_0 attribute
 			theVar = MrVar_Get(cache_vnames[j])
-			if ~theVar -> HasAttr('DEPEND_0')      then continue
-			if theVar['DEPEND_0'] ne epochVar.name then continue
+			if ~theVar -> HasAttr('DEPEND_0') then continue
+			
+			;Skip if the DEPEND_0 attribute is not the one we are looking at
+			;   - DEPEND_0 may be an object or a variable name
+			oDep0 = MrVar_Get(theVar['DEPEND_0'])
+			if oDep0.name ne epochVar.name then continue
+			
 			;Trim the variable data
 			case 1 of
 				obj_isa(theVar, 'MrTimeSeries'): begin
 					case theVar.n_dimensions of
-						1: theVar -> SetData, epochVar, theVar[idx]
-						2: theVar -> SetData, epochVar, theVar[idx,*]
-						3: theVar -> SetData, epochVar, theVar[idx,*,*]
-						4: theVar -> SetData, epochVar, theVar[idx,*,*,*]
+						1: theVar -> SetData, epochVar, theVar[idx], DIMENSION=1
+						2: theVar -> SetData, epochVar, theVar[idx,*], DIMENSION=1
+						3: theVar -> SetData, epochVar, theVar[idx,*,*], DIMENSION=1
+						4: theVar -> SetData, epochVar, theVar[idx,*,*,*], DIMENSION=1
 						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
 					endcase
 				endcase
-				obj_isa(theVar, 'MrScalarTS'):   theVar -> SetData, epochVar, theVar[idx]
-				obj_isa(theVar, 'MrVectorTS'):   theVar -> SetData, epochVar, theVar[idx,*]
-				obj_isa(theVar, 'MrMatrixTS'):   theVar -> SetData, epochVar, theVar[idx,*,*]
-				theVar -> HasAttr('DEPEND_3'):   theVar -> SetData, theVar[idx,*,*,*]
-				theVar -> HasAttr('DEPEND_2'):   theVar -> SetData, theVar[idx,*,*]
-				theVar -> HasAttr('DEPEND_1'):   theVar -> SetData, theVar[idx,*]
-				theVar -> HasAttr('DEPEND_0'):   theVar -> SetData, theVar[idx]
+				obj_isa(theVar, 'MrScalarTS'):   theVar -> SetData, epochVar, theVar[idx], DIMENSION=1
+				obj_isa(theVar, 'MrVectorTS'):   theVar -> SetData, epochVar, theVar[idx,*], DIMENSION=1
+				obj_isa(theVar, 'MrMatrixTS'):   theVar -> SetData, epochVar, theVar[idx,*,*], DIMENSION=1
+				theVar -> HasAttr('DEPEND_3'):   theVar -> SetData, theVar[idx,*,*,*], DIMENSION=1
+				theVar -> HasAttr('DEPEND_2'):   theVar -> SetData, theVar[idx,*,*], DIMENSION=1
+				theVar -> HasAttr('DEPEND_1'):   theVar -> SetData, theVar[idx,*], DIMENSION=1
+				theVar -> HasAttr('DEPEND_0'):   theVar -> SetData, theVar[idx], DIMENSION=1
 				else: begin
 					case theVar.n_dimensions of
-						1: theVar -> SetData, theVar[idx]
-						2: theVar -> SetData, theVar[*,idx]
-						3: theVar -> SetData, theVar[*,*,idx]
-						4: theVar -> SetData, theVar[*,*,*,idx]
+						1: theVar -> SetData, theVar[idx], DIMENSION=1
+						2: theVar -> SetData, theVar[*,idx], DIMENSION=1
+						3: theVar -> SetData, theVar[*,*,idx], DIMENSION=1
+						4: theVar -> SetData, theVar[*,*,*,idx], DIMENSION=1
 						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
 					endcase
 				endcase

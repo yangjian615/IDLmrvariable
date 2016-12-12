@@ -642,7 +642,7 @@ DESTROY = destroy
 	if tf_all then begin
 		if tf_destroy then allObj = self -> Get(/ALL, COUNT=nObj)
 		self -> IDL_Container::Remove, /ALL
-		if tf_destroy then obj_destroy, allObj
+		if tf_destroy && nObj gt 0 then obj_destroy, allObj
 	
 ;---------------------------------------------------------------------
 ; Remove by ObjRef ///////////////////////////////////////////////////

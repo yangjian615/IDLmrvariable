@@ -125,8 +125,7 @@ pro MrMMS_SCM_Load_Spectra_Compute, name, nfft, nshift
 	oFreq -> AddAttr, 'UNITS', 'Hz'
 	
 	;Bx
-	oBx = MrVariable( psd[*,*,0], NAME=bx_name, /CACHE )
-	oBx -> AddAttr, 'DEPEND_0', t_name
+	oBx = MrTimeSeries( oTime, psd[*,*,0], NAME=bx_name, /CACHE )
 	oBx -> AddAttr, 'DEPEND_1', f_name
 	oBx -> AddAttr, 'LOG',      1
 	oBx -> AddAttr, 'SCALE',    1
@@ -134,8 +133,7 @@ pro MrMMS_SCM_Load_Spectra_Compute, name, nfft, nshift
 	oBx -> AddAttr, 'UNITS',    'nT^2/Hz'
 	
 	;By
-	oBy = MrVariable( psd[*,*,1], NAME=by_name, /CACHE )
-	oBy -> AddAttr, 'DEPEND_0', t_name
+	oBy = MrTimeSeries( oTime, psd[*,*,1], NAME=by_name, /CACHE )
 	oBy -> AddAttr, 'DEPEND_1', f_name
 	oBy -> AddAttr, 'LOG',      1
 	oBy -> AddAttr, 'SCALE',    1
@@ -143,8 +141,7 @@ pro MrMMS_SCM_Load_Spectra_Compute, name, nfft, nshift
 	oBy -> AddAttr, 'UNITS',    'nT^2/Hz'
 	
 	;Bz
-	oBz = MrVariable( psd[*,*,2], NAME=bz_name, /CACHE )
-	oBz -> AddAttr, 'DEPEND_0', t_name
+	oBz = MrTimeSeries( oTime, psd[*,*,2], NAME=bz_name, /CACHE )
 	oBz -> AddAttr, 'DEPEND_1', f_name
 	oBz -> AddAttr, 'LOG',      1
 	oBz -> AddAttr, 'SCALE',    1
