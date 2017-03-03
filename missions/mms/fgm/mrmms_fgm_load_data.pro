@@ -91,6 +91,7 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	
 	;B
 	oB['COLOR']     = ['Blue', 'Forest Green', 'Red', 'Black']
+	oB['LABEL']     = ['Bx', 'By', 'Bz', '|B|']
 	oB['MIN_VALUE'] = min_value
 	oB['MAX_VALUE'] = max_value
 	oB['TITLE']     = 'B!C(nT)'
@@ -100,7 +101,7 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	Bxyz['DIMENSION'] = 1
 	Bxyz['LABEL']     = ['Bx', 'By', 'Bz']
 	Bxyz['MIN_VALUE'] = min_value
-	Bxyz['MAX_VALUE'] = min_value
+	Bxyz['MAX_VALUE'] = max_value
 	Bxyz['TITLE']     = 'B!C(nT)'
 	
 	;BMAG - Set new attributes
@@ -108,6 +109,7 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	Bmag['MIN_VALUE'] = 0
 	Bmag['MAX_VALUE'] = max(Bmag['MAX_VALUE'])
 	Bmag['TITLE']     = '|B|!C(nT)'
+	Bmag             -> RemoveAttr, 'LABEL'
 end
 
 
@@ -172,14 +174,34 @@ VARNAMES=varnames
 	
 	;Defaults
 	if n_elements(instr) eq 0 then instr = 'fgm'
-	if n_elements(level) eq 0 then level = 'l2'
+	if n_elements(level) eq 0 then begin
+		case instr of
+			'afg': level = 'l2pre'
+			'dfg': level = 'l2pre'
+			'fgm': level = 'l2'
+			else:  message, 'Invalid FGM instrument: "' + instr + '".'
+		endcase
+	endif
 	
 	;Check spacecraft
 	tf_instr = MrIsMember(['afg', 'dfg', 'fgm'], instr)
 	if ~array_equal(tf_instr, 1) then message, 'Invalid value for INSTR: "' + instr + '".'
+	
+	;DFG || AFG
+	if (instr eq 'dfg' || instr eq 'afg') && level eq 'l2' then begin
+		MrPrintF, 'LogWarn', 'L2 data is not avalable for ' + instr + '. Switching to L2Pre.'
+		fgm_level = 'l2pre'
+	
+	;FGM
+	endif else if instr eq 'fgm' && level ne 'l2' then begin
+		MrPrintF, 'LogWarn', StrUpCase(level) + ' data is not available for FGM. Switching to L2.'
+		fgm_level = 'l2'
+	endif else begin
+		fgm_level = level
+	endelse
 
 	;Get the data
-	MrMMS_Load_Data, sc, instr, mode, level, $
+	MrMMS_Load_Data, sc, instr, mode, fgm_level, $
 	                 OPTDESC   = optdesc, $
 	                 SUFFIX    = suffix, $
 	                 TEAM_SITE = team_site, $
@@ -195,9 +217,11 @@ VARNAMES=varnames
 	nVars = n_elements(varnames)
 	for i = 0, nVars - 1 do begin
 		;Separate B from |B|
-		;   - L2 has different names from L1A, L1B, L2Pre
+		;   - L2:   mms#_afg_b_gse_srvy_l2
+		;   - QL:   mms#_afg_srvy_dmpa has different names from L1A, L1B, L2Pre
+		;   - ELSE: mms#_afg_srvy_l1a_dmpa
 		if stregex(varnames[i], '(afg|dfg|fgm)_b_(gse|gsm|dmpa|bcs)', /BOOLEAN) || $
-		   stregex(varnames[i], '(afg|dfg|fgm)_(slow|fast|srvy|brst)_(l1a|l1b|l2pre)_(dmpa|gse|gsm)' + suffix + '$', /BOOLEAN) $
+		   stregex(varnames[i], '(afg|dfg|fgm)_(slow|fast|srvy|brst)_(l1a|l1b|l2pre_)?(dmpa|gse|gsm|gsm|gse).*' + suffix + '$', /BOOLEAN) $
 		then begin
 			MrMMS_FGM_Load_Data_SplitB, varnames[i], bvec_name, bmag_name
 			varnames = [varnames, bvec_name, bmag_name]

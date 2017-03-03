@@ -47,8 +47,13 @@
 ;                           Telemetry mode of the data. Options include:
 ;                               {'slow' | 'fast' | 'srvy' | 'brst'}
 ;       FAC:                in, optional, type=string, default=''
-;                           The field-aligned coordinate system to create. Options are:
-;                               {'' | 'VXB' | 'EXB' }.
+;                           The field-aligned coordinate system to create. Magnetic field
+;                               data is loaded for any option. If a perpendicular vector
+;                               is also loaded, it is interpolated onto the time stamps of
+;                               the magnetic field. Choices are:
+;                                   'EXB'       -  Loads electric field data
+;                                   'VXB'       -  Loads bulk velocity data
+;                                   [anything]  -  No perpendicular vector is loaded.
 ;       VAR:                in, optional, type=string/objref
 ;                           A MrVariable name or object for which the time tags define
 ;                               the grid onto which the transformation matrix is
@@ -96,6 +101,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/10/07  -   Written by Matthew Argall
+;       2017/01/05  -   Allow FAC to be anything.
 ;-
 pro MrMMS_FGM_Load_FAC_Data, sc, mode, fac, var, $
 COORD_SYS=coord_sys, $
@@ -218,12 +224,6 @@ VARNAMES=varnames
 			                 OPTDESC   = 'dce', $
 			                 SUFFIX    = suffix, $
 			                 VARFORMAT = '*dce_' + edp_coords + '*'
-	
-	;-------------------------------------------
-	; ??? //////////////////////////////////////
-	;-------------------------------------------
-		endif else if _fac ne '' then begin
-			message, 'FAC must be {"VxB" | "ExB" | ""}'
 		endif
 	endif
 
@@ -240,7 +240,7 @@ VARNAMES=varnames
 	case _fac of
 		'VXB': oPerp = MrVar_Get( strjoin( [sc, 'des_bulkv', fpi_cs, fpi_mode], '_' ) + suffix )
 		'EXB': oPerp = MrVar_Get( strjoin( [sc, 'edp_dce',      _cs, edp_mode, level], '_' ) + suffix )
-		'':    ;Do nothing
+		else:  ;Do nothing
 	endcase
 
 ;-------------------------------------------
@@ -252,7 +252,7 @@ VARNAMES=varnames
 	case _fac of
 		'VXB': perp_name_out = strjoin( [sc, 'des_bulkv', fpi_cs, fpi_mode,        'facdata'], '_' ) + suffix
 		'EXB': perp_name_out = strjoin( [sc, 'edp_dce',      _cs, edp_mode, level, 'facdata'], '_' ) + suffix
-		'':    ;Do nothing
+		else:  ;Do nothing
 	endcase
 
 ;-------------------------------------------
