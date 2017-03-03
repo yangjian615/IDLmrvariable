@@ -71,7 +71,7 @@
 ;   Modification History::
 ;       2016/10/03  -   Written by Matthew Argall
 ;-
-function MrMMS_EDI_Plot_AMB_BrstCts, sc, optdesc, $
+function MrMMS_EDI_Plot_AMB_BrstCts, sc, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	compile_opt idl2
@@ -87,8 +87,6 @@ TRANGE=trange
 	;Defaults
 	tf_load = ~keyword_set(no_load)
 	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
-	if ~MrIsMember(['amb', 'amb-pm2'], optdesc) $
-		then message, 'Invalid value for OPTDESC.'
 	
 	;Variable type
 	level = 'l2'
@@ -101,7 +99,7 @@ TRANGE=trange
 	if tf_load then begin
 		;Load EDI data
 		MrMMS_Load_Data, sc, 'edi', ['brst', 'srvy'], level, $
-		                 OPTDESC   = optdesc, $
+		                 OPTDESC   = ['amb', 'amb-pm2'], $
 		                 VARFORMAT = '*' + type + '*'
 	endif
 	
