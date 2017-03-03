@@ -66,59 +66,82 @@
 ;   Modification History::
 ;       2016/11/02  -   Written by Matthew Argall
 ;-
-function MrMMS_Plot_CtsXCorr, sc, mode, cts, $
+FUNCTION MrMMS_Plot_CtsXCorr, sc, mode, chan, pa, field, $
 NO_LOAD=no_load, $
 TRANGE=trange
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
-		if n_elements(win) gt 0 then obj_destroy, win
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		IF N_Elements(win) GT 0 THEN Obj_Destroy, win
 		MrPrintF, 'LogErr'
-		return, !Null
+		RETURN, !Null
 	endif
 	
-	tf_load = ~keyword_set(no_load)
-	if n_elements(cts)    eq 0 then cts  = '0'
-	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
+	tf_load = ~Keyword_Set(no_load)
+	IF N_Elements(chan)   EQ 0 THEN chan   = 1
+	IF N_Elements(field)  EQ 0 THEN field  = 'Bx'
+	IF N_Elements(pa)     EQ 0 THEN pa     = 0
+	IF N_Elements(f_wave) EQ 0 THEN f_wave = 135.0
+	IF N_Elements(trange) GT 0 THEN MrVar_SetTRange, trange
+	
+	fmin   = 100
+	fmax   = 400
+	A      = 50
+	nTerms = 512
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
+	fgm_instr = 'fgm'
+	CASE fgm_instr OF
+		'afg': fgm_level = 'l2pre'
+		'dfg': fgm_level = 'l2pre'
+		'fgm': fgm_level = 'l2'
+		ELSE: Message, 'Invalid FGM instrument "' + fgm_instr + '".'
+	ENDCASE
+
 	level    = 'l2'
-	edp_mode = mode eq 'srvy' ? 'fast' : mode
-	fgm_mode = mode
-	dsp_mode = 'fast'
-	fpi_mode = mode eq 'brst' ? mode : 'fast'
 	coords   = 'gse'
+	edp_mode = mode EQ 'srvy' ? 'fast' : mode
 	
-	case mode of
+	CASE mode OF
 		'slow': scm_desc = 'scs'
 		'fast': scm_desc = 'scf'
 		'srvy': scm_desc = 'scsrvy'
 		'brst': scm_desc = 'scb'
-		else: message, 'Invalid mode: "' + mode + '".'
-	endcase
+		ELSE: Message, 'Invalid mode: "' + mode + '".'
+	ENDCASE
 
 	;Source names
-	fgm_vname     = sc + '_fgm_bvec_'  + coords + '_' + fgm_mode + '_' + level
-	scm_vname     = sc + '_scm_acb_'   + coords + '_' + scm_desc + '_' + mode + '_' + level
-	edp_vname     = sc + '_edp_dce_'   + coords + '_' + mode + '_' + level
-	edi1_vname    = sc + '_edi_flux1_' + cts + '_' + mode + '_' + level
-	edi2_vname    = sc + '_edi_flux2_' + cts + '_' + mode + '_' + level
-	edi3_vname    = sc + '_edi_flux3_' + cts + '_' + mode + '_' + level
-	edi4_vname    = sc + '_edi_flux4_' + cts + '_' + mode + '_' + level
+	fgm_vname     = StrJoin( [sc, fgm_instr, 'bvec', coords, mode, fgm_level], '_' )
+	scm_vname     = StrJoin( [sc, 'scm', 'acb',  coords, scm_desc, mode, level], '_' )
+	edp_vname     = StrJoin( [sc, 'edp', 'dce',  coords, mode, level], '_' )
+	f1pa0_vname   = StrJoin( [sc, 'edi', 'flux1',   '0', mode, level], '_' )
+	f2pa0_vname   = StrJoin( [sc, 'edi', 'flux2',   '0', mode, level], '_' )
+	f3pa0_vname   = StrJoin( [sc, 'edi', 'flux3',   '0', mode, level], '_' )
+	f4pa0_vname   = StrJoin( [sc, 'edi', 'flux4',   '0', mode, level], '_' )
+	f1pa90_vname  = StrJoin( [sc, 'edi', 'flux1',  '90', mode, level], '_' )
+	f2pa90_vname  = StrJoin( [sc, 'edi', 'flux2',  '90', mode, level], '_' )
+	f3pa90_vname  = StrJoin( [sc, 'edi', 'flux3',  '90', mode, level], '_' )
+	f4pa90_vname  = StrJoin( [sc, 'edi', 'flux4',  '90', mode, level], '_' )
+	f1pa180_vname = StrJoin( [sc, 'edi', 'flux1', '180', mode, level], '_' )
+	f2pa180_vname = StrJoin( [sc, 'edi', 'flux2', '180', mode, level], '_' )
+	f3pa180_vname = StrJoin( [sc, 'edi', 'flux3', '180', mode, level], '_' )
+	f4pa180_vname = StrJoin( [sc, 'edi', 'flux4', '180', mode, level], '_' )
 	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
 ;-------------------------------------------
-	if tf_load then begin
+	IF tf_load THEN BEGIN
 	;-------------------------------------------
 	; FGM //////////////////////////////////////
 	;-------------------------------------------
-		MrMMS_FGM_Load_Data, sc, fgm_mode, $
-		                     VARFORMAT = '*b_' + coords + '*'
+		MrMMS_FGM_Load_Data, sc, mode, $
+		                     INSTR     = fgm_instr, $
+		                     VARFORMAT = ['*_b_*' + coords + '*', $
+		                                  '*' + fgm_instr + '*' + coords]
 	
 	;-------------------------------------------
 	; SCM //////////////////////////////////////
@@ -138,40 +161,56 @@ TRANGE=trange
 	; EDI //////////////////////////////////////
 	;-------------------------------------------
 		MrMMS_Load_Data, sc, 'edi', mode, level, $
-		                 OPTDESC   = ['amb', 'amb-pm2', 'amb-alt-cc', 'amb-alt-oc', $
+		                 OPTDESC   = ['amb', 'amb-noabs', 'amb-pm2', 'amb-alt-cc', 'amb-alt-oc', $
 		                              'amb_alt-ooc', 'amb-alt-oob'], $
-		                 VARFORMAT = ['*flux?_' + cts + '_' + mode + '_*', '*counts*']
-	endif
+		                 VARFORMAT = ['*flux?*', '*counts*']
+	ENDIF
+
+	IF ~MrVar_IsCached(fgm_vname) THEN BEGIN
+		fgm_vname = StrJoin( [sc, fgm_instr, 'vec', mode, fgm_level, coords], '_' )
+		IF ~MrVar_IsCached(fgm_vname) THEN Message, 'Problem with FGM instrument name.'
+	ENDIF
+
+;-------------------------------------------
+; Compute dFlux ////////////////////////////
+;-------------------------------------------
+	pa0_vnames   = [  f1pa0_vname,   f2pa0_vname,   f3pa0_vname,   f4pa0_vname]
+	pa90_vnames  = [ f1pa90_vname,  f2pa90_vname,  f3pa90_vname,  f4pa90_vname]
+	pa180_vnames = [f1pa180_vname, f2pa180_vname, f3pa180_vname, f4pa180_vname]
+	
+	CASE pa OF
+		  0: oFlux = MrVar_Get(   pa0_vnames[chan-1] )
+		 90: oFlux = MrVar_Get(  pa90_vnames[chan-1] )
+		180: oFlux = MrVar_Get( pa180_vnames[chan-1] )
+		ELSE: Message, 'Invalid pitch angle (' + String(pa, FORMAT='(i0)') + ').'
+	ENDCASE
+
+	;Filter
+	odFlux = oFlux -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
 
 ;-------------------------------------------
 ; Compute dB ///////////////////////////////
 ;-------------------------------------------
+	oDCB   = MrVar_Get(fgm_vname)
 	oB     = MrVar_Get(scm_vname)
 	oE     = MrVar_Get(edp_vname)
-	fmin   = 100
-	fmax   = 512
-	A      = 50
-	nTerms = 512
 	
-	;Create FAC
-	oSCM    = MrMMS_SCM_BField( BFIELD=scm_vname, B0=fgm_vname )
-	oSCM   -> SetFAC, 'CROSSX'
-	oT      = oSCM -> T_FAC()
-	obj_destroy, oSCM
+	;Interpolate to SCM
+	oDCB_scm = oDCB -> Interpol(oB)
+	
+	;Create & rotate into FAC
+	oT     = MrVar_FAC( Temporary(oDCB_scm), 'CROSSX')
+	oB_fac = oT ## oB
 	
 	;Filter
-	oB  -> Split, oBx, oBy, oBz
-	odBx = oBx -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odBy = oBy -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odBz = oBz -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
+	odB  = oB_fac -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
+	odB -> Split, odBx, odBy, odBz
 	
-	;Rotate to FAC
-	odB     = MrVectorTS(oB['TIMEVAR'], [ [odBx['DATA']], [odBy['DATA']], [odBz['DATA']] ])
-	odB_fac = oT ## odB
+	;Perpendicular component
+	odBperp = MrScalarTS( odBx['TIMEVAR'], Sqrt(odBx['DATA']^2 + odBy['DATA']^2) )
 	
-	;Split into components
-	odB_fac -> Split, odBx, odBy, odBz
-	odBperp = MrScalarTS( odBx['TIMEVAR'], sqrt(odBx['DATA']^2 + odBy['DATA']^2) )
+	;Clean up
+	Obj_Destroy, oB_fac
 
 ;-------------------------------------------
 ; Compute dE ///////////////////////////////
@@ -179,193 +218,122 @@ TRANGE=trange
 
 	;Ensure E and B have the same time tags
 	oE_scm = oE -> Interpol(oB)
+	oE_fac = oT ## Temporary(oE_scm)
 	
 	;Filter
-	oE     -> Split, oEx, oEy, oEz
-	odEx    = oEx -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odEy    = oEy -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odEz    = oEz -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
+	odE  = oE_fac -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
+	odE -> Split, odEx, odEy, odEz
 	
-	;Rotate to FAC
-	odE     = MrVectorTS(oE['TIMEVAR'], [ [odEx['DATA']], [odEy['DATA']], [odEz['DATA']] ])
-	odE_fac = oT ## odB
+	;Perpendicular component
+	odEperp = MrScalarTS( odEx['TIMEVAR'], Sqrt(odEx['DATA']^2 + odEy['DATA']^2) )
 	
-	;Split into components
-	odE_fac -> Split, odEx, odEy, odEz
-	odEperp = MrScalarTS( odEx['TIMEVAR'], sqrt(odEx['DATA']^2 + odEy['DATA']^2) )
+	;Clean up
+	Obj_Destroy, [oE_fac, odE, oT]
 
 ;-------------------------------------------
-; Compute dFlux ////////////////////////////
-;-------------------------------------------
-	oCts1 = MrVar_Get(edi1_vname)
-	oCts2 = MrVar_Get(edi2_vname)
-	oCts3 = MrVar_Get(edi3_vname)
-	oCts4 = MrVar_Get(edi4_vname)
-	oTime = oCts1['TIMEVAR']
-
-	;Detrend the counts
-;	odC1  = oCts1 -> Detrend(512, /EDGE_TRUNCATE)
-	odC1  = oCts1 -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
-	odC2  = oCts2 -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
-	odC3  = oCts3 -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
-	odC4  = oCts4 -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
-
-;-------------------------------------------
-; Interpolate //////////////////////////////
+; Get Component ////////////////////////////
 ;-------------------------------------------
 	;Reference time
-	oTime = oCts1['TIMEVAR']
+	oTime = oFlux['TIMEVAR']
 	
-	;Flux
-	odC2 = odC2 -> Interpol(oTime)
-	odC3 = odC3 -> Interpol(oTime)
-	odC4 = odC4 -> Interpol(oTime)
+	;Interpolate to fluxes
+	CASE StrUpCase(field) OF
+		'BX':    oField = odBx    -> Interpol(oTime)
+		'BY':    oField = odBy    -> Interpol(oTime)
+		'BZ':    oField = odBz    -> Interpol(oTime)
+		'BPERP': oField = odBperp -> Interpol(oTime)
+		'EX':    oField = odEx    -> Interpol(oTime)
+		'EY':    oField = odEy    -> Interpol(oTime)
+		'EZ':    oField = odEz    -> Interpol(oTime)
+		'EPERP': oField = odEperp -> Interpol(oTime)
+		ELSE: Message, 'Invalid field component: "' + field + '".'
+	ENDCASE
 	
-	;B
-	odBx    = odBx -> Interpol(oTime)
-	odBy    = odBy -> Interpol(oTime)
-	odBz    = odBz -> Interpol(oTime)
-	odBperp = odBperp -> Interpol(oTime)
-	
-	;E
-	odEx    = odEx -> Interpol(oTime)
-	odEy    = odEy -> Interpol(oTime)
-	odEz    = odEz -> Interpol(oTime)
-	odEperp = odEperp -> Interpol(oTime)
-	
-;-------------------------------------------
-; Correlate ////////////////////////////////
-;-------------------------------------------
-	
-	;Find the values
-	trange = MrTimeVar(['2015-12-06T23:38:31.3', '2015-12-06T23:38:31.5'])
-;	trange = MrTimeVar(['2015-12-06T23:38:31.5', '2015-12-06T23:38:31.9'])
-	tt2000 = trange -> GetData('TT2000')
-	oT     = oCts1['TIMEVAR']
-	it     = oT -> Value_Locate(tt2000, 'TT2000')
-	
-	nPts  = it[1]-it[0]+1
-	lag   = indgen(nPts) - nPts/2
-	bperp = odBperp[it[0]:it[1]]
-	bx    = odBx[it[0]:it[1]]
-	by    = odBy[it[0]:it[1]]
-	bz    = odBz[it[0]:it[1]]
-	eperp = odEperp[it[0]:it[1]]
-	ex    = odEx[it[0]:it[1]]
-	ey    = odEy[it[0]:it[1]]
-	ez    = odEz[it[0]:it[1]]
-	cts1  = odC1[it[0]:it[1]]
-	cts2  = odC2[it[0]:it[1]]
-	cts3  = odC3[it[0]:it[1]]
-	cts4  = odC4[it[0]:it[1]]
-	
-	;Lag variable
-	oLag = MrVariable( lag/1024.0, NAME='lag' )
-	oLag['TITLE'] = 'Lag (s)'
-	oLag['UNITS'] = 'sec'
-	
-	;Lagged cross-correlation
-	oXC1Bx    = MrVariable( c_correlate(cts1, bx, lag) )
-	oXC1By    = MrVariable( c_correlate(cts1, by, lag) )
-	oXC1Bz    = MrVariable( c_correlate(cts1, bz, lag) )
-	oXC1Bperp = MrVariable( c_correlate(cts1, bperp, lag) )
-	oXC1Ex    = MrVariable( c_correlate(cts1, ex, lag) )
-	oXC1Ey    = MrVariable( c_correlate(cts1, ey, lag) )
-	oXC1Ez    = MrVariable( c_correlate(cts1, ez, lag) )
-	oXC1Eperp = MrVariable( c_correlate(cts1, eperp, lag) )
+	;Cleanup
+	obj_destroy, [odBx, odBy, odBz, odBperp, odEx, odEy, odEz, odEperp]
 	
 ;-------------------------------------------
-; Properties ///////////////////////////////
+; Trim to Reduced Time /////////////////////
 ;-------------------------------------------
-	
-	odC1['PLOT_TITLE'] = string(cts, fmin, fmax, FORMAT='(%"Flux1 PA%s Filter: %i-%i Hz")')
-	odC1['TITLE']      = 'dFlux!C(cm^-2 s^-2)'
-	
-	odBx['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"Bx Filtered %i-%i Hz")')
-	odBx['TITLE']      = 'dBx (nT)'
-	
-	odBy['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"By Filtered %i-%i Hz")')
-	odBy['TITLE']      = 'dBy (nT)'
-	
-	odBz['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"Bz Filtered %i-%i Hz")')
-	odBz['TITLE']      = 'dBz (nT)'
-	
-	odBperp['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"|Bperp| Filtered %i-%i Hz")')
-	odBperp['TITLE']      = 'dBperp (nT)'
-	
-	odEx['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"Ex Filtered %i-%i Hz")')
-	odEx['TITLE']      = 'dEx (mV/m)'
-	
-	odEy['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"Ey Filtered %i-%i Hz")')
-	odEy['TITLE']      = 'dEy (mV/m)'
-	
-	odEz['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"Ez Filtered %i-%i Hz")')
-	odEz['TITLE']      = 'dEz (mV/m)'
-	
-	odEperp['PLOT_TITLE'] = string(fmin, fmax, FORMAT='(%"|Eperp| Filtered %i-%i Hz")')
-	odEperp['TITLE']     = 'dEperp (mV/m)'
-	
-	;C1 vs Bx
-	oXC1Bx['DEPEND_0']   = oLag
-	oXC1Bx['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with Bx'
-	oXC1Bx['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs By
-	oXC1By['DEPEND_0']   = oLag
-	oXC1By['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with By'
-	oXC1By['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Bz
-	oXC1Bz['DEPEND_0']   = oLag
-	oXC1Bz['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with Bz'
-	oXC1Bz['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Bperp
-	oXC1Bperp['DEPEND_0']   = oLag
-	oXC1Bperp['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with |Bperp|'
-	oXC1Bperp['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Ex
-	oXC1Ex['DEPEND_0']   = oLag
-	oXC1Ex['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with Ex'
-	oXC1Ex['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Ey
-	oXC1Ey['DEPEND_0']   = oLag
-	oXC1Ey['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with Ey'
-	oXC1Ey['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Ez
-	oXC1Ez['DEPEND_0']   = oLag
-	oXC1Ez['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with Ez'
-	oXC1Ez['TITLE']      = '$\chi$$\up2$'
-	
-	;C1 vs Eperp
-	oXC1Eperp['DEPEND_0']   = oLag
-	oXC1Eperp['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with |Eperp|'
-	oXC1Eperp['TITLE']      = '$\chi$$\up2$'
+
+	;Limit time interval
+	MrVar_TLimit, [odFlux, oField], trange
 
 ;-------------------------------------------
-; Variable Attributes //////////////////////
+; Lagged Correlations //////////////////////
 ;-------------------------------------------
-	odC1['LOG'] = 0
-	odC2['LOG'] = 0
-	odC3['LOG'] = 0
-	odC4['LOG'] = 0
+	nPts  = N_Elements(odFlux)
+	lag   = IndGen(nPts) - nPts/2
+	
+	;Lag variable
+	oLag = MrVariable( lag/1024.0 * f_wave, NAME='lag' )
+	
+	;Correlate
+	oXCorr  = MrVariable( C_Correlate(odFlux['DATA'], oField['DATA'], lag) )
+	
+	;Linear fit
+	;   - The field will be plotted on the x-axis
+;	params  = linfit( oField['DATA'], odFlux['DATA'], $
+;	                  CHISQR         = chi, $
+;	                  MEASURE_ERRORS = Sqrt(Abs(odFlux['DATA'])), $
+;	                  SIGMA          = sig, $
+;	                  YFIT           = yfit )
+;	txt_fit  = string(params[0], params[1], FORMAT='(%"y = %0.2e*x + %0.2e")')
+;	txt_qual = string(sig[0], chi, FORMAT='(%"\\sigma=%0.4f, \\chi^2=%0.2e")')
+	
+	;Least Absolute Deviation fit
+	params = ladfit( oField['DATA'], odFlux['DATA'], $
+	                 ABSDEV = absdev )
+	yfit     = params[1] * oField['DATA'] + params[0]
+	txt_fit  = string(params[0], params[1], FORMAT='(%"y = %0.2e*x + %0.2e")')
+	txt_qual = string(absdev, FORMAT='(%"absdev=%0.2e")')
+	
+	;Create the variable
+	oFit = MrVariable( yfit )
+	
+;-------------------------------------------
+; Attributes ///////////////////////////////
+;-------------------------------------------
+	units = StrUpCase(StrMid(field, 0, 1)) eq 'E' ? 'mV/m' : 'nT'
+	
+	;Flux
+	odFlux['LOG']        = 0
+	odFlux['PLOT_TITLE'] = String(chan, pa, fmin, fmax, FORMAT='(%"Ch%i PA%i Filter: %i-%i Hz")')
+	odFlux['TITLE']      = 'dFlux!C(cm^-2 s^-2)'
+	
+	;Field
+	oField['PLOT_TITLE'] = String(field, fmin, fmax, FORMAT='(%"%s Filtered %i-%i Hz")')
+	oField['TITLE']      = 'd' + field + ' (' + units + ')'
+	
+	;Lag
+	oLag['TITLE'] = String(f_wave, FORMAT='(%"Lag*fw, fw=%0.1f")')
+	oLag['UNITS'] = ''
+	
+	;Correlation
+	oXCorr['DEPEND_0']   = oLag
+	oXCorr['PLOT_TITLE'] = 'Lagged Cross Correlation of Flux with ' + field
+	oXCorr['TITLE']      = '$\chi$$\up2$'
+	
+	;Fit
+	oFit['DEPEND_0'] = oField
+	oFit['COLOR']    = 'Blue'
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
-	win = MrWindow(XSIZE=900, YSIZE=900)
-	p1 = MrVar_Plot(odC1, /CURRENT, XRANGE=trange[*,'SSM'])
-	win = p1.window
-	win -> Refresh, /DISABLE
-	win.oxmargin = [14,4]
+	win = MrWindow(XSIZE=900, YSIZE=900, REFRESH=0)
+	p1 = MrVar_Plot(odFlux, /CURRENT)
+	p2 = MrVar_Plot(oField, /CURRENT)
+	p3 = MrVar_Plot(oXCorr, /CURRENT)
+	p4 = MrVar_Plot(oField, odFlux, TITLE='Scatter Plot', LINESTYLE='None', PSYM=9, /CURRENT)
+	p5 = MrVar_Plot(oFit, OVERPLOT=p4)
 	
-	p2 = MrVar_Plot(odBperp, /CURRENT, XRANGE=trange[*,'SSM'])
-	p3 = MrVar_Plot(oXC1Bperp, /CURRENT)
-	p4 = MrVar_Plot(odBperp, odC1, TITLE='Scatter Plot', LINESTYLE='None', PSYM=9, /CURRENT) 
-
+	;Place text
+	oTxt1 = MrText(0.05, 0.90, txt_fit,  COLOR='Blue', /RELATIVE, TARGET=p4)
+	oTxt2 = MrText(0.05, 0.75, txt_qual, COLOR='Blue', /RELATIVE, TARGET=p4)
+	
+	win.oxmargin = [14,4]
 	win -> Refresh
-	return, win
-end
+
+	RETURN, win
+END

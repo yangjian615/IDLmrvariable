@@ -194,12 +194,18 @@ TRANGE=trange
 	oPSD = oVar -> PSD( /CACHE, NAME=scpot_psd_vname, NDETREND=nDetrend )
 	
 	;EDI
+	minPSD = !values.f_infinity
+	maxPSD = -!values.f_infinity
 	for i = 0, n_elements(edi_vnames) - 1 do begin
 		oVar = MrVar_Get(edi_vnames[i])
 		oPSD = oVar -> PSD( /CACHE, $
 		                    NAME     = edi_psd_vnames[i], $
 		                    NDETREND = nDetrend, $
 		                    WINDOW   = 'hanning' )
+		
+		;Get global range
+		maxPSD = maxPSD > oPSD.max
+		minPSD = minPSD < oPSD.min
 	endfor
 
 ;-------------------------------------------
@@ -209,8 +215,9 @@ TRANGE=trange
 	tspan = MrVar_GetTRange()
 	dt    = MrVar_GetTRange('SSM')
 	dt    = dt[1] - dt[0]
-	title = strupcase(sc) + ' ' + strmid(tspan[0], 0, 10) + ' ' + strmid(tspan[0], 11, 8) + $
-	        ' (' + string(dt, FORMAT='(f0.2)') + 's)'
+	nPts  = oVar -> GetNPts()
+	title = string(strupcase(sc), strmid(tspan[0], 0, 10), strmid(tspan[0], 11, 10), dt, nPts, nDetrend, $
+	               FORMAT='(%"%s %s %s (%0.2fs)!CNFFT=%i, NDETREND=%i")')
 
 	;B PAR
 	oPar               = MrVar_Get(dbpar_psd_vname)
@@ -244,7 +251,7 @@ TRANGE=trange
 	for i = 0, 3 do begin
 		oVar               = MrVar_Get(edi_psd_vnames[i])
 		oT                 = MrVar_Get(oVar['DEPEND_0'])
-		oVar['TITLE']      = string(i+1, FORMAT='(%"Flux%i PA0!C(PSD)")')
+		oVar['TITLE']      = string(i+1, FORMAT='(%"PA0!CCh%i")')
 		oVar['PLOT_TITLE'] = ''
 		oT['TICKFORMAT']   = '(a1)'
 		oT['TITLE']        = ''
@@ -254,7 +261,7 @@ TRANGE=trange
 	for i = 0, 3 do begin
 		oVar               = MrVar_Get(edi_psd_vnames[i+4])
 		oT                 = MrVar_Get(oVar['DEPEND_0'])
-		oVar['TITLE']      = string(i+1, FORMAT='(%"Flux%i PA180!C(PSD)")')
+		oVar['TITLE']      = string(i+1, FORMAT='(%"PA180!CCh%i")')
 		oVar['PLOT_TITLE'] = ''
 		oT['TITLE']        = i eq 3 ? 'Frequency (Hz)' : ''
 		if i ne 3 then oT['TICKFORMAT'] = '(a1)'
@@ -263,29 +270,22 @@ TRANGE=trange
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
-	xrange = [1, 4096]
+	xrange = [10, 512]
 
-	win = MrWindow(NAME='WhistlerPSD', XSIZE=890, YGAP=0.5, YSIZE=1100, REFRESH=0)
+	win = MrWindow(NAME='WhistlerPSD', OYMARGIN=[4,4], XSIZE=890, YGAP=0.5, YSIZE=900, REFRESH=0)
 
 	;DB
 	p1 = MrVar_Plot( dbpar_psd_vname, /CURRENT )
 	p2 = MrVar_Plot( dbperp_psd_vname, OVERPLOT=p1 )
 	
-	;LEGEND
-	lB = MrVar_Legend(dbpar_psd_vname, dbperp_psd_vname, $
-	                  ALIGNMENT = 'SW', $
-	                  POSITION  = [0,0], $
-	                  /RELATIVE, $
-	                  NAME      = 'LGD: dB', $
-	                  TARGET    = p1)
-	
 	;SCPOT
 	p3 = MrVar_Plot( scpot_psd_vname, /CURRENT )
 	
 	;EDI
+	yrange = [minPSD*0.5, maxPSD*2]
 	nvars = n_elements(edi_psd_vnames)
 	for i = 0, nvars - 1 do begin
-		p = MrVar_Plot( edi_psd_vnames[i], /CURRENT )
+		p = MrVar_Plot( edi_psd_vnames[i], /CURRENT, YRANGE=yrange )
 	endfor
 	
 	win -> SetGlobal, XRANGE=xrange

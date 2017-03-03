@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_Plot_CurvScatter
+;       MrMMS_Plot_Whistler_Omni
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -34,11 +34,13 @@
 ; PURPOSE:
 ;+
 ;   Generate a plot to provide an overview of reconnection quantities:
-;       1. |B|
-;       2. PAD + loss-cone
-;       3. R Curvature
-;       4. R Err
-;       5. Adiabatic parameter K
+;       1. B & |B|
+;       2. Ve
+;       3. PAD + loss-cone
+;       4. Curvature scattering parameters
+;       5. Ee Spectra + E Resonant
+;       6. B PSD Omni
+;       7. E PSD Omni
 ;
 ;   Figure 3 of:
 ;       Lavraud, B. et al. (2016), Currents and associated electron scattering and
@@ -69,9 +71,9 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016/11/27  -   Written by Matthew Argall
+;       2016/12/08  -   Written by Matthew Argall
 ;-
-function MrMMS_Plot_CurvScatter, sc, mode, species, $
+function MrMMS_Plot_Whistler_Omni, sc, mode, species, $
 ENERGIES=energies, $
 NO_LOAD=no_load, $
 TRANGE=trange
@@ -85,28 +87,31 @@ TRANGE=trange
 		return, !Null
 	endif
 	
-	Bmirror  = [65]                   ;nT
 	tf_load = ~keyword_set(no_load)
-	if n_elements(energies) eq 0 then energies = [20, 100, 200, 500]       ;eV
-	if n_elements(species)  eq 0 then species  = 'e'
-	if n_elements(trange)   gt 0 then MrVar_SetTRange, trange
-	
-	;Get the mass
-	case species of
-		'e': mass = MrConstants('m_e')
-		'i': mass = MrConstants('m_p')
-		else: message, 'SPECIES must be {"e" | "i"}.'
-	endcase
+	if n_elements(nfft)      eq 0 then nfft      = 1024
+	if n_elements(fgm_instr) eq 0 then fgm_instr = 'fgm'
+	if n_elements(Bmirror)   eq 0 then Bmirror   = 42                     ;nT
+	if n_elements(f_wave)    eq 0 then f_wave    = 100                    ;Hz
+	if n_elements(energies)  eq 0 then energies  = [20, 100, 200, 500]    ;eV
+	if n_elements(species)   eq 0 then species   = 'e'
+	if n_elements(trange)    gt 0 then MrVar_SetTRange, trange
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
-	fgm_instr = 'dfg'
 	case fgm_instr of
 		'afg': fgm_level = 'l2pre'
 		'dfg': fgm_level = 'l2pre'
 		'fgm': fgm_level = 'l2'
 		else:  message, 'Invalid FGM instrument: "' + fgm_instr + '".'
+	endcase
+	fpi_instr = 'd' + species + 's'
+	case mode of
+		'slow': scm_optdesc = 'scs'
+		'fast': scm_optdesc = 'scf'
+		'srvy': scm_optdesc = 'scsrvy'
+		'brst': scm_optdesc = 'scb'
+		else: message, 'Invalid MODE: "' + mode + '".'
 	endcase
 	
 	level    = 'l2'
@@ -128,20 +133,28 @@ TRANGE=trange
 	r2_vec_vname  = 'MMS2_DEFEPH_R'
 	r3_vec_vname  = 'MMS3_DEFEPH_R'
 	r4_vec_vname  = 'MMS4_DEFEPH_R'
-	dist4d_vname  = sc + '_fpi_dist4d_'                + mode     + '_' + level
-	pad_vname     = sc + '_fpi_pad_'                   + mode     + '_' + level
+	n_vname       = strjoin([sc, fpi_instr, 'numberdensity',     fpi_mode], '_')
+	v_vname       = strjoin([sc, fpi_instr, 'bulkv', coords,     fpi_mode], '_')
+	pad_vname     = strjoin([sc, fpi_instr, 'pitchangdist',      fpi_mode], '_')
+	espec_vname   = strjoin([sc, fpi_instr, 'energyspectr_omni', fpi_mode], '_')
+	acb_vname     = strjoin([sc, 'scm', 'acb', coords, scm_optdesc, mode, level], '_')
+	dce_vname     = strjoin([sc, 'edp', 'dce', coords, mode, level], '_')
 	
 	;Derived names
 	mir1_hi_vname = sc + '_' + fgm_instr + '_mirror1_low_'           + fgm_mode + '_' + fgm_level
 	mir1_lo_vname = sc + '_' + fgm_instr + '_mirror1_high_'          + fgm_mode + '_' + fgm_level
 	mir2_hi_vname = sc + '_' + fgm_instr + '_mirror2_low_'           + fgm_mode + '_' + fgm_level
 	mir2_lo_vname = sc + '_' + fgm_instr + '_mirror2_high_'          + fgm_mode + '_' + fgm_level
-	rcurv_vname   = sc + '_' + fgm_instr + '_rcurv_'                 + fgm_mode + '_' + fgm_level
-	rerr_vname    = sc + '_' + fgm_instr + '_rerr_'                  + fgm_mode + '_' + fgm_level
 	k1_vname      = sc + '_' + fgm_instr + '_k1_'                    + fgm_mode + '_' + fgm_level
 	k2_vname      = sc + '_' + fgm_instr + '_k2_'                    + fgm_mode + '_' + fgm_level
 	k3_vname      = sc + '_' + fgm_instr + '_k3_'                    + fgm_mode + '_' + fgm_level
 	k4_vname      = sc + '_' + fgm_instr + '_k4_'                    + fgm_mode + '_' + fgm_level
+	scm_psd_vname = strjoin([sc, 'scm', 'acb', 'psd', 'omni', mode, level], '_')
+	edp_psd_vname = strjoin([sc, 'edp', 'dce', 'psd', 'omni', mode, level], '_')
+	eres_vname    = strjoin([sc, 'resonant', 'energy', mode, level], '_')
+	fce_vname     = strjoin([sc, 'fce', mode, level], '_')
+	fpe_vname     = strjoin([sc, 'fpe', mode, level], '_')
+	flh_vname     = strjoin([sc, 'flh', mode, level], '_')
 	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
@@ -150,31 +163,60 @@ TRANGE=trange
 	;-------------------------------------------
 	; FGM //////////////////////////////////////
 	;-------------------------------------------
-		;B & |B|
-		oFGM = MrMMS_FGM_4sc( mode, $
-		                      COORD_SYS = 'gse', $
-		                      INSTR     = fgm_instr, $
-		                      LEVEL     = fgm_level )
-		oFGM -> LoadPosition, 'defeph'
-		
+		MrMMS_FGM_Load_Data, '', mode, $
+		                     INSTR     = fgm_instr, $
+		                     VARFORMAT = ['*' + fgm_instr + '_b_' + coords + '*', $
+		                                  '*' + fgm_instr + '_*_'   + coords]
+	
+	;-------------------------------------------
+	; EPHEMERIS ////////////////////////////////
+	;-------------------------------------------
+		MrMMS_Load_Data, ANC_PRODUCT ='defeph', $
+		                 VARFORMAT   = '*R'
+	
 	;-------------------------------------------
 	; FPI //////////////////////////////////////
 	;-------------------------------------------
-		;Load FPI Data
-		oFPI = MrMMS_FPI_Dist( sc, fpi_mode, species, $
-		                       COORD_SYS = 'gse', $
-		                       LEVEL     = level )
-		oFPI -> Load_FAC, fac_type, FGM_INSTR=fgm_instr
-		
-		;4D Distribution
-		oDist = oFPI -> GetDist4D(NAME=dist4d_vname, /CACHE)
-		
-		;Pitch angle distribution
-		oPAD  = oDist -> GetThetaSpec( /CACHE, $
-		                               E_RANGE = [150,250], $
-		                               NAME = pad_vname )
-	endif
+		MrMMS_FPI_Load_Data, sc, fpi_mode, $
+		                     OPTDESC   = 'des-moms', $
+		                     VARFORMAT = ['*energyspectr_omni*', $
+		                                  '*pitchangdist*', $
+		                                  '*density*', $
+		                                  '*bulk?_' + coords + '*']
 	
+	;-------------------------------------------
+	; B PSD ////////////////////////////////////
+	;-------------------------------------------
+		;DSP for SRVY
+		if mode eq 'srvy' then begin
+			MrMMS_Load_Data, sc, 'dsp', dsp_mode, level, $
+			                 OPTDESC   = 'bpsd', $
+			                 VARFORMAT = '*bpsd_omni*'
+		
+		;SCM for BRST
+		endif else begin
+			MrMMS_Load_Data, sc, 'scm', mode, level, $
+			                 OPTDESC   = 'scb', $
+			                 VARFORMAT = '*_scb_brst_l2'
+		endelse
+	
+	;-------------------------------------------
+	; E PSD ////////////////////////////////////
+	;-------------------------------------------
+		;DSP for SRVY
+		if mode eq 'srvy' then begin
+			MrMMS_Load_Data, sc, 'dsp', dsp_mode, level, $
+			                 OPTDESC   = 'epsd', $
+			                 VARFORMAT = '*epsd_omni*'
+		
+		;SCM for BRST
+		endif else begin
+			MrMMS_Load_Data, sc, 'edp', mode, level, $
+			                 OPTDESC   = 'dce', $
+			                 VARFORMAT = '*_dce_' + coords + '_*'
+		endelse
+	endif
+
 	if ~MrVar_IsCached(bvec_vname) then begin
 		b_vname      = sc + '_' + fgm_instr + '_'     + fgm_mode + '_' + fgm_level + '_' + coords
 		bvec_vname   = sc + '_' + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
@@ -189,12 +231,8 @@ TRANGE=trange
 	endif
 
 ;-------------------------------------------
-; Calculations /////////////////////////////
+; Mirror Angle /////////////////////////////
 ;-------------------------------------------
-	if ~obj_valid(oFGM) then begin
-		oFGM = MrMMS_FGM_4sc( b1_vec_vname, b2_vec_vname, b3_vec_vname, b4_vec_vname, $
-		                      r1_vec_vname, r2_vec_vname, r3_vec_vname, r4_vec_vname )
-	endif
 
 	;Loss cone
 	nMirror = n_elements(Bmirror)
@@ -214,46 +252,84 @@ TRANGE=trange
 		oAngHi -> Cache
 	endif
 	
-	;Curvature
-	oCurv = oFGM -> R_Curvature()
-	oCurv = oCurv / (MrConstants('Re') / 1000.0)   ;km -> Earth radii
-	oCurv -> SetName, rcurv_vname
-	oCurv -> Cache
+	;Cleanup
+	obj_destroy, oB
+
+;-------------------------------------------
+; Scattering ///////////////////////////////
+;-------------------------------------------
+	;Particle mass
+	case species of
+		'e': mass = MrConstants('m_e')
+		'i': mass = MrConstants('m_i')
+		else: message, 'SPECIES must be {"e" | "i"}.'
+	endcase
 	
-	;Error
-	oErr = oFGM -> CurvErr(NAME=rerr_vname, /CACHE)
+	;Create multi-spacecraft methods object
+	oFGM = MrMMS_FGM_4sc( b1_vec_vname, b2_vec_vname, b3_vec_vname, b4_vec_vname, $
+	                      r1_vec_vname, r2_vec_vname, r3_vec_vname, r4_vec_vname )
 	
 	;Adiabatic parameter
 	oK1 = oFGM -> Kappa(energies[0], mass, NAME=k1_vname, /CACHE)
 	oK2 = oFGM -> Kappa(energies[1], mass, NAME=k2_vname, /CACHE)
 	oK3 = oFGM -> Kappa(energies[2], mass, NAME=k3_vname, /CACHE)
 	oK4 = oFGM -> Kappa(energies[3], mass, NAME=k4_vname, /CACHE)
+	
+	;Cleanup
+	obj_destroy, oFGM
+	
+;-------------------------------------------
+; B PSD ////////////////////////////////////
+;-------------------------------------------
+	;Detrend data
+	oB  = MrVar_Get(acb_vname)
+	oE  = MrVar_Get(dce_vname)
+	odB = oB -> Detrend(nfft)
+	odE = oE -> Detrend(nfft)
+
+	;B PSD Omni
+	odB_psd = odB -> Spectrogram(nfft, nshift, NAME=scm_psd_vname, /CACHE, WINDOW='hanning')
+	odB_psd = MrTimeSeries( odB_psd['TIMEVAR'], total(odB_psd['DATA'], 3) )
+	
+	;E PSD Omni
+	odE_psd = odE -> Spectrogram(nfft, nshift, NAME=edp_psd_vname, /CACHE, WINDOW='hanning')
+	odE_psd = MrTimeSeries( odE_psd['TIMEVAR'], total(odE_psd['DATA'], 3) )
+	
+	;Frequency lines
+	f_ce = MrVar_Freq_Cyclotron(bmag_vname, 'm_e', NAME=fce_vname, /CACHE)
+	f_lh = MrVar_Freq_LowerHybrid(bmag_vname, n_vname, NAME=flh_vname, /CACHE)
+	f_pe = MrVar_Freq_Plasma(n_vname, 'm_e', NAME=fpe_vname, /CACHE)
+	
+	;Cleanup
+	obj_destroy, [odB, odE]
+
+;-----------------------------------------------------
+; Calculate Resonant Energy \\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	mass  = species eq 'i' ? MrConstants('m_p') : MrConstants('m_e')
+	oEr   = MrVar_Whistler_Eres(bmag_vname, n_vname, mass, f_wave, NAME=eres_vname, /CACHE)
 
 ;-------------------------------------------
 ; Set Properties ///////////////////////////
 ;-------------------------------------------
 	title = strupcase(sc)
 
-	;|B|
-	oB = MrVar_Get(bmag_vname)
-	oB['AXIS_RANGE'] = [0, oB.max*1.1]
+	;B
+	oB = MrVar_Get(b_vname)
+	oB['AXIS_RANGE'] = [oB.min*1.1, oB.max*1.1]
 	oB['PLOT_TITLE'] = title
+	oB['LABEL']      = ['Bx', 'By', 'Bz', '|B|']
+	
+	;V
+	oV = MrVar_Get(v_vname)
+	oV['TITLE'] = 'Ve!C(km/s)'
+	oV['LABEL'] = ['Vx', 'Vy', 'Vz']
 	
 	;PAD
 	oPAD = MrVar_Get(pad_vname)
 	oPA  = MrVar_Get(oPAD['DEPEND_1'])
-	oPAD['TITLE'] = 'PSD!C' + oPAD['UNITS']
-	oPA['TITLE']  = 'PA!C200eV!C(deg)'
-	
-	;R CURVE
-	oCurv['AXIS_RANGE'] = [oCurv.min < 1e-2, oCurv.max*1.1 > 1e2]
-	oCurv['LOG']        = 1B
-	oCurv['TITLE']      = 'R$\downc$!C(R$\downe$)'
-	
-	;Error
-	oErr['AXIS_RANGE'] = [oErr.min < 1e-3, oErr.max*1.1 > 1e1]
-	oErr['LOG']        = 1B
-	oErr['TITLE']      = 'O(L/D)'
+	oPAD['TITLE'] = 'EFlux!C' + oPAD['UNITS']
+	oPA['TITLE']  = 'PA!C(deg)'
 	
 	;K1
 	oK1['AXIS_RANGE'] = [oK4.min < 1e-1, oK1.max*1.1]
@@ -278,12 +354,29 @@ TRANGE=trange
 	oK4['COLOR'] = 'Magenta'
 	oK4['LABEL'] = string(energies[3], FORMAT='(i0)') + 'eV'
 	oK4['LOG']   = 1
+	
+	;ESpec
+	oEe = MrVar_Get(espec_vname)
+	oEn = MrVar_Get(oEe['DEPEND_1']
+	oEn['TITLE'] = 'Energy!C(eV)'
+	
+	;B PSD
+	odB_psd['TITLE'] = 'B Omni!C(nT$\up2$/Hz)'
+	
+	;E PSD
+	odE_psd['TITLE'] = 'E Omni!C(mV/m)$\up2$/Hz'
+	
+	;F_LH
+	f_lh['THICK'] = 2
+	f_ce['THICK'] = 2
+	oEr['THICK']  = 2
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
 	;Create plot
-	win = MrVar_PlotTS( [bmag_vname, pad_vname, rcurv_vname, rerr_vname, k1_vname], $
+	win = MrVar_PlotTS( [b_vname, v_vname, pad_vname, k1_vname, espec_vname, scm_psd_vname, edp_psd_vname], $
+	                    XSIZE = 800, $
 	                    YSIZE = 700)
 	win    -> Refresh, /DISABLE
 	
@@ -291,17 +384,13 @@ TRANGE=trange
 	win = MrVar_OPlotTS( [pad_vname,  pad_vname], [mir1_lo_vname, mir1_hi_vname] )
 	win = MrVar_OPlotTS( [k1_vname, k1_vname, k1_vname], $
 	                     [k2_vname, k3_vname, k4_vname] )
+	win = MrVar_OPlotTS( espec_vname, eres_vname )
+	win = MrVar_OPlotTS( [scm_psd_vname, scm_psd_vname, scm_psd_vname, edp_psd_vname, edp_psd_vname, edp_psd_vname], $
+	                     [fce_vname,     fpe_vname,     flh_vname,     fce_vname,     fpe_vname,     fpe_vname] )
 	if nMirror eq 2 then win = MrVar_OPlotTS( [pad_vname, pad_vname], [mir2_lo_vname, mir2_hi_vname] )
-	
-	;Legend for scattering parameters
-	oL = MrVar_Legend( k1_vname, k2_vname, k3_vname, k4_vname, $
-	                   NAME   = 'Lgd: k^2', $
-	                   TARGET = win[k1_vname] )
 	
 	;Draw horizontal lines
 	trange = MrVar_GetTRange('SSM')
-	oHorz  = MrPlotS( trange, [0.1, 0.1], COLOR='Blue', LINESTYLE='--', NAME='Rerr=0.1', TARGET=win[rerr_vname])
-	oHorz  = MrPlotS( trange, [0.5, 0.5], COLOR='Blue', LINESTYLE='--', NAME='Rerr=0.5', TARGET=win[rerr_vname])
 	oHorz  = MrPlotS( trange, [10, 10], LINESTYLE='--', NAME='k=10', TARGET=win[k1_vname])
 	oHorz  = MrPlotS( trange, [25, 25], LINESTYLE='--', NAME='k=25', TARGET=win[k1_vname])
 	
