@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;    test_MrDist_1D
+;    MrMMS_FPI_Test_Spectra
 ;
 ; PURPOSE:
 ;+
@@ -27,7 +27,7 @@
 ;    Modification History::
 ;       2016/02/10  -   Written by Matthew Argall
 ;-
-function MrMMS_FPI_Test_Dist, sc, mode, species, $
+function MrMMS_FPI_Test_Spectra, sc, mode, species, $
 NO_LOAD=no_load
 	compile_opt idl2
 	
