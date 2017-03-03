@@ -351,7 +351,7 @@ end
 ;       I8:                 in, optional, type=integer/intarr(3)
 ;                           Index subscripts.
 ;-
-pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+pro MrTimeSeries::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i4, i5, i6, i7, i8
 	compile_opt idl2
 	on_error, 2
 
@@ -472,7 +472,7 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 ; Brute Force Code for 4D or Higher Arrays. //////////////////////////
 ;---------------------------------------------------------------------
 	;Works for any number of dimensions.
-	indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8);, /IDL_METHOD)
+	indices = MrReformIndices(Size(*self.data, /DIMENSIONS), isRange, i1, i2, i3, i4, i5, i6, i7, i8);, /IDL_METHOD)
 	(*self.data)[indices] = value
 end 
 
@@ -802,6 +802,230 @@ function MrTimeSeries::_OverloadForeach, value, key
 	key += 1
 
 	return, next
+end
+
+
+;+
+;   Add one expression to another.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
+;-
+function MrTimeSeries::_OverloadGreaterThan, left, right
+	compile_opt idl2
+	on_error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrTimeSeries Objects /////////////////////////////
+;-------------------------------------------------------
+	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+		
+		;New name
+		name = 'GreaterThan(' + left.name + ',' + right.name + ')'
+		outClass = 'MrTimeSeries'
+
+		;Perform operation
+		if side eq 'LEFT' $
+			then temp = *self.data   > right['DATA'] $
+			else temp = left['DATA'] > *self.data
+		
+		;Return object
+		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+
+;-------------------------------------------------------
+; MrTimeSeries with MrVariable /////////////////////////
+;-------------------------------------------------------
+	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
+	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
+	then begin
+		;Name of result
+		name = 'GreaterThan(' + left.name + ',' + right.name + ')'
+		
+		;Multiply
+		if side eq 'LEFT' $
+			then temp = *self.data   > right['DATA'] $
+			else temp = left['DATA'] > *self.data
+		
+		;Create a MrVariable object
+		result = MrVariable(temp, NAME=name, /NO_COPY)
+
+;-------------------------------------------------------
+; MrScalarTS with Expression ///////////////////////////
+;-------------------------------------------------------
+	endif else begin
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;SELF is LEFT
+		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = obj_class(self) $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
+			if n_elements(right) eq 1 $
+				then dims = strtrim(right[0], 2) $
+				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'GreaterThan(' + self.name + ',' + dims + ')'
+
+			;Operation
+			result = *self.data > right
+			
+		;SELF is RIGHT
+		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = obj_class(self) $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
+			if n_elements(left) eq 1 $
+				then dims = strtrim(left[0], 2) $
+				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'GreaterThan(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left > *self.data
+		endelse
+		
+		;Create a MrVariable object
+		if classOut eq 'MrVariable' $
+			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
+			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
+	endelse
+
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	return, result
+end
+
+
+;+
+;   Add one expression to another.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
+;-
+function MrTimeSeries::_OverloadLessThan, left, right
+	compile_opt idl2
+	on_error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrTimeSeries Objects /////////////////////////////
+;-------------------------------------------------------
+	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+		
+		;New name
+		name = 'LessThan(' + left.name + ',' + right.name + ')'
+		outClass = 'MrTimeSeries'
+
+		;Perform operation
+		if side eq 'LEFT' $
+			then temp = *self.data   < right['DATA'] $
+			else temp = left['DATA'] < *self.data
+		
+		;Return object
+		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+
+;-------------------------------------------------------
+; MrTimeSeries with MrVariable /////////////////////////
+;-------------------------------------------------------
+	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
+	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
+	then begin
+		;Name of result
+		name = 'LessThan(' + left.name + ',' + right.name + ')'
+		
+		;Multiply
+		if side eq 'LEFT' $
+			then temp = *self.data   < right['DATA'] $
+			else temp = left['DATA'] < *self.data
+		
+		;Create a MrVariable object
+		result = MrVariable(temp, NAME=name, /NO_COPY)
+
+;-------------------------------------------------------
+; MrScalarTS with Expression ///////////////////////////
+;-------------------------------------------------------
+	endif else begin
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;SELF is LEFT
+		if side eq 'LEFT' then begin
+			;Object class for output
+			if MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				then classOut = obj_class(self) $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
+			if n_elements(right) eq 1 $
+				then dims = strtrim(right[0], 2) $
+				else dims = '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'LessThan(' + self.name + ',' + dims + ')'
+
+			;Operation
+			result = *self.data < right
+			
+		;SELF is RIGHT
+		endif else begin
+			;Object class for output
+			if MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				then classOut = obj_class(self) $
+				else classOut = 'MrVariable'
+			
+			;Name of output variable
+			if n_elements(left) eq 1 $
+				then dims = strtrim(left[0], 2) $
+				else dims = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'LessThan(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left < *self.data
+		endelse
+		
+		;Create a MrVariable object
+		if classOut eq 'MrVariable' $
+			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
+			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
+	endelse
+
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	return, result
 end
 
 
@@ -1663,11 +1887,123 @@ _REF_EXTRA=extra
 	;Set properties
 	self -> CopyAttrTo, data
 	data['CATDESC'] = self.name + ' detrended with ' + strtrim(width) + ' point boxcar average.'
-	
+
 	;Cache
+	data -> SetName, name
 	if keyword_set(cache) then data -> Cache
 	return, data
 end
+
+
+;+
+;   Store variables as TPlot variables.
+;
+;   NOTE:
+;       Requires the SPEDAS distribution.
+;       http://spedas.org/blog/
+;
+; :Returns:
+;       TNAME:              out, required, type=string
+;                           Name of the TPlot variable created.
+;-
+FUNCTION MrTimeSeries::ExportToSPEDAS
+	Compile_Opt idl2
+	On_Error, 2
+	
+;-----------------------------------------------------
+; Create the Data Structure \\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	CASE 1 OF
+		;2D Image
+		self -> HasAttr('DEPEND_1'): BEGIN
+			data = { x: time_double( self.oTime['DATA'] ), $
+			         y: *self.data, $
+			         v: (self['DEPEND_1'])['DATA'] }
+		ENDCASE
+		
+		;1D Time Series
+		self -> HasAttr('DEPEND_0'): BEGIN
+			data = { x: time_double( self.oTime['DATA'] ), $
+			         y: *self.data }
+		ENDCASE
+		
+		;Unknown
+		ELSE: Message, 'I do not know how to load data with > 3 dimensions into TPlot.'
+	ENDCASE
+	
+;-----------------------------------------------------
+; Store the Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Store the data
+	tname = self.name
+	store_data, tname, DATA=temporary(data)
+	
+;-----------------------------------------------------
+; X-Axis Options \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	IF self -> HasAttr('DEPEND_0') THEN BEGIN
+		dep0 = MrVar_Get( self['DEPEND_0'] )
+		IF dep0 -> HasAttr('CHARSIZE')     THEN options, tname, 'xcharsize',     dep0['CHARSIZE']
+		IF dep0 -> HasAttr('GRIDSTYLE')    THEN options, tname, 'xgridstyle',    dep0['GRIDSTYLE']
+		IF dep0 -> HasAttr('LOG')          THEN options, tname, 'xlog',          dep0['LOG']
+		IF dep0 -> HasAttr('MINOR')        THEN options, tname, 'xminor',        dep0['MINOR']
+		IF dep0 -> HasAttr('AXIS_RANGE')   THEN options, tname, 'xrange',        dep0['AXIS_RANGE']
+		IF dep0 -> HasAttr('STYLE')        THEN options, tname, 'xstyle',        dep0['STYLE']
+		IF dep0 -> HasAttr('THICK')        THEN options, tname, 'xthick',        dep0['THICK']
+		IF dep0 -> HasAttr('TICKFORMAT')   THEN options, tname, 'xtickformat',   dep0['TICKFORMAT']
+		IF dep0 -> HasAttr('TICKINTERVAL') THEN options, tname, 'xtickinterval', dep0['TICKINTERVAL']
+		IF dep0 -> HasAttr('TICKLAYOUT')   THEN options, tname, 'xticklayout',   dep0['TICKLAYOUT']
+		IF dep0 -> HasAttr('TICKLEN')      THEN options, tname, 'xticklen',      dep0['TICKLEN']
+		IF dep0 -> HasAttr('TICKNAME')     THEN options, tname, 'xtickname',     dep0['TICKNAME']
+		IF dep0 -> HasAttr('MAJOR')        THEN options, tname, 'xticks',        dep0['MAJOR']
+		IF dep0 -> HasAttr('TICKUNITS')    THEN options, tname, 'xtickunits',    dep0['TICKUNITS']
+		IF dep0 -> HasAttr('TICKV')        THEN options, tname, 'xtickv',        dep0['TICKV']
+		IF dep0 -> HasAttr('TITLE')        THEN options, tname, 'xtitle',        dep0['TITLE']
+	ENDIF
+	
+;-----------------------------------------------------
+; Y-Axis Options \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Image or Time series?
+	IF self -> HasAttr('DEPEND_1') THEN BEGIN
+		yvar = MrVar_Get( self['DEPEND_1'] )
+		options, tname, 'spec', 1B
+	ENDIF ELSE BEGIN
+		yvar = self
+	ENDELSE
+
+	IF yvar -> HasAttr('CHARSIZE')     THEN options, tname, 'ycharsize',     yvar['CHARSIZE']
+	IF yvar -> HasAttr('GRIDSTYLE')    THEN options, tname, 'ygridstyle',    yvar['GRIDSTYLE']
+	IF yvar -> HasAttr('LOG')          THEN options, tname, 'ylog',          yvar['LOG']
+	IF yvar -> HasAttr('MINOR')        THEN options, tname, 'yminor',        yvar['MINOR']
+	IF yvar -> HasAttr('AXIS_RANGE')   THEN options, tname, 'yrange',        yvar['AXIS_RANGE']
+	IF yvar -> HasAttr('STYLE')        THEN options, tname, 'ystyle',        yvar['STYLE']
+	IF yvar -> HasAttr('THICK')        THEN options, tname, 'ythick',        yvar['THICK']
+	IF yvar -> HasAttr('TICKFORMAT')   THEN options, tname, 'ytickformat',   yvar['TICKFORMAT']
+	IF yvar -> HasAttr('TICKINTERVAL') THEN options, tname, 'ytickinterval', yvar['TICKINTERVAL']
+	IF yvar -> HasAttr('TICKLAYOUT')   THEN options, tname, 'yticklayout',   yvar['TICKLAYOUT']
+	IF yvar -> HasAttr('TICKLEN')      THEN options, tname, 'yticklen',      yvar['TICKLEN']
+	IF yvar -> HasAttr('TICKNAME')     THEN options, tname, 'ytickname',     yvar['TICKNAME']
+	IF yvar -> HasAttr('MAJOR')        THEN options, tname, 'yticks',        yvar['MAJOR']
+	IF yvar -> HasAttr('TICKUNITS')    THEN options, tname, 'ytickunits',    yvar['TICKUNITS']
+	IF yvar -> HasAttr('TICKV')        THEN options, tname, 'ytickv',        yvar['TICKV']
+	IF yvar -> HasAttr('TITLE')        THEN options, tname, 'ytitle',        yvar['TITLE']
+	
+;-----------------------------------------------------
+; General Options \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	IF self -> HasAttr('COLOR')      THEN options, tname, 'colors', cgColor(self['COLOR'])
+	IF self -> HasAttr('PLOT_TITLE') THEN options, tname, 'title', self['PLOT_TITLE']
+	IF self -> HasAttr('LABEL') THEN BEGIN
+		options, tname, 'labels',  self['LABEL']
+		options, tname, 'labflag', 1
+	ENDIF
+	
+;-----------------------------------------------------
+; Done \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	RETURN, tname
+END
 
 
 ;+
@@ -1721,6 +2057,10 @@ WINDOW=win
 	;Name
 	if isa(win, 'STRING', /SCALAR) then begin
 		case strupcase(win) of
+			'BLACKMAN': begin
+				xx    = findgen(nfft)/(nfft-1)
+				taper = 0.42 - 0.50 * cos(2*!pi*xx) + 0.08 * cos(4*!pi*xx)
+			endcase
 			'RECTANGULAR': taper = replicate(1.0, nfft)
 			'HANNING':     taper = hanning(nfft, ALPHA=0.50)
 			'HAMMING':     taper = hanning(nfft, ALPHA=0.54)
@@ -1770,6 +2110,33 @@ WINDOW=win
 	istart = 0
 	iend   = nfft-1
 	for i = 0, nMax-1 do begin
+	;-----------------------------------------------------
+	; Define Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;
+		; Place at beginning of loop so that CONTINUE
+		; advances interval as well as loop index.
+		;
+	
+		;First interval
+		if i eq 0 then begin
+			istart = 0
+			iend   = nfft - 1
+		
+		;Last interval
+		;   - Extend backward from the end of the array
+		endif else if i eq nMax-1 then begin
+			ilast = iend
+			iend  = N - 1
+			istart = N - nfft
+		
+		;Intermediate intervals
+		;   - Advance forward by NSHIFT
+		endif else begin
+			istart += nshift
+			iend   += nshift
+		endelse
+	
 	;-----------------------------------------------------
 	; Compute Sample Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
@@ -1848,22 +2215,6 @@ WINDOW=win
 			;Record time stamp
 			t_fft[i]  = t[istart] + (nfft * SI) / 2.0
 			dt_fft[i] = nfft * SI / 2.0
-		endelse
-
-	;-----------------------------------------------------
-	; Next Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;Advance forward by NSHIFT
-		if i lt nMax-2 then begin
-			istart += nshift
-			iend   += nshift
-			
-		;Extend backward from the end of the array
-		;   - Final time stamp is adjusted below.
-		endif else begin
-			ilast  = iend
-			iend   = N - 1
-			istart = N - nfft
 		endelse
 	endfor
 
@@ -2083,8 +2434,8 @@ NAME=name
 	;A is currently D1xD2xD3xD4x ... xDN
 	;   - Turn A into D1xDixDN matrix
 	if nDimsA le 2 $
-		then _A = A['DATA'] $
-		else _A = reform( A['DATA'], [ dimsA[0], product(dimsA[1:-2]), dimsA[-1] ] )
+		then _A = self['DATA'] $
+		else _A = reform( self['DATA'], [ dimsA[0], product(dimsA[1:-2]), dimsA[-1] ] )
 	
 	;B is currently D1xD2xD3xD4x ... xDN
 	;   - Turn B into D1xD2xDi matrix
@@ -2098,9 +2449,13 @@ NAME=name
 	
 	;Allocate memory
 	temp = make_array( tempDims, TYPE=size(self[[0]]*B[[0]], /TYPE) )
-	
+
 	;Step through each
-	for i = 0, nPts - 1 do temp[i,*] = reform(_A[i,*,*]) # reform(_B[i,*,*])
+	;   - If _A is TxN, we want to keep each time element 1xN so that N is the inner dimension
+	;   - If _A is TxNxM, we want each time element to be NxM
+	if nDimsA gt 2 $
+		then for i = 0, nPts - 1 do temp[i,*] = reform(_A[i,*,*]) # reform(_B[i,*,*]) $
+		else for i = 0, nPts - 1 do temp[i,*] = _A[i,*,*]         # reform(_B[i,*,*])
 	_A = !Null
 	_B = !Null
 
@@ -2186,7 +2541,7 @@ SPLINE=spline
 	endelse
 
 ;-------------------------------------------------------
-; Interpolate Scalar //////////////////////////////////////
+; Interpolate Scalar ///////////////////////////////////
 ;-------------------------------------------------------
 	nDims = size(self, /N_DIMENSIONS)
 	dims  = size(self, /DIMENSIONS)
@@ -2286,10 +2641,10 @@ NAME=name
 	nPtsA = self -> GetNPts()
 	nPtsB = B    -> GetNPts()
 	if nPtsA lt nPtsB then begin
-		!Null = A -> GetData( oTime, /TVAR )
+		!Null = self -> GetData( oTime, /TVAR )
 		nPts  = nPtsA
 	endif else begin
-		!Null = B -> GetData( oTime, /TVAR )
+		!Null = self -> GetData( oTime, /TVAR )
 		nPts  = nPtsB
 	endelse
 
@@ -2335,7 +2690,11 @@ NAME=name
 	temp = make_array( tempDims, TYPE=size(self[[0]]*B[[0]], /TYPE) )
 
 	;Step through each
-	for i = 0, nPts - 1 do temp[i,*] = reform(_A[i,*,*]) ## reform(_B[i,*,*])
+	;   - If _B is TxN, we want to keep each time element 1xN so that N is the outer dimension
+	;   - If _B is TxNxM, we want B to be NxM
+	if nDimsB gt 2 $
+		then for i = 0, nPts - 1 do temp[i,*] = reform(_A[i,*,*]) ## reform(_B[i,*,*]) $
+		else for i = 0, nPts - 1 do temp[i,*] = reform(_A[i,*,*]) ## _B[i,*,*]
 	_A = !Null
 	_B = !Null
 
@@ -2499,6 +2858,36 @@ end
 
 
 ;+
+;   Determine if time stamps are identical. Time stamps are identical if the
+;   MrTimeVar objects have the same heap identifier.
+;
+; :Params:
+;       OVAR:           in, required, type=objref
+;                       Time stamps to which the internal time series should be identical.
+;                           May be a MrTimeVar or MrTimeSeries class or subclass.
+;
+; :Returns:
+;       TF_SAME:        out, required, type=boolean
+;                       If true, time stamps are identical. False otherwise.
+;-
+function MrTimeSeries::IsTimeIdentical, oVar
+	compile_opt idl2
+	on_error, 2
+	
+	tf_same = 0B
+	if obj_isa(oVar, 'MrTimeVar') then begin
+		tf_same = obj_valid(self.oTime, /GET_HEAP_IDENTIFIER) EQ Obj_Valid(oVar, /GET_HEAP_IDENTIFIER)
+	endif else if obj_isa(oVar, 'MrTimeSeries') then begin
+		tf_same = obj_valid(self.oTime, /GET_HEAP_IDENTIFIER) EQ Obj_Valid(oVar['TIMEVAR'], /GET_HEAP_IDENTIFIER)
+	endif else begin
+		message, 'OVAR must be a MrTimeVar or MrTimeSeries object.'
+	endelse
+	
+	return, tf_same
+end
+
+
+;+
 ;   Set the array.
 ;
 ;   CALLING SEQUENCE:
@@ -2536,130 +2925,137 @@ end
 ;                       If `TIME` is an array of time stamps, use this keyword to indicate
 ;                           the format or time-basis. See MrTimeVar for more details.
 ;-
-pro MrTimeSeries::SetData, x1, x2, $
+PRO MrTimeSeries::SetData, x1, x2, $
 DIMENSION=dimension, $
 NO_COPY=no_copy, $
 T_NAME=t_name, $
 T_REF=t_ref, $
 T_TYPE=t_type
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 
-	if n_elements(x2) gt 0 then begin
+	IF N_Elements(x2) GT 0 THEN BEGIN
 		time   = x1
 		ts_var = x2
-	endif else begin
+	ENDIF ELSE BEGIN
 		ts_var = x1
-	endelse
+	ENDELSE
 	
 ;-----------------------------------------------------
 ; Check Time \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Use existing time
-	if n_elements(time) eq 0 then begin
-		if obj_valid(self.oTime) $
-			then oTime = self.oTime $
-			else message, 'No time variable exists. Please provide.'
+	IF N_Elements(time) EQ 0 THEN BEGIN
+		IF Obj_Valid(self.oTime) $
+			THEN oTime = self.oTime $
+			ELSE Message, 'No time variable exists. Please provide.'
 	
 	;Check given time
-	endif else begin
+	ENDIF ELSE BEGIN
 		;Object
-		if size(time, /TNAME) eq 'OBJREF' then begin
+		IF Size(time, /TNAME) EQ 'OBJREF' THEN BEGIN
 			;MrTimeVar
-			if obj_isa(time, 'MrTimeVar') $
-				then oTime = time $
-				else message, 'X1 must be a MrTimeVar object.' 
+			IF Obj_IsA(time, 'MrTimeVar') $
+				THEN oTime = time $
+				ELSE Message, 'X1 must be a MrTimeVar object.' 
 	
 		;Name
-		endif else if size(time, /TNAME) eq 'STRING' then begin
+		ENDIF ELSE IF IsA(time, /SCALAR, 'STRING') THEN BEGIN
 			;Cached?
-			if MrVar_IsCached(time) then begin
+			IF MrVar_IsCached(time) THEN BEGIN
 				oTime = MrVar_Get(time)
-				if ~obj_isa(oTime, 'MrTimeVar') $
-					then message, 'X1 must be the name of a cached MrTimeVar object.'
-			endif else begin
-				message, 'X1 must be the name of a cached variable.'
-			endelse
+				IF ~Obj_IsA(oTime, 'MrTimeVar') $
+					THEN Message, 'X1 must be the name of a cached MrTimeVar object.'
+			ENDIF ELSE BEGIN
+				Message, 'X1 must be the name of a cached variable.'
+			ENDELSE
 	
 		;Data
-		endif else begin
+		ENDIF ELSE BEGIN
 			oTime = MrTimeVar(time, t_type, NAME=t_name, NO_COPY=no_copy, T_REF=t_ref)
-			if obj_valid(oTime) eq 0 then message, 'Could not create X1 variable.'
-		endelse
-	endelse
+			IF Obj_Valid(oTime) EQ 0 THEN Message, 'Could not create X1 variable.'
+		ENDELSE
+	ENDELSE
 	
 ;-----------------------------------------------------
 ; Check Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Object
-	if size(ts_var, /TNAME) eq 'OBJREF' then begin
+	IF Size(ts_var, /TNAME) EQ 'OBJREF' THEN BEGIN
 		;MrVariable
-		if obj_isa(ts_var, 'MrVariable') $
-			then data = ts_var -> GetData() $
-			else message, 'Only "MrVariable" objects can be given.'
+		IF Obj_IsA(ts_var, 'MrVariable') $
+			THEN data = ts_var -> GetData() $
+			ELSE Message, 'Only "MrVariable" objects can be given.'
 	
 	;Name
-	endif else if MrIsA(ts_var, 'STRING', /SCALAR) then begin
+	ENDIF ELSE IF MrIsA(ts_var, 'STRING', /SCALAR) THEN BEGIN
 		;Cached?
-		if MrVar_IsCached(ts_var) then begin
+		IF MrVar_IsCached(ts_var) THEN BEGIN
 			oData = MrVar_Get(ts_var)
-			if obj_isa(oData, 'MrVariable') $
-				then data = oData -> GetData() $
-				else message, 'Only names of MrVariable objects may be given.'
-		endif else begin
-			message, 'Only names of cached variables may be provided.'
-		endelse
+			IF Obj_IsA(oData, 'MrVariable') $
+				THEN data = oData -> GetData() $
+				ELSE Message, 'Only names of MrVariable objects may be given.'
+		ENDIF ELSE BEGIN
+			Message, 'Only names of cached variables may be provided.'
+		ENDELSE
 	
 	;Data
-	endif else begin
-		data = temporary(ts_var)
-	endelse
+	ENDIF ELSE BEGIN
+		data = Temporary(ts_var)
+	ENDELSE
 	
 ;-----------------------------------------------------
 ; Put Time First \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Dimension sizes
 	dims  = size(data, /DIMENSIONS)
-	nDims = n_elements(dims)
-	nPts  = n_elements(oTime)
+	nDims = N_Elements(dims)
+	nPts  = N_Elements(oTime)
 	
 	;Find the time-dependent dimension
-	if n_elements(dimension) eq 0 then begin
-		dimension = where(dims eq nPts, nt) + 1
-		if nt ne 1 then message, 'Cannot determine time-dependent dimension.'
-	endif else begin
-		if dims[dimension-1] ne nPts $
-			then message, 'The size of TIME and DATA along DIMENSION must be equal.'
-	endelse
+	IF N_Elements(dimension) EQ 0 THEN BEGIN
+		dimension = Where(dims EQ nPts, nt) + 1
+		IF nt GT 1 THEN BEGIN
+			IF dims[0] EQ nPts THEN BEGIN
+				dimension = 1
+				MrPrintF, 'LogWarn', 'Multiple dims of size ' + strtrim(nPts, 2) + '. Assuming DIMENSION=1.'
+			ENDIF ELSE BEGIN
+				Message, 'Cannot determine time-dependent dimension.'
+			ENDELSE
+		ENDIF
+	ENDIF ELSE BEGIN
+		IF dims[dimension-1] NE nPts $
+			THEN Message, 'The size of TIME and DATA along DIMENSION must be equal.'
+	ENDELSE
 	
 	;Put the time-dependent dimension first
-	if nDims gt 1 && dimension ne 1 then begin
-		if dimension eq nDims $
-			then p = [dimension-1, bindgen(nDims-1)] $
-			else p = [dimension-1, bindgen(dimension-1), bindgen(nDims-dimension)+dimension]
+	IF nDims GT 1 && dimension NE 1 THEN BEGIN
+		IF dimension EQ nDims $
+			THEN p = [dimension-1, BindGen(nDims-1)] $
+			ELSE p = [dimension-1, BindGen(dimension-1), BindGen(nDims-dimension)+dimension]
 		
 		;Transpose the data
-		data = transpose(temporary(data), temporary(p))
-	endif
+		data = Transpose(Temporary(data), Temporary(p))
+	ENDIF
 	
 ;-----------------------------------------------------
 ; Store Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Store the data as properties
-	;   - Let automatic garbage collection take care of the OTIME object
+	;   - Let automatic garbage collection take care OF the OTIME object
 	;     and DATA pointer (IDL v8.0+)
 	;   - The OTIME property may be shared by another MrTimeSeries object
-	;   - The DATA pointer may be saved by a superclass in case additional
-	;     requirements on the dimensionality of the data is required.
+	;   - The DATA pointer may be saved by a superclass in CASE additional
+	;     requirements on the dimensionality OF the data is required.
 	;       * e.g. pData = self.data
 	;              self  -> MrTimeSeries::SetData, time, newData
-	;              if [dimension check fails] then self.data = pData
+	;              IF [dimension check fails] THEN self.data = pData
 	self.oTime = oTime
-	self.data  = ptr_new(data, /NO_COPY)
+	self.data  = Ptr_New(data, /NO_COPY)
 	
 	;Copy attributes
-	if isa(ts_var, 'MrVariable') $
-		then ts_var -> CopyAttrTo, self
+	IF IsA(ts_var, 'MrVariable') $
+		THEN ts_var -> CopyAttrTo, self
 	
 	;Set attributes
 	self -> SetAttrValue, 'DEPEND_0',  self.oTime, /CREATE
@@ -2667,16 +3063,16 @@ T_TYPE=t_type
 	
 	;Clear data
 	;   - Do not erase a MrTimeVar object. It may be referenced
-	;     as a DEPEND_0 attribute for other objects.
-	if keyword_set(no_copy) then begin
-		if n_elements(x2) eq 0 then begin
+	;     as a DEPEND_0 attribute FOR other objects.
+	IF Keyword_Set(no_copy) THEN BEGIN
+		IF N_Elements(x2) EQ 0 THEN BEGIN
 			x1 = !Null
-		endif else begin
-			if size(x1, /TNAME) ne 'OBJREF' then x1 = !Null
+		ENDIF ELSE BEGIN
+			IF Size(x1, /TNAME) NE 'OBJREF' THEN x1 = !Null
 			x2 = !Null
-		endelse
-	endif
-end
+		ENDELSE
+	ENDIF
+END
 
 
 ;+
@@ -2807,6 +3203,7 @@ WINDOW=win
 	if keyword_set(cache) then oPWR -> Cache
 	return, oPWR
 end
+
 
 
 ;+

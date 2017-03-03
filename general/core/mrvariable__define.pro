@@ -196,16 +196,16 @@ _REF_EXTRA=extra
 	random   = keyword_set(random)
 	to_array = keyword_set(to_array)
 	if n_elements(seed) gt 0 then random = ~normal
-	if IsA(data, /SCALAR) && random eq 0 then make = 1
+	if n_params() gt 1 && ~normal && ~random && ~to_array then make = 1
 	if make + normal + random + to_array gt 1 then message, 'MAKE, NORMAL, RANDOM and TO_ARRAY are mutually exclusive.'
 
 	;Were inputs given?
 	;   `DATA` can be undefined if RANDOM or NORMAL are set.
 	case 1 of
-		make:     self -> Make_Array, data, D2, D3, D4, D5, D6, D7, D8, TYPE=type, _REF_EXTRA=extra
-		normal:   self -> RandomN, seed, data, D2, D3, D4, D5, D6, D7, D8, _REF_EXTRA=extra
-		random:   self -> RandomU, seed, data, D2, D3, D4, D5, D6, D7, D8, _REF_EXTRA=extra
-		to_array: self -> ToArray, data, _REF_EXTRA=extra
+		make:     self -> Make_Array, data, D2, D3, D4, D5, D6, D7, D8, TYPE=type, _STRICT_EXTRA=extra
+		normal:   self -> RandomN, seed, data, D2, D3, D4, D5, D6, D7, D8, _STRICT_EXTRA=extra
+		random:   self -> RandomU, seed, data, D2, D3, D4, D5, D6, D7, D8, _STRICT_EXTRA=extra
+		to_array: self -> ToArray, data, _STRICT_EXTRA=extra
 		n_elements(data) gt 0: begin
 			if n_elements(extra) gt 0 then message, 'EXTRA keywords not allowed when DATA is an array.'
 			self -> SetData, data, NO_COPY=no_copy
@@ -333,7 +333,7 @@ function MrVariable::_OverloadAnd, left, right
 	;Both LEFT and RIGHT are MrVariable objects
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) and right['ARRAY']
+		result = (*self.data) and right['DATA']
 		
 		;Create a new name
 		name = self.name + ' AND ' + right.name
@@ -346,8 +346,8 @@ function MrVariable::_OverloadAnd, left, right
 		;   - Assume the user knows what they are doing.
 		;   - All IDL truncation effects apply (shortest in determines size out).
 		if side eq 'LEFT' $
-			then result = (*self.data) and right['ARRAY'] $
-			else result = left['ARRAY'] and (*self.data)
+			then result = (*self.data) and right['DATA'] $
+			else result = left['DATA'] and (*self.data)
 		
 		;Determine name
 		;   - Scalar or TYPE[dims]
@@ -405,13 +405,13 @@ function MrVariable::_OverloadAsterisk, left, right
 	;Both LEFT and RIGHT are MrVariable objects
 	if IsMrVariable then begin
 		;Multiply
-		result = (*self.data) * right['ARRAY']
-		
+		result = *self.data * right['DATA']
+
 		;Create a new name
-		name = self.name + '*' + right.name
+		name = 'Multiply(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
-; MrVariable with Expression //////////////////////////////
+; MrVariable with Expression ///////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Multiply the expressions
@@ -480,7 +480,7 @@ function MrVariable::_OverloadCaret, left, right
 		result = (*self.data) ^ right['DATA']
 		
 		;Create a new name
-		name = self.name + '^' + right.name
+		name = 'Caret(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression //////////////////////////////
@@ -629,13 +629,14 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 ; Attribute Name Given ///////////////////////////////////////////////
 ;---------------------------------------------------------------------
 	if nSubscripts eq 1 && MrIsA(i1, 'STRING', /SCALAR) then begin
-		;Restricted names
-		;   - They have special uses within ::_OverloadBracketsRightSide
-		if MrIsMember(['DATA', 'PTR', 'POINTER'], i1) $
-			then message, '"' + i1 + '" cannot be an attribute name.'
+		case i1 of
+			'DATA':    self -> SetData, value
+			'PTR':     Message, '"' + i1 + '" cannot be an attribute name.'
+			'POINTER': Message, '"' + i1 + '" cannot be an attribute name.'
+			else:      self -> SetAttributeValue, i1, value, /CREATE
+		endcase
 		
-		;Set the attribute
-		self -> SetAttributeValue, i1, value, /CREATE
+		;Done
 		return
 	endif
 
@@ -1259,8 +1260,12 @@ end
 
 ;+
 ;   The purpose of this method is to provide information when implied print is used.
+;
+; :Params:
+;       VARNAME:        in, required, type=string
+;                       Name of the variable supplied to Implied Print.
 ;-
-function MrVariable::_OverloadImpliedPrint
+function MrVariable::_OverloadImpliedPrint, varname
 	compile_opt idl2
 	on_error, 2
 
@@ -2833,7 +2838,7 @@ OVERWRITE=overwrite
 	tf_overwrite = n_elements(overwrite) eq 0 ? 1B : keyword_set(overwrite)
 	
 	;Default to copying all attributes
-	if n_elements(attrName) eq 0 $
+	if n_elements(attrNames) eq 0 $
 		then attrNames = self -> GetAttrNames(COUNT=nAttrs) $
 		else nAttrs    = n_elements(attrNames)
 
@@ -3136,12 +3141,14 @@ pro MrVariable::Help
 		
 		;SCALAR
 		endif else if nValues eq 1 then begin
-			str_value = strtrim(value, 2)
+			str_value = StrTrim(String(value, /PRINT), 2)
 		
 		;ARRAY
 		endif else begin
 			nPts = (nValues-1) < 10
-			str_value  = '[' + strjoin(strtrim(value[0:nPts], 2), ',')
+			if size(value, /TNAME) eq 'BYTE' $
+				then str_value  = '[' + StrJoin(StrTrim(StrSplit(String(value[0:nPts], /PRINT), ' ', /EXTRACT), 2), ',') $
+				else str_value  = '[' + StrJoin(StrTrim(String(value[0:nPts]), 2), ',')
 			str_value += (nPts lt nValues-1) ? ',...]' : ']'
 		endelse
 		
@@ -3410,11 +3417,9 @@ _REF_EXTRA=extra
 	compile_opt idl2
 	on_error, 2
 
-	;Defaults
-	if n_elements(type) eq 0 then type='FLOAT'
-
 	;Get a type-code if a name was given.
-	tcode = size(type, /TNAME) ne 'STRING' ? type : self -> TypeName2Code(type) 
+	if n_elements(type) gt 0 $
+		then tcode = size(type, /TNAME) ne 'STRING' ? type : self -> TypeName2Code(type) 
 
 	;Make the array
 	case 1 of
@@ -3511,10 +3516,10 @@ SUBSCRIPT_MAX=iMax
 
 	;Find the minimum.
 	if arg_present(maximum) || arg_present(iMax) then begin
-		minimum = min(*self.data, subscript_min, ABSOLUTE=absolute, NAN=nan, DIMENSION=dimension, $
-		                                          MAX=maximum, SUBSCRIPT_MAX=iMax)
+		minimum = min(*self.data, iMin, ABSOLUTE=absolute, NAN=nan, DIMENSION=dimension, $
+		                                MAX=maximum, SUBSCRIPT_MAX=iMax)
 	endif else begin
-		minimum = min(*self.data, subscript_min, ABSOLUTE=absolute, NAN=nan, DIMENSION=dimension)
+		minimum = min(*self.data, iMin, ABSOLUTE=absolute, NAN=nan, DIMENSION=dimension)
 	endelse
 
 	return, minimum
@@ -3798,6 +3803,57 @@ end
 
 
 ;+
+;   Replace a value within the array. Default replacement values follow the ISTP
+;   Guidlines for CDF files.
+;
+;       BYTE    :  255B
+;       INT     : -32768S
+;       LONG    : -2147483648L
+;       FLOAT   :  !values.f_nan
+;       DOUBLE  :  !values.d_nan
+;       UINT    :  65535US
+;       ULONG   :  4294967295UL
+;       LONG64  :  -9223372036854775808LL
+;
+;   http://spdf.gsfc.nasa.gov/istp_guide/vattributes.html#FILLVAL
+;
+; :Params:
+;       VALUE:          in, optional, type=numeric, default=self['FILLVAL']
+;                       The value to be replaced.
+;       REPLACEMENT:    in, optional, type=numeric, default=CDF Fill value
+;                       The value to replace `VALUE`.
+;-
+PRO MrVariable::ReplaceValue, value, replacement
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Defaults
+	IF N_Elements(value) EQ 0 THEN BEGIN
+		IF ~self -> HasAttr('FILLVAL') THEN RETURN
+		value = self['FILLVAL']
+	ENDIF
+	IF N_Elements(replacement) EQ 0 THEN BEGIN
+		self -> GetProperty, TNAME=tname
+		CASE tname OF
+			'BYTE':   replacement = 255B
+			'INT':    replacement = Fix(-32768, TYPE=2)
+			'LONG':   replacement = Fix(-2147483648, TYPE=3) 
+			'FLOAT':  replacement = !values.f_nan
+			'DOUBLE': replacement = !values.d_nan
+			'UINT':   replacement = 65535US
+			'ULONG':  replacement = 4294967295UL
+			'LONG64': replacement = -9223372036854775808LL
+			ELSE: Message, 'Variable of type "' + TNAME  + '" does not have default fill value.'
+		ENDCASE
+	ENDIF
+
+	;Find and replace
+	iValue = self -> Where(value, /EQ, COUNT=count)
+	IF count GT 0 THEN self[iValue] = replacement
+END
+
+
+;+
 ;   Remove attributes.
 ;
 ; :Params:
@@ -3817,7 +3873,8 @@ pro MrVariable::RemoveAttr, attrNames
 	
 	;Issue warning for non-existent
 	if nBad gt 0 then begin
-		for i = 0, nBad - 1 do MrPrintF, 'LogWarn', 'No such attribute: "' + attrNames[iBad[i]] + '".'
+		for i = 0, nBad - 1 do MrPrintF, 'LogWarn', 'No such attribute: "' + attrNames[iBad[i]] + '".', $
+		                                 LEVEL = 5
 	endif
 	
 	;Remove the attributes
@@ -3929,7 +3986,7 @@ OVERWRITE=overwrite
 			;Skip invalid attributes, but issue warning
 			catch, the_error
 			if the_error eq 0 then begin
-				self -> SetAttributeValue, attrName[i], val, $
+				self -> SetAttributeValue, attrName[idx], val, $
 				                           CREATE    = create, $
 				                           OVERWRITE = overwrite
 			endif else begin
@@ -4068,13 +4125,7 @@ NO_COPY=no_copy
 			then *self.data = data -> GetData(NO_COPY=no_copy) $
 			else message, 'Only "MrVariable" objects can be given.'
 	
-	;Turn a scalar into an array.
-	endif else if IsA(data, /SCALAR) then begin
-		if no_copy $
-			then *self.data = [temporary(data)] $
-			else *self.data = [data]
-		
-	;Treat arrays normally.
+	;Regular array.
 	endif else begin
 		if no_copy $
 			then *self.data = temporary(data) $
@@ -4106,7 +4157,7 @@ NAME_OUT=name_out, $
 NO_CLOBBER=clobber
 	compile_opt idl2
 	on_error, 2
-	
+
 ;-----------------------------------------------------
 ; Cached Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -4118,6 +4169,8 @@ NO_CLOBBER=clobber
 		MrVar_Names, allNames
 		
 		;Do not include the current name
+		;   - Exclude the case where NAME = Self.NAME
+		;   - Allows us to determine if NAME is taken by a different variable
 		iKeep = where(allNames ne self.name, nKeep)
 		if nKeep gt 0 then allNames = allNames[iKeep]
 		
@@ -4135,7 +4188,11 @@ NO_CLOBBER=clobber
 				MrVar_Delete, name
 				name_out = name
 			endelse
-		endif
+		
+		;New name is same as current name
+		endif else begin
+			name_out = name
+		endelse
 	
 ;-----------------------------------------------------
 ; Not in Cache \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -4590,7 +4647,7 @@ function MrVariable::Where, value, $
 COMPLEMENT=complement, $
 COUNT=count, $
 L64=l64, $
-NCOMPLEMENT=n_complement, $
+NCOMPLEMENT=ncomplement, $
 MATCHES=matches, $
 MULTID=multiD, $
 ;Relational Operators
@@ -4598,7 +4655,7 @@ EQUAL=equal, $
 GREATER=greater, $
 GEQ=GEQ, $
 NOTEQ=notEQ, $
-LESS=lessThan, $
+LESS=less, $
 LEQ=LEQ
 	compile_opt idl2
 	on_error, 2
@@ -4619,11 +4676,11 @@ LEQ=LEQ
 	;Check where
 	case 1 of
 		equal:   result = where(*self.data eq value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
-		greater: result = where(*self.data ge value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
-		geq:     result = where(*self.data gt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		greater: result = where(*self.data gt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		geq:     result = where(*self.data ge value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
 		noteq:   result = where(*self.data ne value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
-		less:    result = where(*self.data le value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
-		leq:     result = where(*self.data lt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		less:    result = where(*self.data lt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		leq:     result = where(*self.data le value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
 	endcase
 
 	;Return the matches as well.

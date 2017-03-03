@@ -1,10 +1,10 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Names
+;       MrVar_ExportToSPEDAS
 ;
 ;*****************************************************************************************
-;   Copyright (c) 2016, Matthew Argall                                                   ;
+;   Copyright (c) 2017, Matthew Argall                                                   ;
 ;   All rights reserved.                                                                 ;
 ;                                                                                        ;
 ;   Redistribution and use in source and binary forms, with or without modification,     ;
@@ -33,24 +33,26 @@
 ;
 ; PURPOSE:
 ;+
-;   Retrieve objects from the cache by name, index, or object reference.
+;   Export MrVariables to TPlot variables
+;
+;   NOTE:
+;       Requires the SPEDAS distribution.
+;       http://spedas.org/blog/
 ;
 ; :Params:
-;       VAR:            in, required, type=name/number/objref
-;                       Name, index, or object reference of the variable(s) to be retrieved.
+;       VARIABLES:      in, required, type=string/integer/objref
+;                       Name, number, or objref of a MrTimeSeries object to be exported.
+;                           Can be an array. Data is loaded into TPlot with the Store_Data
+;                           procedure. Variables that do not subclass MrTimeSeries will
+;                           silently be skipped. If not provided, or if it is the empty
+;                           string, all variables in the cache are exported.
+;       FILENAME:       in, optional, type=string
+;                       The name of a tplot save file into which the data will be saved.
+;                           The extension ".tplot" will be appended to FILENAME.
 ;
-; :Keywords:
-;       ALL:            in, optional, type=boolean, default=0
-;                       If set, all objects in the container matching `ISA` are returned.
-;                           In this case `VARS` is ignored.
-;       ISA:            in, optional, type=string/strarr
-;                       Object class names used to filter the results of `ALL`.
-;       COUNT:          out, optional, type=integer
-;                       A named variable to return the number of objects returned.
-;
-; :Returns:
-;       VARIABLES:      out, required, type=objref
-;                       Objects references to objects in the container.
+; :RETURN:
+;       TNAMES:         out, required, type=string/strarr
+;                       Names of the variables that were successfully loaded into tplot.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -60,42 +62,56 @@
 ;       Durham, NH, 03824
 ;       matthew.argall@unh.edu
 ;
-; :Copyright:
-;       Matthew Argall 2016
-;
 ; :History:
 ;   Modification History::
-;       2016-02-13  -   Written by Matthew Argall
-;       2016-06-23  -   Check if the variable cache has been created. - MRA
-;       2016-07-14  -   MrVariable object references may be given. - MRA
-;       2016-08-21  -   If object references are given, veryify that they are MrVariable
-;                           objects. - MRA
-;       2016-08-28  -   Use the (new) MrVariable_Cache::Get method. - MRA
+;       2017-01-24  -   Written by Matthew Argall
 ;-
 ;*****************************************************************************************
-function MrVar_Get, var, $
-ALL=all, $
-COUNT=count, $
-ISA=isa
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrVar_ExportToSPEDAS, variables, filename
+	Compile_Opt idl2
 
-	;Ensure MrVar has been initialized
-	@mrvar_common
+	;Get all of the names
+	IF N_Elements(variables) EQ 0 || ( MrIsA(variables, /SCALAR, 'STRING') && variables EQ '' ) $
+		THEN MrVar_Names, variables
 	
-	;Search the cache
-	if obj_valid(MrVarCache) then begin
-		variables = MrVarCache -> Get( var, $
-		                               ALL         = all, $
-		                               COUNT       = count, $
-		                               ISA         = isa )
+	;Number of names given
+	nNames = N_Elements(variables)
 	
-	;The cache has not been created yet
-	endif else begin
-		variables = !Null
-		count     = 0
-	endelse
+	;Allocate memory and convert
+	tnames = StrArr(nNames)
+	count  = 0
+	FOREACH var, variables DO BEGIN
+		oVar = MrVar_Get(var)
+		IF ~Obj_IsA(oVar, 'MrTimeSeries') THEN CONTINUE
+		
+		Catch, the_error
+		IF the_error EQ 0 THEN BEGIN
+			temp_name     = oVar -> ExportToSPEDAS()
+			tnames[count] = Temporary(temp_name)
+			count        += 1
+		ENDIF ELSE BEGIN
+			Catch, /CANCEL
+			MrPrintF, 'LogWarn', 'Could not export "' + oVar.name + '".'
+			MrPrintF, 'LogErr'
+		ENDELSE
+	ENDFOREACH
 
-	;Get the variable
-	return, variables
-end
+	;Trim results
+	CASE count OF
+		0:    tnames = ''
+		1:    tnames = tnames[0]
+		ELSE: tnames = tnames[0:count-1]
+	ENDCASE
+
+	;Save to file
+	Catch, the_error
+	IF the_error EQ 0 THEN BEGIN
+		IF N_Elements(filename) GT 0 $
+			THEN tplot_save, tnames, FILENAME=filename
+	ENDIF ELSE BEGIN
+		MrPrintF, 'LogText', 'Export successful. Error creating save file.'
+		MrPrintF, 'LogErr'
+	ENDELSE
+	
+	RETURN, tnames
+END

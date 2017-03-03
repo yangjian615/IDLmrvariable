@@ -43,10 +43,10 @@
 ;   MrVariable
 ;
 ; :Params:
-;       VARNAMES:       in, required, type=strarr(2)
-;                       Names of the variables for which to limit the time range. If
-;                           undefined, the names of all variables present in the cache
-;                           are used.
+;       VARIABLES:      in, required, type=int/str/obj
+;                       Names, numbers, or objrefs of the variables for which to limit
+;                           the time range. If undefined, the names of all variables
+;                           present in the cache are used.
 ;       TRANGE:         in, required, type=strarr(2), default=MrVar_GetTRange()
 ;                       Time interval by which to restrict data, formatted as
 ;                           ISO-8601 date-time strings.
@@ -62,21 +62,25 @@
 ; :History:
 ;   Modification History::
 ;       2016-11-22  -   Written by Matthew Argall
+;       2016-12-09  -   Variable numbers or objrefs can be passed in. Variables objrefs
+;                           do not have to exist in the cache. - MRA
 ;-
-pro MrVar_TLimit, varnames, trange
-	compile_opt idl2
-	on_error, 2
+PRO MrVar_TLimit, variables, trange
+	Compile_Opt idl2
+	On_Error, 2
 
 	;Defaults
-	if n_elements(trange)   gt 0 && trange[0] ne '' then MrVar_SetTRange, trange
-	if n_elements(varnames) eq 0 then begin
-		MrVar_Names, varnames
-	endif else if ~array_equal( MrVar_IsCached(varnames), 1 ) then begin
-		message, 'All variables identified by VARNAMES must be in the cache.'
-	endif
+	IF N_Elements(variables) EQ 0 THEN MrVar_Names, variables
+	IF N_Elements(trange)   GT 0 && trange[0] NE '' THEN MrVar_SetTRange, trange
 
+	;Number OF variables
+	;   - Scalar objects with ::_overloadSize can RETURN any number OF elements
+	;   - Size(/TNAME) does not distinguish between objects and object arrays
+	IF Size(variables, /TNAME) EQ 'OBJREF' $
+		THEN nVars = TypeName(variables) EQ 'OBJREF' ? N_Elements(variables) : 1 $
+		ELSE nVars = N_Elements(variables)
+	
 	;Useful data
-	nVars      = n_elements(varnames)
 	trange     = MrVar_GetTRange()
 	trange_ssm = MrVar_GetTRange('SSM')
 
@@ -85,39 +89,42 @@ pro MrVar_TLimit, varnames, trange
 ;-----------------------------------------------------
 	;Find epoch variables
 	nTime = 0
-	oTime = objarr(nVars)
-	tName = strarr(nVars)
-	for i = 0, nVars - 1 do begin
-		;Get the variable object
-		;   - Skip variables that are not cached.
-		theVar = MrVar_Get(varnames[i])
-		if ~obj_valid(theVar) then continue
+	oTime = ObjArr(nVars)
+	tName = StrArr(nVars)
+	theVars = MrVar_Get(variables)
+
+	;Loop over each variable
+	FOR i = 0, nVars - 1 DO BEGIN
+		;Ensire the variable is valid
+		theVar = theVars[i]
+		IF ~Obj_Valid(theVar) THEN continue
 		
 		;TIME
-		if obj_isa(theVar, 'MrTimeVar') then begin
+		IF Obj_IsA(theVar, 'MrTimeVar') THEN BEGIN
 			tempTime = theVar
 		
 		;DATA - Get DEPEND_0 object
-		endif else if theVar -> HasAttr('DEPEND_0') then begin
+		ENDIF ELSE IF theVar -> HasAttr('DEPEND_0') THEN BEGIN
 			tempTime = MrVar_Get(theVar['DEPEND_0'])
+			IF ~Obj_IsA(tempTime, 'MrTimeVar') THEN CONTINUE
 		
 		;NEITHER
-		endif else begin
-			tempTime = obj_new()
-		endelse
+		ENDIF ELSE BEGIN
+			tempTime = Obj_New()
+		ENDELSE
 		
 		;Store the epoch variable
-		if obj_valid(tempTime) then begin
-			if ~MrIsMember( tName, tempTime.name ) then begin
+		IF Obj_Valid(tempTime) THEN BEGIN
+			IF ~MrIsMember( tName, tempTime.name ) THEN BEGIN
 				oTime[nTime]  = tempTime
 				tName[nTime]  = tempTime.name
 				nTime        += 1
-			endif
-		endif
-	endfor
+			ENDIF
+		ENDIF
+	ENDFOR
 	
-	;Return if no time variables
-	if nTime eq 0 then return
+	;Return IF no time variables
+	IF nTime EQ 0 THEN RETURN
 	
 	;Trim down results
 	tName = tName[0:nTime-1]
@@ -126,7 +133,7 @@ pro MrVar_TLimit, varnames, trange
 ;-----------------------------------------------------
 ; Loop Over Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	for i = 0, nTime - 1 do begin
+	FOR i = 0, nTime - 1 DO BEGIN
 
 	;-----------------------------------------------------
 	; Set Epoch Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -136,24 +143,24 @@ pro MrVar_TLimit, varnames, trange
 
 		;Convert to SSM and find relevant data
 		t_ssm = theTime -> GetData('SSM', trange[0])
-		iKeep = where( (t_ssm ge trange_ssm[0]) and (t_ssm le trange_ssm[1]), nKeep)
-		if nKeep eq 0 then begin
-			iKeep = value_locate(t_ssm, trange_ssm[0]) > 0
+		iKeep = Where( (t_ssm GE trange_ssm[0]) and (t_ssm LE trange_ssm[1]), nKeep)
+		IF nKeep EQ 0 THEN BEGIN
+			iKeep = Value_Locate(t_ssm, trange_ssm[0]) > 0
 			iKeep = [iKeep, iKeep+1]
 			MrPrintF, 'LogText', 'No data found in time interval for variable "' + theTime.name + '".'
-			MrPrintF, 'LogText', '  Interval: [' + strjoin(trange, ', ') + ']'
-			MrPrintF, 'LogText', '  Closest:  [' + strjoin(theTime[iKeep], ', ') + ']'
+			MrPrintF, 'LogText', '  Interval: [' + StrJoin(trange, ', ') + ']'
+			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime[iKeep], ', ') + ']'
 			MrPrintF, 'LogWarn', 'Choosing closest two points.'
 		
-		endif else if nKeep eq 1 then begin
-			if t_ssm[iKeep]-trange_ssm[0] lt trange_ssm[0]-t_ssm[iKeep] $
-				then iKeep = [iKeep, iKeep+1] $
-				else iKeep = [iKeep-1, iKeep]
+		ENDIF ELSE IF nKeep EQ 1 THEN BEGIN
+			IF t_ssm[iKeep]-trange_ssm[0] LT trange_ssm[0]-t_ssm[iKeep] $
+				THEN iKeep = [iKeep, iKeep+1] $
+				ELSE iKeep = [iKeep-1, iKeep]
 			MrPrintF, 'LogText', 'Only one point found in time interval for variable "' + theTime.name + '".'
-			MrPrintF, 'LogText', '  Interval: [' + strjoin(trange, ', ') + ']'
-			MrPrintF, 'LogText', '  Closest:  [' + strjoin(theTime[iKeep], ', ') + ']'
+			MrPrintF, 'LogText', '  Interval: [' + StrJoin(trange, ', ') + ']'
+			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime[iKeep], ', ') + ']'
 			MrPrintF, 'LogWarn', 'Including next closest point.'
-		endif
+		ENDIF
 
 		;Trim the time data
 		newEpoch  = MrTimeVar( theTime[iKeep], NAME='TLimit(' + theTime.name + ')' )
@@ -162,39 +169,38 @@ pro MrVar_TLimit, varnames, trange
 	;-----------------------------------------------------
 	; Set Data Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
-		for j = 0, nVars - 1 do begin
-			;Skip if the variable does not have an DEPEND_0 attribute
-			theVar = MrVar_Get(varnames[j])
-			if ~theVar -> HasAttr('DEPEND_0') then continue
+		FOR j = 0, nVars - 1 DO BEGIN
+			;Skip IF the variable does not have an DEPEND_0 attribute
+			theVar = theVars[j]
+			IF ~theVar -> HasAttr('DEPEND_0') THEN continue
 			
-			;Skip if the DEPEND_0 attribute is not the one we are looking at
+			;Skip IF the DEPEND_0 attribute is not the one we are looking at
 			;   - DEPEND_0 may be an object or a variable name
-			oDep0 = MrVar_Get(theVar['DEPEND_0'])
-			if ~oDep0 -> IsIdentical( theTime ) then continue
+			IF ~theVar -> IsTimeIdentical( theTime ) THEN continue
 			
 			;Trim the variable data
-			case obj_class(theVar) of
-				'MRSCALARTS': theVar -> SetData, newEpoch, theVar[iKeep]
-				'MRVECTORTS': theVar -> SetData, newEpoch, theVar[iKeep,*]
-				'MRMATRIXTS': theVar -> SetData, newEpoch, theVar[iKeep,*,*]
-				'MRTIMESERIES': begin
-					case theVar.n_dimensions of
-						1: theVar -> SetData, newEpoch, theVar[iKeep]
-						2: theVar -> SetData, newEpoch, theVar[iKeep,*]
-						3: theVar -> SetData, newEpoch, theVar[iKeep,*,*]
-						4: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*]
-						5: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*]
-						6: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*]
-						7: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*]
-						8: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*,*]
-						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
-					endcase
-				endcase
+			CASE obj_class(theVar) OF
+				'MRSCALARTS': theVar -> SetData, newEpoch, theVar[iKeep], DIMENSION=1
+				'MRVECTORTS': theVar -> SetData, newEpoch, theVar[iKeep,*], DIMENSION=1
+				'MRMATRIXTS': theVar -> SetData, newEpoch, theVar[iKeep,*,*], DIMENSION=1
+				'MRTIMESERIES': BEGIN
+					CASE theVar.n_dimensions OF
+						1: theVar -> SetData, newEpoch, theVar[iKeep], DIMENSION=1
+						2: theVar -> SetData, newEpoch, theVar[iKeep,*], DIMENSION=1
+						3: theVar -> SetData, newEpoch, theVar[iKeep,*,*], DIMENSION=1
+						4: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*], DIMENSION=1
+						5: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*], DIMENSION=1
+						6: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*], DIMENSION=1
+						7: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*], DIMENSION=1
+						8: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*,*], DIMENSION=1
+						ELSE: Message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
+					ENDCASE
+				ENDCASE
 				
 				;TODO: Determine which is the time-varying dimension
 				'MrVariable': MrPrintF, 'LogWarn', 'TLimit not possible for object class MrVariable.'
-				else: MrPrintF, 'LogWarn', 'Unknown object of class "' + obj_class(theVar) + '".'
-			endcase
-		endfor
-	endfor
-end
+				ELSE: MrPrintF, 'LogWarn', 'Unknown object of class "' + Obj_Class(theVar) + '".'
+			ENDCASE
+		ENDFOR
+	ENDFOR
+END
