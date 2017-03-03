@@ -29,6 +29,8 @@
 ; :History:
 ;   Modification History::
 ;       2015/03/31  -   Written by Matthew Argall
+;       2017/02/02  -   Accept file names as input. Accepts dates with and without
+;                           delimiters. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -48,23 +50,31 @@
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional descriptor.
 ;-
-function mms_build_filename_dir, root, sc, instr, mode, level, optdesc, tstart
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrMMS_Build_Filename_Dir, root, sc, instr, mode, level, optdesc, tstart
+	Compile_Opt idl2
+	On_Error, 2
 
-	;Use tokens if the start time was not given
-	if tstart eq '' then begin
+	;Use tokens IF the start time was not given
+	IF tstart EQ '' THEN BEGIN
 		year  = '%Y'
 		month = '%M'
-		day   = mode eq 'brst' ? '%d' : ''
-	endif else begin
-		year  = strmid(tstart, 0, 4) 
-		month = strmid(tstart, 5, 2)
-		day   = mode eq 'brst' ? strmid(tstart, 8, 2) : ''
-	endelse
+		day   = mode EQ 'brst' ? '%d' : ''
+	ENDIF ELSE BEGIN
+		;YYYY-MM-DD vs YYYYMMDD
+		tlen = StrLen(tstart)
+		IF tlen EQ 8 || tlen EQ 14 THEN BEGIN
+			year  = StrMid(tstart, 0, 4) 
+			month = StrMid(tstart, 4, 2)
+			day   = mode EQ 'brst' ? StrMid(tstart, 6, 2) : ''
+		ENDIF ELSE BEGIN
+			year  = StrMid(tstart, 0, 4) 
+			month = StrMid(tstart, 5, 2)
+			day   = mode EQ 'brst' ? StrMid(tstart, 8, 2) : ''
+		ENDELSE
+	ENDELSE
 
 	;Append the SDC directory structure to the file name.
-	dirname = filepath('', $
+	dirname = FilePath('', $
 	                   ROOT_DIR     = root,      $
 	                   SUBDIRECTORY = [ sc,      $
 	                                    instr,   $
@@ -77,8 +87,8 @@ function mms_build_filename_dir, root, sc, instr, mode, level, optdesc, tstart
 	                                  ]          $
 	                  )
 	
-	return, dirname
-end
+	RETURN, dirname
+END
 
 
 ;+
@@ -102,20 +112,52 @@ end
 ;       VERSION:    in, required, type=string, default=''
 ;                   File version number.
 ;-
-function mms_build_filename_join, sc, instr, mode, level, optdesc, tstart, version
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrMMS_Build_Filename_Join, sc, instr, mode, level, optdesc, tstart, version
+	Compile_Opt idl2
+	On_Error, 2
 
 	;Use tokens if the start time was not given
-	if tstart eq '' then begin
-		fstart = mode eq 'brst' ? '%Y%M%d%H%m%S' : '%Y%M%d'
-	endif else begin
-		fstart = strmid(tstart, 0, 4) + strmid(tstart, 5, 2) + strmid(tstart, 8, 2)
-		if mode eq 'brst' then fstart += strmid(tstart, 11, 2) + strmid(tstart, 14, 2) + strmid(tstart, 17, 2)
-	endelse
+	IF tstart EQ '' THEN BEGIN
+		IF mode EQ 'brst' THEN BEGIN
+			fstart = '%Y%M%d%H%m%S'
+		ENDIF ELSE BEGIN
+			CASE instr OF
+				'fpi': fstart = '%Y%M%d%H%m%S'
+				'fsm': BEGIN
+					IF optdesc NE '' $
+						THEN fstart = '%Y%M%d%H%m%S' $
+						ELSE fstart = '%Y%M%d'
+				ENDCASE
+				'edp': BEGIN
+					IF optdesc EQ 'dce' $
+						THEN fstart = (level EQ 'l2') ? '%Y%M%d' : '%Y%M%d%H%m%S' $
+						ELSE fstart = '%Y%M%d%H%m%S'
+				ENDCASE
+				ELSE: fstart = '%Y%M%d'
+			ENDCASE
+		ENDELSE
+
+	ENDIF ELSE BEGIN
+		;YYYY-MM-DD vs YYYYMMDD
+		tlen = StrLen(tstart)
+		IF tlen EQ 8 || tlen EQ 14 $
+			THEN fstart = StrMid(tstart, 0, 4) + StrMid(tstart, 4, 2) + StrMid(tstart, 6, 2) $
+			ELSE fstart = StrMid(tstart, 0, 4) + StrMid(tstart, 5, 2) + StrMid(tstart, 8, 2)
+		
+		;Burst mode has HHMMSS
+		IF mode EQ 'brst' THEN BEGIN
+			IF tlen EQ 8 || tlen EQ 14 $
+				THEN fstart += StrMid(tstart,  8, 2) + StrMid(tstart, 10, 2) + StrMid(tstart, 12, 2) $
+				ELSE fstart += StrMid(tstart, 11, 2) + StrMid(tstart, 14, 2) + StrMid(tstart, 17, 2)
+		
+		;Some slow/fast/survey files have HHMMSS as well
+		ENDIF ELSE IF tlen EQ 14 THEN BEGIN
+			fstart += StrMid(tstart,  8, 2) + StrMid(tstart, 10, 2) + StrMid(tstart, 12, 2)
+		ENDIF
+	ENDELSE
 
 	;Separate an optional descriptor form the start time.
-	fdesc = optdesc eq '' ? '' : optdesc + '_'
+	fdesc = optdesc EQ '' ? '' : optdesc + '_'
 
 	;Build the file name
 	filename = sc     + '_' + $
@@ -127,16 +169,23 @@ function mms_build_filename_join, sc, instr, mode, level, optdesc, tstart, versi
 	           'v'    + version + $
 	           '.cdf'
 	
-	return, filename
-end
+	RETURN, filename
+END
 
 
 ;+
 ;   Create MMS file names
 ;
+;   Calling Sequence:
+;       fnames = MrMMS_Build_Filename(files)
+;       fnames = MrMMS_Build_Filename(sc, instr, mode, level)
+;
 ; :Params:
 ;       SC:         in, required, type=string/strarr
-;                   Spacecraft identifier. Options are 'mms1', 'mms2', 'mms3', and 'mms4'
+;                   Spacecraft identifier or (an array of) file names. If the former,
+;                       valid options are 'mms1', 'mms2', 'mms3', and 'mms4'. If the latter,
+;                       file names are parsed for their components, then built back up
+;                       again. This is especially useful if `SDC_ROOT` is provided.
 ;       INSTR:      in, required, type=string/strarr
 ;                   Instrument identifier.
 ;       MODE:       in, required, type=string/strarr
@@ -159,72 +208,108 @@ end
 ;       VERSION:    in, optional, type=string, default=''
 ;                   File version number.
 ;-
-function MrMMS_Build_Filename, sc, instr, mode, level, $
+FUNCTION MrMMS_Build_Filename, sc, instr, mode, level, $
 COUNT=count, $
 TSTART=tstart, $
 OPTDESC=optdesc, $
 DIRECTORY=directory, $
 SDC_ROOT=sdc_root, $
 VERSION=version
-	compile_opt strictarr
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Defaults
-	if n_elements(sdc_root)  eq 0 then sdc_root  = ''
-	if n_elements(directory) eq 0 then directory = ''
-	if n_elements(tstart)    eq 0 then tstart    = ''
-	if n_elements(optdesc)   eq 0 then optdesc   = ''
-	if n_elements(version)   eq 0 then version   = '*'
+	IF N_Elements(sdc_root)  EQ 0 THEN sdc_root  = ''
+	IF N_Elements(directory) EQ 0 THEN directory = ''
+	IF N_Elements(tstart)    EQ 0 THEN tstart    = ''
+	IF N_Elements(optdesc)   EQ 0 THEN optdesc   = ''
+	IF N_Elements(version)   EQ 0 THEN version   = '*'
 	
-	;Number of values given
-	nSC      = n_elements(sc)
-	nInstr   = n_elements(instr)
-	nMode    = n_elements(mode)
-	nLevel   = n_elements(level)
-	nDesc    = n_elements(optdesc)
-	nTStart  = n_elements(tstart)
-	nVersion = n_elements(version)
+	;Number OF values given
+	nSC      = N_Elements(sc)
+	nInstr   = N_Elements(instr)
+	nMode    = N_Elements(mode)
+	nLevel   = N_Elements(level)
+	nDesc    = N_Elements(optdesc)
+	nTStart  = N_Elements(tstart)
+	nVersion = N_Elements(version)
 	
 	;Conflicts
-	if sdc_root ne '' && directory ne '' then $
-		message, 'SDC_ROOT and DIRECTORY are mutually exclusive.'
-	if nTStart  gt 1 then message, 'TSTART must be scalar.'
-	if nVersion gt 1 then message, 'VERSION must be scalar.'
+	IF sdc_root NE '' && directory NE '' THEN $
+		Message, 'SDC_ROOT and DIRECTORY are mutually exclusive.'
+	IF nTStart  GT 1 THEN Message, 'TSTART must be scalar.'
+	IF nVersion GT 1 THEN Message, 'VERSION must be scalar.'
+
+;-----------------------------------------------------
+; File Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	IF nInstr EQ 0 THEN BEGIN
+		;Parse the file names
+		MrMMS_Parse_Filename, sc, $
+		                      SC      = sc_id, $
+		                      INSTR   = instr, $
+		                      MODE    = mode, $
+		                      LEVEL   = level, $
+		                      OPTDESC = optdesc, $
+		                      TSTART  = tstart, $
+		                      VERSION = version
+
+		;Allocate memory
+		nFiles = N_Elements(sc)
+		fname  = StrArr(nFiles)
+		
+		;Loop through file names
+		FOR i = 0, nFiles - 1 DO BEGIN
+			;Filename
+			fname[i] = MrMMS_Build_Filename_Join(sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i], version[i])
+			
+			;Path
+			IF directory EQ '' $
+				THEN dir = MrMMS_Build_Filename_Dir(sdc_root, sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i]) $
+				ELSE dir = directory
+			
+			;Append path to file name
+			IF dir NE '' THEN fname[i] = FilePath(fname[i], ROOT_DIR=dir)
+		ENDFOR
+		
+		;Return
+		RETURN, fname
+	ENDIF
 
 ;-----------------------------------------------------
 ; Non-Uniform Output \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Allocate memory to output
-	fname = strarr(nSC*nInstr*nMode*nLevel*nDesc)
+	fname = StrArr(nSC*nInstr*nMode*nLevel*nDesc)
 	count = 0
 
 	;Create the MMS filename
 	;   - Must use loops because:
 	;   - Replicate does not work with arrays.
 	;   - Rebin does not work with strings.
-	for i = 0, nSC    - 1 do $
-	for j = 0, nInstr - 1 do $
-	for k = 0, nMode  - 1 do $
-	for l = 0, nLevel - 1 do $
-	for m = 0, nDesc  - 1 do begin
+	FOR i = 0, nSC    - 1 DO $
+	FOR j = 0, nInstr - 1 DO $
+	FOR k = 0, nMode  - 1 DO $
+	FOR l = 0, nLevel - 1 DO $
+	FOR m = 0, nDesc  - 1 DO BEGIN
 		
 		;Filename
-		fname[count] = mms_build_filename_join(sc[i], instr[j], mode[k], level[l], optdesc[m], $
-		                                       tstart, version)
+		fname[count] = MrMMS_Build_Filename_Join(sc[i], instr[j], mode[k], level[l], optdesc[m], $
+		                                         tstart, version)
 		
 		;Directory
-		if directory eq '' $
-			then dir = mms_build_filename_dir(sdc_root, sc[i], instr[j], mode[k], level[l], optdesc[m], tstart) $
-			else dir = directory
+		IF directory EQ '' $
+			THEN dir = MrMMS_Build_Filename_Dir(sdc_root, sc[i], instr[j], mode[k], level[l], optdesc[m], tstart) $
+			ELSE dir = directory
 
 		;Append the directory name
-		if dir ne '' then fname[count] = filepath(fname[count], ROOT_DIR=dir)
+		IF dir NE '' THEN fname[count] = FilePath(fname[count], ROOT_DIR=dir)
 		
-		;Number of files
+		;Number OF files
 		count += 1
-	endfor ;Loop over m
+	ENDFOR ;Loop over m
 	
 	;Return a scalar
-	if count eq 1 then fname = fname[0]
-	return, fname
-end
+	IF count EQ 1 THEN fname = fname[0]
+	RETURN, fname
+END

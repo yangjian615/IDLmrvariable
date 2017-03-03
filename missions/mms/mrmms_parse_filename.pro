@@ -96,7 +96,7 @@ VX=vx, $
 VY=vy, $
 VZ=vz, $
 TT2000=tt2000
-	compile_opt strictarr
+	compile_opt idl2
 	on_error, 2
 
 	;Check that a filename was provided.

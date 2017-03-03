@@ -625,22 +625,68 @@ COUNT=count
 	on_error, 2
 	
 ;---------------------------------------------------------------------
+; Find Unique File Types /////////////////////////////////////////////
+;---------------------------------------------------------------------
+	;File's base name
+	MrMMS_Parse_Filename, filenames, SC=sc, INSTR=instr, MODE=mode, LEVEL=level, OPTDESC=optdesc
+	fbase = sc + '_' + instr + '_' + mode + '_' + level
+	iOpt = Where(optdesc NE '', nOpt)
+	IF nOpt GT 0 THEN fbase[iOpt] += '_' + optdesc[iOpt]
+
+	;Unique file types
+	iUniq = Uniq(fbase, Sort(fbase))
+	nUniq = N_Elements(iUniq)
+	
+	count = 0
+	FOR i = 0, nUniq - 1 DO BEGIN
+		;Get files of similar type
+		fType = fbase[iUniq[i]]
+		idx   = Where( fbase eq fType )
+		
+		;ANCILLARY Files
+		IF StRegEx(fType, '(DEF|PRED|ATTVAL|NAV|TIMEBIAS)', /BOOLEAN) THEN BEGIN
+			;Time filter
+			fTemp = self -> FilterTime_Anc(filenames[idx], self.tstart, self.tend, COUNT=nTemp)
+			IF nTemp EQ 0 THEN CONTINUE
+			
+			;Version filter
+			fTemp = self -> FilterTime_Anc(fTemp[iAnc], self.tstart, self.tend, COUNT=nTemp)
+		
+		;OTHER
+		ENDIF ELSE BEGIN
+			;Time filter
+			fTemp = self -> FilterTime(filenames[idx], self.tstart, self.tend, COUNT=nTemp)
+			IF nTemp EQ 0 THEN CONTINUE
+			
+			;Version filter
+			fTemp = self -> FilterVersion(fTemp, COUNT=nTemp)
+		ENDELSE
+		
+		;Skip if no files pass filter
+		IF nTemp EQ 0 THEN CONTINUE
+		
+		;Otherwise keep the files
+		files  = count EQ 0 ? fTemp : [files, temporary(fTemp)]
+		count += nTemp
+	ENDFOR
+	
+;---------------------------------------------------------------------
 ; Filter Time ////////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
 	
 	;Time filter
 	;   - Required because ::GetFileNames ignores the hour, minute, second
 	;   - Must do survey and burst separately because their times overlap
-	iAnc  = where( stregex(filenames, '(DEF|PRED|ATTVAL|NAV|TIMEBIAS)', /BOOLEAN), nAnc )
-	iBrst = where( stregex(filenames, 'brst', /BOOLEAN), nBrst )
-	iSrvy = where( stregex(filenames, '(slow|fast|srvy)', /BOOLEAN), nSrvy )
-	if nSrvy gt 0 then srvy_files = self -> FilterTime(filenames[iSrvy], self.tstart, self.tend, COUNT=nSrvy)
-	if nBrst gt 0 then brst_files = self -> FilterTime(filenames[iBrst], self.tstart, self.tend, COUNT=nBrst)
-	if nAnc  gt 0 then anc_files  = self -> FilterTime_Anc(filenames[iAnc], self.tstart, self.tend, COUNT=nAnc)
+;	iAnc  = where( stregex(filenames, '(DEF|PRED|ATTVAL|NAV|TIMEBIAS)', /BOOLEAN), nAnc )
+;	iBrst = where( stregex(filenames, 'brst', /BOOLEAN), nBrst )
+;	iSrvy = where( stregex(filenames, '(slow|fast|srvy)', /BOOLEAN), nSrvy )
+;	if nSrvy gt 0 then srvy_files = self -> FilterTime(filenames[iSrvy], self.tstart, self.tend, COUNT=nSrvy)
+;	if nBrst gt 0 then brst_files = self -> FilterTime(filenames[iBrst], self.tstart, self.tend, COUNT=nBrst)
+;	if nAnc  gt 0 then anc_files  = self -> FilterTime_Anc(filenames[iAnc], self.tstart, self.tend, COUNT=nAnc)
 
 	;Check results
-	count = nSrvy + nBrst + nAnc
-	if count eq 0 then return, ''
+;	count = nSrvy + nBrst + nAnc
+;	if count eq 0 then return, ''
 	
 ;---------------------------------------------------------------------
 ; Filter Version /////////////////////////////////////////////////////
@@ -650,32 +696,32 @@ COUNT=count
 	;   - If a specific file is downloaded (as is done below), only the most recent
 	;     version of a file will be downloaded. If an older version is specified, no
 	;     file is returned.
-	if nSrvy gt 0 then srvy_files = self -> FilterVersion(srvy_files, COUNT=nSrvy)
-	if nBrst gt 0 then brst_files = self -> FilterVersion(brst_files, COUNT=nBrst)
-	if nAnc  gt 0 then anc_files  = self -> FilterVersion_Anc(anc_files, COUNT=nAnc)
+;	if nSrvy gt 0 then srvy_files = self -> FilterVersion(srvy_files, COUNT=nSrvy)
+;	if nBrst gt 0 then brst_files = self -> FilterVersion(brst_files, COUNT=nBrst)
+;	if nAnc  gt 0 then anc_files  = self -> FilterVersion_Anc(anc_files, COUNT=nAnc)
 
 ;---------------------------------------------------------------------
 ; Combine Results ////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	count = 0
+;	count = 0
 	
 	;ANCILLARY
-	if nAnc gt 0 then begin
-		files  = count eq 0 ? temporary(anc_files) : [files, temporary(anc_files)]
-		count += nAnc
-	endif
+;	if nAnc gt 0 then begin
+;		files  = count eq 0 ? temporary(anc_files) : [files, temporary(anc_files)]
+;		count += nAnc
+;	endif
 	
 	;SRVY
-	if nSrvy gt 0 then begin
-		files  = count eq 0 ? temporary(srvy_files) : [files, temporary(srvy_files)]
-		count += nSrvy
-	endif
+;	if nSrvy gt 0 then begin
+;		files  = count eq 0 ? temporary(srvy_files) : [files, temporary(srvy_files)]
+;		count += nSrvy
+;	endif
 	
 	;BRST
-	if nBrst gt 0 then begin
-		files  = count eq 0 ? temporary(brst_files) : [files, temporary(brst_files)]
-		count += nBrst
-	endif
+;	if nBrst gt 0 then begin
+;		files  = count eq 0 ? temporary(brst_files) : [files, temporary(brst_files)]
+;		count += nBrst
+;	endif
 	
 	;Return
 	return, files
@@ -710,7 +756,6 @@ COUNT=count
 ;------------------------------------;
 ; Sort Time                          ;
 ;------------------------------------;
-
 	;Parse the file names
 	MrMMS_Parse_Filename, filenames, TSTART=fstart
 
@@ -756,8 +801,8 @@ COUNT=count
 		istart = istart[nstart-1]
 	
 		;Find all files with start time on or after the selected time
-		ifiles = where(tt2000 ge tt2000[istart], count)
-		if count gt 0 then begin
+		ifiles = where(tt2000 ge tt2000[istart], nstart)
+		if nstart gt 0 then begin
 			files_out = files_out[ifiles]
 			tt2000    = tt2000[ifiles]
 		endif
@@ -766,10 +811,10 @@ COUNT=count
 	;Number of files kept
 	;   - If TRANGE[0] < TSTART of first file, COUNT will be zero
 	;   - However, there still may be files with TRANGE[0] < TSTART < TRANGE[1]
-	if nstart eq 0 && nend eq 0 then begin
+	count = nstart + nend
+	if count eq 0 then begin
 		return, ''
 	endif
-	count = n_elements(files_out)
 
 	;The last caveat:
 	;   - Our filter may be too lenient. The first file may or may not contain
@@ -863,7 +908,7 @@ MIN_VERSION=min_version, $
 VERSION=version
 	compile_opt idl2
 	on_error, 2
-	
+
 	;Defaults
 	tf_latest = keyword_set(latest_version)
 	tf_checkv = n_elements(version)     gt 0
@@ -1051,7 +1096,6 @@ COUNT=count
 ;---------------------------------------------------------------------
 ; Search for Files ///////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-
 	;Local or remote search
 	if self.offline $
 		then files = self -> GetLocalNames(COUNT=count) $
@@ -1630,6 +1674,9 @@ sort=tf_sort
 		filenames = filenames[sort(temporary(temp_base))]
 	endif
 	
+	;Filter the results
+	filenames = self -> FilterTime(filenames, self.tstart, self.tend, COUNT=count)
+	
 	;Return
 	return, filenames
 end
@@ -1673,7 +1720,7 @@ SORT=tf_sort
 	uri = self -> BuildLocalName()
 	
 	if self.dropbox_root ne '' then begin
-		uri_dropbox = self -> BuildLocaName(/DROPBOX)
+		uri_dropbox = self -> BuildLocalName(/DROPBOX)
 		uri         = [uri, temporary(uri_dropbox)]
 	endif
 
