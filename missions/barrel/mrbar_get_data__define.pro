@@ -4,7 +4,7 @@
 ;       MrBar_Get_Data__Define
 ;
 ;*****************************************************************************************
-;   Copyright (c) 2016, Matthew Argall                                                   ;
+;   Copyright (c) 2017, Matthew Argall                                                   ;
 ;   All rights reserved.                                                                 ;
 ;                                                                                        ;
 ;   Redistribution and use in source and binary forms, with or without modification,     ;
@@ -32,10 +32,7 @@
 ;*****************************************************************************************
 ;
 ;+
-;   Provide a GUI, similar to Dialog_Pickfile, for downloading files from the internet.
-;
-; :See Also:
-;   MrParseURL.pro
+;   Find and download BARREL data.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -47,43 +44,62 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016-06-25  -   Written by Matthew Argall
+;       2017-01-21  -   Written by Matthew Argall
 ;-
 ;*****************************************************************************************
 ;+
 ;   Provide information when IDL's Print procedure is used.
 ;-
-function MrBar_Get_Data::_OverloadPrint
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrBar_Get_Data::_OverloadPrint
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;Get info from the superclass
-	uri_print = self -> MrWebURI::_OverloadPrint()
+	;Get properties of oWebURI
+	uri  = self.oWebURI -> GetURI()
+	self -> GetProperty, DATE_START  = date_start, $
+	                     DATE_END    = date_end, $
+	                     LOCAL_ROOT  = local_root, $
+	                     MIRROR_ROOT = mirror_root, $
+	                     NO_DOWNLOAD = no_download, $
+	                     OFFLINE     = offline
+
+	;Convert pointers to strings
+	campaign = N_Elements(*self.campaign) EQ 1 ? *self.campaign : '[' + StrJoin(*self.campaign, ',') + ']'
+	level    = N_Elements(*self.level)    EQ 1 ? *self.level    : '[' + StrJoin(*self.level,    ',') + ']'
+	order    = N_Elements(*self.order)    EQ 1 ? *self.order    : '[' + StrJoin(*self.order,    ',') + ']'
+	type     = N_Elements(*self.type)     EQ 1 ? *self.type     : '[' + StrJoin(*self.type,     ',') + ']'
 	
 	;Create strings
-	campaign = string('  Campaign', '=', self.campaign, FORMAT='(a-26, a-2, a0)')
-	order    = string('  Order',    '=', self.order,    FORMAT='(a-26, a-2, a0)')
-	type     = string('  Type',     '=', self.type,     FORMAT='(a-26, a-2, a0)')
-	level    = string('  Level',    '=', self.level,    FORMAT='(a-26, a-2, a0)')
-	date     = string('  Date',     '=', self.date,     FORMAT='(a-26, a-2, a0)')
-	version  = string('  Version',  '=', self.version,  FORMAT='(a-26, a-2, a0)')
-	tstart   = string('  TStart',   '=', self.tstart,   FORMAT='(a-26, a-2, a0)')
-	tend     = string('  TEnd',     '=', self.tend,     FORMAT='(a-26, a-2, a0)')
+	uri      = String('  URI',         '=', uri,          FORMAT='(a-26, a-2, a0)')
+	local    = String('  Local_Root',  '=', local_root,   FORMAT='(a-26, a-2, a0)')
+	mirror   = String('  Mirror_Root', '=', mirror_root,  FORMAT='(a-26, a-2, a0)')
+	offline  = String('  Offline',     '=', offline,      FORMAT='(a-26, a-2, a0)')
+	no_dl    = String('  No_Download', '=', no_download,  FORMAT='(a-26, a-2, a0)')
+	campaign = String('  Campaign',    '=', campaign,     FORMAT='(a-26, a-2, a0)')
+	order    = String('  Order',       '=', order,        FORMAT='(a-26, a-2, a0)')
+	type     = String('  Type',        '=', type,         FORMAT='(a-26, a-2, a0)')
+	level    = String('  Level',       '=', level,        FORMAT='(a-26, a-2, a0)')
+	version  = String('  Version',     '=', self.version, FORMAT='(a-26, a-2, a0)')
+	tstart   = String('  Date_Start',  '=', date_start,   FORMAT='(a-26, a-2, a0)')
+	tend     = String('  Date_End',    '=', date_end,     FORMAT='(a-26, a-2, a0)')
 
 	;Output array
-	outStr = [ [ uri_print ], $
-	           [ campaign  ], $
-	           [ order     ], $
-	           [ type      ], $
-	           [ level     ], $
-	           [ date      ], $
-	           [ version   ], $
-	           [ tstart    ], $
-	           [ tend      ] $
+	outStr = [ [ uri        ], $
+	           [ local      ], $
+	           [ mirror     ], $
+	           [ offline    ], $
+	           [ no_dl      ], $
+	           [ campaign   ], $
+	           [ order      ], $
+	           [ type       ], $
+	           [ level      ], $
+	           [ version    ], $
+	           [ tstart     ], $
+	           [ tend       ] $
 	         ]
 
 	;Print the array
-	return, outStr
+	return, outStr[0, Sort(outStr)]
 end
 
 
@@ -109,8 +125,6 @@ end
 ;                       Date of launch.
 ;       VERSION:        in, optional, type=string
 ;                       File version number.
-;       _REF_EXTRA:     in, optional, type=any
-;                       Any keyword accepted by MrWebURI::Init.
 ;
 ; :Returns:
 ;       URL:            in, optional, type=string
@@ -118,166 +132,26 @@ end
 ;-
 function MrBar_Get_Data::BuildURI, $
 CAMPAIGN=campaign, $
-DATE=date, $
 LEVEL=level, $
 ORDER=order, $
 TYPE=type, $
-VERSION=version, $
-_REF_EXTRA=extra
+VERSION=version
 	compile_opt idl2
 	on_error, 2
-	
-	;Outlet for superclass functions
-	if n_elements(extra) gt 0 then begin
-		uri = self -> MrURI::BuildURI(_STRICT_EXTRA=extra)
-		return, uri
-	endif
-
-;---------------------------------------------------------------------
-; URL Scheme & Host //////////////////////////////////////////////////
-;---------------------------------------------------------------------
-	;SCHEME and HOST are always the same
-	uri_scheme = 'http'
-	uri_host   = 'barreldata.ucsc.edu'
-
-;---------------------------------------------------------------------
-; Form the Path //////////////////////////////////////////////////////
-;---------------------------------------------------------------------
-	uri_dirname  = '/data_products/'
-	uri_basename = ''
 
 	;Default values
-	if n_elements(campaign) eq 0 then campaign = self.campaign
-	if n_elements(order)    eq 0 then order    = self.order
-	if n_elements(type)     eq 0 then type     = self.type
-	if n_elements(level)    eq 0 then level    = self.level
-	if n_elements(date)     eq 0 then date     = self.date
-	if n_elements(dirdate)  eq 0 then dirdate  = self.dirdate
-	if n_elements(version)  eq 0 then version  = self.version
-	if n_elements(tstart)   eq 0 then tstart   = self.tstart
-	if n_elements(tend)     eq 0 then tend     = self.tend
+	IF N_Elements(campaign) EQ 0 THEN campaign = *self.campaign
+	IF N_Elements(order)    EQ 0 THEN order    = *self.order
+	IF N_Elements(type)     EQ 0 THEN type     = *self.type
+	IF N_Elements(level)    EQ 0 THEN level    = *self.level
+	IF N_Elements(version)  EQ 0 THEN version  =  self.version
+	date = '%Y%M%d'
 	
 	;Directory and file dates
-	if MrTokens_IsMatch(date, '%Y%M%d') then begin
-		ddate = strmid(date, 2)
-		fdate = date
-	endif else begin
-		ddate = MrTokens_IsMatch(dirdate, '%y%M%d') ? dirdate : '%y%M%d'
-		fdate = '%Y%M%d'
-	endelse
+	uri = MrBar_Build_URI( campaign, order, level, type, date, version )
 	
-	uri_dirname += 'v' + version + '/' + level + '/' + campaign + order + '/' + ddate
-	uri_basename = 'bar_' + campaign + order + '_' + level + '_' + type + '_' + fdate + '_v' + version + '.cdf'
-	
-	uri_path = uri_dirname + '/' + uri_basename
-
-;---------------------------------------------------------------------
-; TStart & TEnd //////////////////////////////////////////////////////
-;---------------------------------------------------------------------
-
-	;The search for files can be quicker if we provide a DATE_START and DATE_END
-	;   - DATE_START is inclusive, but DATE_END is not
-	;   - We must make sure they are on adjacent days
-	date_start = tstart
-	date_end   = tend
-	if date_start ne '' && date_end ne '' then begin
-		;Extract the date part
-		date_start = strmid(tstart, 0, 10)
-		date_end   = strmid(tend,   0, 10)
-		time_end   = strmid(tend,  11,  8)
-		if time_end eq '' then time_end = '00:00:00'
-
-		;Are they the same?
-		if date_start eq date_end || time_end ne '00:00:00' then begin
-			;Parse the date
-			month = fix(strmid(date_end, 5, 2))
-			day   = fix(strmid(date_end, 8, 2))
-			year  = fix(strmid(date_end, 0, 4))
-			
-			;Bump the end date up by one day
-			cdf_tt2000, tt_end, year, month, day+1, /COMPUTE_EPOCH
-			date_end = strmid(cdf_encode_tt2000(tt_end), 0, 10)
-		endif
-		
-		;Set the start and end dates
-		self.date_start = date_start
-		self.date_end   = date_end
-	endif
-
-
-	;TSTART
-	if tstart ne '' then begin
-		;2015-05-14T12:00:00
-		if MrTokens_IsMatch(tstart, '%Y-%M-%dT%H:%m:%S') $
-			then self.tstart = tstart $
-			else message, 'TSTART must be formatted as  "%Y-%M-%dT%H:%m:%S".'
-	endif
-
-	;TEND
-	if tend ne '' then begin
-		;2015-05-14T12:00:00
-		if MrTokens_IsMatch(tend, '%Y-%M-%dT%H:%m:%S') $
-			then self.tend  = tend $
-			else message, 'TEND must be formatted as  "%Y-%M-%dT%H:%m:%S".'
-	endif
-
-;---------------------------------------------------------------------
-; Create the URI /////////////////////////////////////////////////////
-;---------------------------------------------------------------------
-	uri = self -> MrURI::BuildURI( HOST     = uri_host, $
-	                               PATH     = uri_path, $
-	                               SCHEME   = uri_scheme )
-	
-	return, uri
-end
-
-
-;+
-;   Create a link that will allow you to download data from the MMS SDC.
-;
-; :Params:
-;       URI:                in, optional, type=string
-;                           The destination URI. If not provided, `_REF_EXTRA` keywords
-;                               must be given.
-;
-; :Keywords:
-;       SUCCESS:            out, required, type=boolean
-;                           A flag indicating whether the operaion was successful.
-;       _REF_EXTRA:         in, optional, type=any
-;                           Any keyword accepted by the BuildURI method is accepted via
-;                               via keyword inheritance.
-;-
-pro MrBar_Get_Data::CD, uri, $
-SUCCESS=success, $
-_REF_EXTRA=extra
-	compile_opt idl2
-	on_error, 2
-	
-	;URI or Keywords must be given
-	if (n_elements(uri) gt 0) + (n_elements(extra) gt 0) ne 1 $
-		then message, 'Either a URI or URI keywords must be given.'
-
-	;Create the URI
-	if n_elements(uri) eq 0 then uri = self -> BuildURI( _STRICT_EXTRA = extra )
-
-	;Set the URI
-	self -> MrURI::CD, uri, SUCCESS=success
-	
-	;Success status
-	if ~success && ~arg_present(success) then message, 'Cannot change directories.'
-end
-
-
-;+
-;   Cleanup after the object is destroyed.
-;-
-pro MrBar_Get_Data::Cleanup
-	compile_opt idl2
-	on_error, 2
-
-	;Superclasses
-	self -> MrWebURI::Cleanup
-end
+	RETURN, uri
+END
 
 
 ;+
@@ -291,23 +165,42 @@ end
 ;       FILES:          out, optional, type=integer
 ;                       Names of the files found.
 ;-
-function MrBar_Get_Data::Get, $
+FUNCTION MrBar_Get_Data::Get, $
 COUNT=count
-	compile_opt strictarr
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;Provide BARREL-specific input
-	files = self -> MrWebURI::Get( COUNT     = count, $
-	                               /CLOSEST, $
-	                               /NEWEST, $
-	                               TSTART    = self.tstart, $
-	                               TEND      = self.tend, $
-	                               TIMEORDER = '%Y%M%d%H%m%S', $
-	                               TPATTERN  = '%Y-%M-%dT%H:%m:%S' )
+	;Build the URI path
+	uri = self -> BuildURI()
 
-	;Return results
-	return, files
-end
+	;Allocate memory
+	nAlloc = 100
+	count  = 0
+	files  = StrArr(nAlloc)
+
+	;Get the files
+	FOR i = 0, N_Elements(uri) - 1 DO BEGIN
+		;Find files
+		temp = self.oWebURI -> Get( uri[i], $
+		                            COUNT = nFiles, $
+		                            /CLOSEST, $
+		                            /NEWEST )
+		
+		;Make room
+		IF count + nFiles GE nAlloc THEN BEGIN
+			files   = [files, StrArr(nAlloc)]
+			nAlloc *= 2
+		ENDIF
+		
+		;Store results
+		files[count:count+nFiles-1] = Temporary(temp)
+		count += nFiles
+	ENDFOR
+	
+	;Trim results
+	files = count EQ 1 ? files[0] : files[0:count-1]
+	RETURN, files
+END
 
 
 ;+
@@ -320,128 +213,44 @@ end
 ;                       Launch order.
 ;       LEVEL:          out, optional, type=string
 ;                       Data quality level.
-;       TEND:           out, optional, type=string
-;                       End time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
-;       TSTART:         out, optional, type=string/strarr
-;                       Start time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
 ;       TYPE:           out, optional, type=string
 ;                       Data product type.
 ;       DATE:           out, optional, type=string
 ;                       Date of launch.
 ;       VERSION:        out, optional, type=string
 ;                       File version number.
-;       _REF_EXTRA:     out, optional, type=any
-;                       Any keyword accepted by MrWebURI::GetProperty.
 ;-
-pro MrBar_Get_Data::GetProperty, $
+PRO MrBar_Get_Data::GetProperty, $
 CAMPAIGN=campaign, $
-DATE=date, $
 LEVEL=level, $
 ORDER=order, $
-TEND=tend, $
-TSTART=tstart, $
 TYPE=type, $
 VERSION=version, $
 _REF_EXTRA=extra
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;Set properties
-	if arg_present(campaign) then campaign = self.campaign
-	if arg_present(date)     then date     = self.date
-	if arg_present(level)    then level    = self.level
-	if arg_present(order)    then order    = self.order
-	if arg_present(type)     then type     = self.type
-	if arg_present(version)  then version  = self.version
-	if arg_present(tstart)   then tstart   = self.tstart
-	if arg_present(tend)     then tend     = self.tend
-
-	;Superclass properties
-	if n_elements(extra) gt 0 then self -> MrWebURI::GetProperty, _STRICT_EXTRA=extra
-end
-
-
-;+
-;   Get the download link.
-;
-; :Private:
-;
-; :Returns:
-;       URI:            The current URI.
-;-
-function MrBar_Get_Data::GetURI
-	compile_opt idl2, hidden
-	on_error, 2
+	;Get properties
+	IF Arg_Present(campaign) THEN campaign = *self.campaign
+	IF Arg_Present(level)    THEN level    = *self.level
+	IF Arg_Present(order)    THEN order    = *self.order
+	IF Arg_Present(type)     THEN type     = *self.type
+	IF Arg_Present(version)  THEN version  = self.version
 	
-	;Build the URI
-	uri = self -> BuildURI( CAMPAIGN = self.campaign, $
-	                        DATE     = self.date, $
-	                        LEVEL    = self.level, $
-	                        ORDER    = self.order, $
-	                        TYPE     = self.type, $
-	                        VERSION  = self.version )
-	
-	return, uri
-end
-
-
-;+
-;   Convert a web URI to a directory structure.
-;
-; :Private:
-;
-; :Params:
-;       URI:        in, required, type=string/strarr
-;                   A URI or a file name returned by ::GetFileNames() to be converted
-;                       to a directory.
-;-
-function MrBar_Get_Data::uri2dir, uri
-	compile_opt strictarr
-	on_error, 2
-
-	nURI = n_elements(uri)
-
-	;Breakdown the URLs
-	self -> ParseURI, uri, $
-	                  SCHEME       = scheme, $
-	                  HOST         = host, $
-	                  PATH         = path
-
-	;Extract the directory and file names
-	;   - If a filename is given, it will not have host and scheme
-	if scheme[0] eq '' then begin
-		scheme   = nURI eq 1 ? self.scheme : replicate(self.scheme, nURI)
-		host     = nURI eq 1 ? self.host   : replicate(self.host,   nURI)
-		basename = self -> Path_BaseName(uri)
-		dirname  = self -> Path_DirName(uri)
-	
-	;Offline mode
-	;   - Local files are already given. Return just the path.
-	endif else if scheme[0] eq 'file' then begin
-		return, path
-	
-	;Build paths from URI path
-	endif else begin
-		basename = self -> Path_BaseName(path)
-		dirname  = self -> Path_DirName(path)
-	endelse
-	
-	;Remove data_products/ so that all data is stored in the same location
-	parts = stregex(dirname, 'data_products/(.*)', /SUBEXP, /EXTRACT)
-
-	;Create the directory chain
-	dir = strarr(nURI)
-	for i = 0, nURI-1 do begin
-		dir[i] = filepath(basename[i], $
-		                  ROOT_DIR     = self.local_root, $
-		                  SUBDIRECTORY = parts[1,i])
-	endfor
-	if nURI eq 1 then dir = dir[0]
-	
-	return, dir
-end
+	;Get a limited number of superclass properties
+	IF N_Elements(extra) GT 0 THEN BEGIN
+		kwrds = ['DATE_END', 'DATE_START', 'LOCAL_ROOT', 'MIRROR_ROOT', 'NO_DOWNLOAD', 'OFFLINE', 'REMOTE_ROOT']
+		tf_member = MrIsMember(kwrds, extra, iMember, COMPLEMENT=iBad)
+		IF ~Array_Equal(tf_member, 1) THEN BEGIN
+			MrPrintF, 'LogWarn', 'Keywords not allowed: ' + $
+			          (N_Elements(iBad) EQ 1 ? '"' + extra[iBad] + '".' $
+			                                 : '["' + StrJoin(extra[iBad], '", "') + '"]')
+		ENDIF
+		
+		;Get properties
+		self.oWebURI -> GetProperty, _STRICT_EXTRA=extra[iMember]
+	ENDIF
+END
 
 
 ;+
@@ -450,124 +259,156 @@ end
 ; :Keywords:
 ;       CAMPAIGN:       in, optional, type=string
 ;                       Campaign number.
+;       DATE_START:     in, optional, type=string
+;                       End time of data interval. Must be formatted as YYYY-MM-DD or
+;                           YYYY-MM-DDThh:mm:ss
+;       DATE_END:       in, optional, type=string/strarr
+;                       Start time of data interval. Must be formatted as YYYY-MM-DD or
+;                           YYYY-MM-DDThh:mm:ss
 ;       ORDER:          in, optional, type=string
 ;                       Launch order.
 ;       LEVEL:          in, optional, type=string
 ;                       Data quality level.
-;       TEND:           in, optional, type=string
-;                       End time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
-;       TSTART:         in, optional, type=string/strarr
-;                       Start time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
 ;       TYPE:           in, optional, type=string
 ;                       Data product type.
 ;       DATE:           in, optional, type=string
 ;                       Date of launch.
 ;       VERSION:        in, optional, type=string
 ;                       File version number.
-;       _REF_EXTRA:     in, optional, type=any
-;                       Any keyword accepted by MrWebURI::SetProperty.
 ;-
-pro MrBar_Get_Data::SetProperty, $
+PRO MrBar_Get_Data::SetProperty, $
 CAMPAIGN=campaign, $
-DATE=date, $
+DATE_END=date_end, $
+DATE_START=date_start, $
 LEVEL=level, $
+LOCAL_ROOT=local_root, $
+MIRROR_ROOT=mirror_root, $
+NO_DOWNLOAD=no_download, $
+OFFLINE=offline, $
 ORDER=order, $
-TEND=tend, $
-TSTART=tstart, $
+REMOTE_ROOT=remote_root, $
 TYPE=type, $
-VERSION=version, $
-_REF_EXTRA=extra
-	compile_opt idl2
-	on_error, 2
+VERSION=version
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;Set properties
-	if n_elements(campaign) gt 0 then self.campaign = strupcase(campaign)
-	if n_elements(date)     gt 0 then self.date     = date
-	if n_elements(level)    gt 0 then self.level    = level
-	if n_elements(order)    gt 0 then self.order    = order
-	if n_elements(type)     gt 0 then self.type     = strlowcase(type)
-	if n_elements(version)  gt 0 then self.version  = version
-	if n_elements(tstart)   gt 0 then self.tstart   = tstart
-	if n_elements(tend)     gt 0 then self.tend     = tend
+	;Set a limited number of superclass properties
+	self.oWebURI -> SetProperty, DATE_END    = date_end, $
+	                             DATE_START  = date_start, $
+	                             LOCAL_ROOT  = local_root, $
+	                             MIRROR_ROOT = mirror_root, $
+	                             NO_DOWNLOAD = no_download, $
+	                             OFFLINE     = offline, $
+	                             REMOTE_ROOT = remote_root
+	
+	;CAMPAIGN
+	IF N_Elements(campaign) GT 0 THEN BEGIN
+		theCampaign = campaign[0] EQ '' ? ['1', '2', '3', '4'] : campaign
+		IF ~Array_Equal( StRegEx(theCampaign, '[1-4]', /BOOLEAN), 1 ) THEN Message, 'CAMPAIGN must be 1-4.'
+		*self.campaign = Temporary(theCampaign)
+	ENDIF
+	
+	;LEVEL
+	IF N_Elements(level) GT 0 THEN BEGIN
+		theLevel = level[0] eq '' ? ['l0', 'l2'] : level
+		IF ~Array_Equal( StRegEx(theLevel, '(l0|l2)', /BOOLEAN), 1 ) THEN Message, 'LEVEL must be {"l0" | "l2"}.'
+		*self.level = Temporary(theLevel)
+	ENDIF
+	
+	;ORDER
+	IF N_Elements(order) GT 0 THEN BEGIN
+		theOrder = order[0] EQ '' ? ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', $
+		                             'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', $
+		                             'U', 'V', 'W', 'X', 'Y', 'Z'] $
+		                          : order
+		IF ~Array_Equal(StRegEx(theOrder, '[A-Z]', /BOOLEAN), 1) THEN Message, 'ORDER must be an uppercase character.'
+		*self.order = Temporary(theOrder)
+	ENDIF
+	
+	;TYPE
+	IF N_Elements(type) GT 0 THEN BEGIN
+		theType = type[0] EQ '' ? ['ephm', 'fspc', 'hkpg', 'magn', 'misc', 'mspc', 'rcnt', 'sspc'] : type
+		IF ~Array_Equal(StRegEx(theType, '(ephm|fspc|hkpg|magn|misc|mspc|rcnt|sspc)', /BOOLEAN, /FOLD_CASE), 1) $
+			THEN Message, 'Invalid value for TYPE.'
+		*self.type = StrLowCase(theType)
+	ENDIF
+	
+	;VERSION
+	IF N_Elements(version) GT 0 THEN BEGIN
+		IF version NE '' && ~StRegEx(version, '[0-9]{2}', /BOOLEAN) $
+			THEN Message, 'VERSION must be two digits.'
+		self.version = version
+	ENDIF
+END
 
-	;Superclass properties
-	if n_elements(extra) gt 0 then self -> MrWebURI::SetProperty, _STRICT_EXTRA=extra
-end
 
 
 ;+
-;   Change connection settings to point to the given URI.
+;   Fill the drop list with the contents of the selected directory.
 ;
-; :Private:
+; :Keywords:
+;       COUNT:          out, optional, type=integer
+;                       Number of files that match the search criteria.
 ;
-; :Params:
-;       URI:        in, required, type=string
-;                   Change connection settings to this fully resolved URI.
-;       SUCCESS:    out, optional, type=boolean
-;                   A flag indicating whether the operaion was successful.
+; :Returns:
+;       FILES:          out, optional, type=integer
+;                       Names of the files found.
 ;-
-pro MrBar_Get_Data::SetURI, uri, success
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrBar_Get_Data::Search, $
+COUNT=count
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;
-	; ::SetURI does not like MrTokens, but ::Search loves them.
-	;   - ::GetURI will call ::BuildURI, which builds a uri with MrTokens in it.
-	;   - ::Search will call ::GetURI for the current uri
-	;   - If an error occurs, ::Search will return to said uri, which ::SetURI does not like
-	;   - Here, look for the only two possible token strings
-	;
-	if stregex(uri, '%(y|Y)%M%d', /BOOLEAN) then begin
-		pos    = stregex(uri, '%(y|Y)%M%d')
-		uriOut = strmid(uri, 0, pos[0])
-	endif else begin
-		uriOut = uri
-	endelse
+	;Build the URI path
+	uri  = self -> BuildURI()
+	nURI = N_Elements(nURI)
 
-	;Superclass
-	self -> MrWebURI::SetURI, uriOut, success
-	if success eq 0 then return
+	;Allocate memory
+	nAlloc = 100
+	count  = 0
+	files  = StrArr(nAlloc)
+
+	;Get the files
+	FOR i = 0, nURI - 1 DO BEGIN
+		IF nURI GT 5 THEN MrPrintF, 'LogText', i+1, N_Elements(uri), FORMAT='(%"Search for URI %i of %i")'
 	
-	;Set properties
-	if success then begin
-		;Obtain properties from file name
-		if stregex(self.path, '\.cdf$', /BOOLEAN) then begin
-			;Extract the file name
-			basename = self -> Path_Basename( self.path )
+		;Find files
+		temp = self.oWebURI -> Search( uri[i], $
+		                               COUNT = nFiles )
 		
-			;Parse the file name
-			MrBar_Parse_Filename, basename, $
-			                      CAMPAIGN = campaign, $
-			                      DATE     = date, $
-			                      LEVEL    = level, $
-			                      ORDER    = order, $
-			                      TYPE     = type
+		;Make room
+		IF count + nFiles GE nAlloc THEN BEGIN
+			files   = [files, StrArr(nAlloc)]
+			nAlloc *= 2
+		ENDIF
 		
-		;Obtain properties from directory
-		endif else begin
-			parts = stregex(self.path, 'data_products/((v[0-9]+)?/?)((l[0-3])?/?)((([0-9]+)([A-Z]+))?/?)([0-9]{6})?', /SUBEXP, /EXTRACT)
-			if parts[2] ne '' then version  = parts[2]
-			if parts[4] ne '' then level    = parts[4]
-			if parts[7] ne '' then campaign = parts[7]
-			if parts[8] ne '' then order    = parts[8]
-			if parts[9] ne '' then dirdate  = parts[9]
-		endelse
-		
-		;Set properties
-		;   - The directory date and filename date must be quasi-independent
-		;   - We search for DIRDATE before searching for files from DATE
-		;   - If filename DATE is given, so must be DIRDATE
-		;   - If DIRDATE is given, a file with DATE may not exist
-		self.dirdate = n_elements(dirdate) eq 0 ? '' : dirdate
-		self -> SetProperty, CAMPAIGN = campaign, $
-		                     DATE     = date, $
-		                     LEVEL    = level, $
-		                     ORDER    = order, $
-		                     TYPE     = type
-	endif
-end
+		;Store results
+		files[count:count+nFiles-1] = Temporary(temp)
+		count += nFiles
+	ENDFOR
+	
+	;Trim results
+	files = count EQ 1 ? files[0] : files[0:count-1]
+	RETURN, files
+END
+
+
+;+
+;   Cleanup after the object is destroyed.
+;-
+PRO MrBar_Get_Data::Cleanup
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Objects
+	Obj_Destroy, self.oWebURI
+	
+	;Pointers
+	Ptr_Free, self.campaign
+	Ptr_Free, self.level
+	Ptr_Free, self.order
+	Ptr_Free, self.type
+END
 
 
 ;+
@@ -576,81 +417,92 @@ end
 ; :Keywords:
 ;       CAMPAIGN:       in, optional, type=string, default='4'
 ;                       Campaign number.
+;       DATE_START:     in, optional, type=string
+;                       End time of data interval. Must be formatted as YYYY-MM-DD or
+;                           YYYY-MM-DDThh:mm:ss
+;       DATE_END:       in, optional, type=string/strarr
+;                       Start time of data interval. Must be formatted as YYYY-MM-DD or
+;                           YYYY-MM-DDThh:mm:ss
 ;       ORDER:          in, optional, type=string, default='A'
 ;                       Launch order.
 ;       LEVEL:          in, optional, type=string, default='l2'
 ;                       Data quality level.
-;       TEND:           in, optional, type=string
-;                       End time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
-;       TSTART:         in, optional, type=string/strarr
-;                       Start time of data interval. Must be formatted as YYYY-MM-DD or
-;                           YYYY-MM-DDThh:mm:ss
 ;       TYPE:           in, optional, type=string
 ;                       Data product type.
 ;       DATE:           in, optional, type=string, default='%y%M%d'
 ;                       Date of launch.
 ;       VERSION:        in, optional, type=string
 ;                       File version number.
-;       _REF_EXTRA:     in, optional, type=any
-;                       Any keyword accepted by MrWebURI::Init.
 ;-
-function MrBar_Get_Data::init, uri, $
+FUNCTION MrBar_Get_Data::init, uri, $
 CAMPAIGN=campaign, $
-DATE=date, $
+DATE_END=date_end, $
+DATE_START=date_start, $
 LEVEL=level, $
 LOCAL_ROOT=local_root, $
+MIRROR_ROOT=mirror_root, $
+NO_DOWNLOAD=no_download, $
+OFFLINE=offline, $
 ORDER=order, $
-TEND=tend, $
-TSTART=tstart, $
+REMOTE_ROOT=remote_root, $
 TYPE=type, $
-VERSION=version, $
-_REF_EXTRA=extra
-	compile_opt idl2
+VERSION=version
+	Compile_Opt idl2
 
 	;Catch errors
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return, 0
-	endif
+		RETURN, 0
+	ENDIF
 	
 	;Defaults
-	if n_elements(campaign) eq 0 then campaign = '4'
-	if n_elements(order)    eq 0 then order    = 'A'
-	if n_elements(level)    eq 0 then level    = 'l2'
-	if n_elements(version)  eq 0 then version  = '06'
-	if n_elements(date)     eq 0 then date     = '%Y%M%d'
-	if n_elements(uri)      eq 0 then uri      = 'http://barreldata.ucsc.edu/data_products/'
+	IF N_Elements(campaign) EQ 0 THEN campaign = ''
+	IF N_Elements(order)    EQ 0 THEN order    = ''
+	IF N_Elements(level)    EQ 0 THEN level    = ''
+	IF N_Elements(type)     EQ 0 THEN type     = ''
+	IF N_Elements(version)  EQ 0 THEN version  = ''
+	IF N_Elements(uri)      EQ 0 THEN uri      = 'http://barreldata.ucsc.edu/data_products/'
+	
+	;Allocate heap
+	self.campaign = Ptr_New(/ALLOCATE_HEAP)
+	self.order    = Ptr_New(/ALLOCATE_HEAP)
+	self.level    = Ptr_New(/ALLOCATE_HEAP)
+	self.type     = Ptr_New(/ALLOCATE_HEAP)
 	
 	;Set the local data root
-	if n_elements(local_root) eq 0 then begin
-		local_root = filepath('', ROOT_DIR=file_search('~', /TEST_DIRECTORY, /EXPAND_TILDE), $
+	IF N_Elements(local_root) EQ 0 THEN BEGIN
+		local_root = FilePath('', ROOT_DIR=File_Search('~', /TEST_DIRECTORY, /EXPAND_TILDE), $
 		                          SUBDIRECTORY=['MrWebData', 'barrel'] )
 		MrPrintF, 'LogWarn', 'Setting local data root to: "' + local_root + '".'
-	endif
+	ENDIF
 
 	;Superclass INIT.
-	success = self -> MrWebURI::Init(LOCAL_ROOT=local_root, _STRICT_EXTRA=extra)
-	if success eq 0 then return, 0
+	self.oWebURI = MrWebURI( uri, $
+	                         DATE_START  = date_start, $
+	                         DATE_END    = date_end, $
+	                         FPATTERN    = '%Y%M%d', $
+	                         LOCAL_ROOT  = local_root, $
+	                         MIRROR_ROOT = mirror_root, $
+	                         NO_DOWNLOAD = no_download, $
+	                         NSEGMENT    = 4, $
+	                         OFFLINE     = offline, $
+	                         REMOTE_ROOT = remote_root, $
+	                         TPATTERN    = '%Y-%M-%dT%H:%m:%S', $
+	                         VREGEX      = 'v([0-9]{2})' )
+	IF ~Obj_Valid(self.oWebURI) THEN RETURN, 0
 	
 	;Set object properties
-	;   - Do not call ::CD because ::CD and ::SetURI do not like MrTokens
+	;   - Do not call ::CD because ::CD and ::SetURI DO not like MrTokens
 	self -> SetProperty, CAMPAIGN = campaign, $
-	                     DATE     = date, $
 	                     LEVEL    = level, $
 	                     ORDER    = order, $
-	                     TEND     = tend, $
-	                     TSTART   = tstart, $
 	                     TYPE     = type, $
 	                     VERSION  = version
 
-	;Change directories to wherever indicated
-	self -> CD, uri
-
-	return, 1
-end
+	RETURN, 1
+END
 
 
 ;+
@@ -664,25 +516,19 @@ end
 ;       CAMPAIGN:       Campaign number.
 ;       ORDER:          Launch order.
 ;       LEVEL:          Data quality level.
-;       TEND:           End time of data interval.
-;       TSTART:         Start time of data interval.
 ;       TYPE:           Data product type.
-;       DATE:           Date of launch.
 ;       VERSION:        File version number.
 ;-
-pro MrBar_Get_Data__Define, class
-	compile_opt idl2
+PRO MrBar_Get_Data__Define, class
+	Compile_Opt idl2
 
 	class = { MrBar_Get_Data, $
-	          inherits MrWebURI, $
-	          campaign: '', $
-	          order:    '', $
-	          type:     '', $
-	          level:    '', $
-	          date:     '', $
-	          dirdate:  '', $
-	          version:  '', $
-	          tstart:   '', $
-	          tend:     '' $
+	          Inherits IDL_Object, $
+	          oWebURI:  Obj_New(), $
+	          campaign: Ptr_New(), $
+	          order:    Ptr_New(), $
+	          type:     Ptr_New(), $
+	          level:    Ptr_New(), $
+	          version:  '' $
 	        }
-end
+END
