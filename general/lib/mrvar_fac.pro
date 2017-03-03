@@ -33,43 +33,55 @@
 ;
 ; PURPOSE:
 ;+
-;   Transform a spherical coordinate grid into a cartesian coordinate grid.
+;   Create a matrix that transforms vectors into a field-aligned coordinate system.
+;
+;   Calling Sequence
+;       oT = MrVar_FAC(par)
+;       oT = MrVar_FAC(par, perp, fac)
 ;
 ; :Categories:
 ;   Coordinate Systems
 ;
 ; :Params:
-;       B:              in, required, type=string/integer/object
+;       PAR:            in, required, type=string/integer/object
 ;                       Name, index, or objref of a MrVectorTS variable containing the
 ;                           three-component magnetic field.
-;       VEC:            in, optional, type=object (MrVectorTS)
+;       PERP:           in, optional, type=object (MrVectorTS)
 ;                       Name, index or objref of a MrVectorTS variable that defines the
-;                           perpendicular direction. If not provided, `TYPE` is set to ''.
-;
-; :Keywords:
-;       TYPE:           in, optional, type=boolean
-;                       The type of FAC coordinates to use. If `VEC` is not defined,
-;                           then TYPE is set to the empty string automatically. Otherwise,
-;                           'EXB' is the default. Choices are::
-;                               'EXB' - `VEC` is assumed to be the electric field
+;                           perpendicular direction. If PERP and `PAR` do not have identical
+;                           time tags, PERP is interpolated onto `PAR`.
+;       FAC:            in, optional, type=boolean, default='CROSSX'
+;                       The type of FAC coordinates to use. Choices are::
+;                               'EXB' - `PAR` = B-Field, `PERP` = E-Field
 ;                                         z' = B                Magnetic field direction
 ;                                         x' = E x B            Drift velocity direction
 ;                                         y' = B x (E x B)      Electric field direction
-;                               'VXB' - `VEC` is assumed to be the plasma velocity
+;                               'VXB' - `PAR` = B-Field, `PERP` = Plasma Bulk Velocity
 ;                                         z' = B                Magnetic field direction
-;                                         x' = E x B            Bulk velocity direction
 ;                                         y' = B x V            Electric field direction
-;                               'RADAZ' - `VEC` is assumed to be the radial position vector
+;                                         x' = (B x V) x B      Bulk velocity direction
+;                               'RADAZ' - `PAR` = B-Field, `PERP` = Position Vector in Geocentric CS
 ;                                         z' = B                Magnetic field direction
 ;                                         x' = B x R            Azimuthal (counter clockwise)
 ;                                         y' = B x (B x R)      Radial outward
-;                               'XAXIS' or '' - `VEC` is ignored.
-;                                         z' = B               Magnetic field direction
-;                                         y' = z' x [1,0,0]    Azimuthal direction
-;                                         x' = y' x z'         Radial direction
+;                               'CROSSX' - `PAR` = Anything, `PERP` is ignored.
+;                                         z' = `PAR`           Parallel direction
+;                                         y' = z' x [1,0,0]    Perp2 direction
+;                                         x' = y' x z'         Perp1 direction
+;                               '' - `PAR` = Anything, `VEC` = Anything.
+;                                         z' = PAR             Parallel direction
+;                                         y' = PARxPERP        Per2 direction
+;                                         x' = (PARxPERP)xPAR  Perp1 direction
+;
+; :Keywords:
+;       TIME:           in, required, type=string/integer/object
+;                       Name, index, or objref of a MrTimeVar or MrTimeSeries variable.
+;                           `PAR` and `PERP` are interpolated to the time tags in TIME.
+;                           If not given, `PERP` is interpolated to `PAR`.
 ;
 ; :Returns:
-;       T:              The transformation matrix to the field-aligned coordinate system.
+;       T:               out, required, type=object (MrMatrixTS)
+;                        The transformation matrix to the field-aligned coordinate system.
 ;
 ; :Author:
 ;       Matthew Argall::
@@ -83,90 +95,124 @@
 ;   Modification History::
 ;       2016/06/30  -   Written by Matthew Argall
 ;       2016/08/26  -   MrVariable names or indices can be given. - MRA
+;       2016/12/09  -   Interplate V onto B if they do not have the same time tags.
+;                           Removed TYPE keyword, added FAC parameter. - MRA
+;       2017/01/22  -   Switched order of `PERP` and `FAC` params. Added `TIME` keyword. - MRA
 ;-
-function MrVar_FAC, b, v, $
-TYPE=type
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrVar_FAC, par, perp, fac, $
+TIME=time
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Defaults
-	if n_elements(type) eq 0 then type = ''
-	fac_type = n_elements(type) eq 0 ? '' : strupcase(type)
+	theFAC = N_Elements(fac) EQ 0 ? 'CROSSX' : StrUpCase(fac)
 	
-	;Verify and normalize vector1
-	oB = MrVar_Get(b)
-	if ~isa(oB, 'MrVectorTS') then message, 'B must be a MrVectorTS object.'
-	oB_hat = oB -> Normalize()
+	;PAR
+	oPar = MrVar_Get(par)
+	IF ~IsA(oPar, 'MrVectorTS') THEN Message, 'PAR must be a MrVectorTS object.'
 	
-	;Do the same for vector2 if required
-	if type ne '' then begin
-		oV = MrVar_Get(v)
-		if ~isa(oV, 'MrVectorTS') then message, 'VEC must be a MrVectorTS object.'
-		oV_hat = oV -> Normalize()
-	endif
+	;PERP
+	IF N_Elements(perp) EQ 0 THEN BEGIN
+		theFAC = 'CROSSX'
+	ENDIF ELSE BEGIN
+		oPerp = MrVar_Get(perp)
+		IF ~IsA(oPerp, 'MrVectorTS') THEN Message, 'PERP must be a MrVectorTS object.'
+		theFAC = N_Elements(fac) EQ 0 ? '' : StrUpCase(fac)
+	ENDELSE
+
+;-----------------------------------------------------
+; Base Vectors \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;TIME
+	IF N_Elements(time) EQ 0 THEN time = oPar['TIMEVAR']
+	oTime = MrVar_Get(time)
+	
+	;Interpolate parallel vector
+	IF ~oPar -> IsTimeIdentical(oTime) THEN oPar = oPar -> Interpol(oTime)
+	
+	;Interpolate perpendicular vector
+	IF theFAC NE 'CROSSX' THEN BEGIN
+		IF ~oPerp -> IsTimeIdentical(oTime) THEN oPerp = oPerp -> Interpol(oTime)
+		oPerp_hat = oPerp -> Normalize()
+	ENDIF
+	
+	;Parallel unit vector
+	oZ_hat = oPar -> Normalize()
 
 ;-----------------------------------------------------
 ; Electric Field \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if fac_type eq 'EXB' then begin
+	IF theFAC EQ 'EXB' THEN BEGIN
 		;Parallel: B
 		;   - z_hat = b_hat
 		
 		;Perp-1: ExB
-		oX_hat = oV_hat -> Cross(oB_hat)
+		oX_hat = oPerp_hat -> Cross(oZ_hat)
 		oX_hat = oX_hat -> Normalize()
 		
 		;Perp-2: Bx(ExB)
-		oY_hat = oB_hat -> Cross(oX_hat)
+		oY_hat = oZ_hat -> Cross(oX_hat)
 
 ;-----------------------------------------------------
 ; Velocity \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else if fac_type eq 'VXB' then begin
+	ENDIF ELSE IF theFAC EQ 'VXB' THEN BEGIN
 		;Parallel: B
 		;   - oZ_hat = oB_hat
 		
 		;Perp-2: bxv = -vxb = e
-		oY_hat = oB_hat -> Cross(oV_hat)
+		oY_hat = oZ_hat -> Cross(oPerp_hat)
 		oY_hat = oY_hat -> Normalize()
 		
 		;Perp-1: (bxv)xb = exb
-		oX_hat = oY_hat -> Cross(oB_hat)
+		oX_hat = oY_hat -> Cross(oZ_hat)
 
 ;-----------------------------------------------------
 ; Radial/Azimuthal \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else if fac_type eq 'RADAZ' then begin
+	ENDIF ELSE IF theFAC EQ 'RADAZ' THEN BEGIN
 		;Parallel: B
 		;   - oZ_hat = oB_hat
 		
 		;Perp2: bxr (azimuth)
-		oY_hat = oB_hat -> Cross(oV_hat)
+		oY_hat = oZ_hat -> Cross(oPerp_hat)
 		oY_hat = oY_hat -> Normalize()
 		
 		;Perp1: bx(bxr) (radial)
-		oX_hat = oY_hat -> Cross(oB_hat)
+		oX_hat = oY_hat -> Cross(oZ_hat)
 
 ;-----------------------------------------------------
 ; X-Axis \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else if fac_type eq '' gt 0 then  begin
+	ENDIF ELSE IF theFAC EQ 'CROSSX' GT 0 THEN BEGIN
 		;Parallel to B
 		;   - oZ_hat = oB_hat
 		
 		;Perp2: XxB
-		oY_hat = oB_hat -> Cross([1,0,0])
+		oY_hat = oZ_hat -> Cross([1,0,0])
 		oY_hat = oY_hat -> Normalize()
 		
 		;Perp1: Yx(XxB)
-		oX_hat = oY_hat -> Cross(oB_hat)
+		oX_hat = oY_hat -> Cross(oZ_hat)
 
+;-----------------------------------------------------
+; Custom \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	ENDIF ELSE IF theFAC EQ '' THEN BEGIN
+		;Perp2 = Par x Perp
+		oY_hat = oZ_hat -> Cross(oPerp_hat)
+		oY_hat = oY_hat -> Normalize()
+		
+		;Perp1 = Yx(PARxPERP)
+		oX_hat = oY_hat -> Cross(oPar_hat)
+		
 ;-----------------------------------------------------
 ; Unknown \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else begin
-		message, 'FAC TYPE not recognized: "' + type + '".'
-	endelse
+	ENDIF ELSE BEGIN
+		Message, 'FAC not recognized: "' + theFAC + '".'
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Form Rotation Matrix \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -174,8 +220,8 @@ TYPE=type
 
 	;Time dimension first
 	;   - [time, component, axis]
-	T = MrMatrixTS([ [[ oX_hat['DATA'] ]], [[ oY_hat['DATA'] ]], [[ oB_hat['DATA'] ]] ])
+	T = MrMatrixTS( oPar['TIMEVAR'], [ [[ oX_hat['DATA'] ]], [[ oY_hat['DATA'] ]], [[ oZ_hat['DATA'] ]] ])
 
-	;Return the matrix
-	return, T
-end
+	;RETURN the matrix
+	RETURN, T
+END

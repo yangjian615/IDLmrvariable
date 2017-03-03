@@ -33,7 +33,7 @@
 ;
 ; PURPOSE
 ;+
-;   Calculate moments and reduced distributions from a 3D distribution function.
+;   Calculate moments and reduced distributions from a 3D distribution FUNCTION.
 ;
 ;   REFERENCES:
 ;       [1] CIS Interface Control Document
@@ -46,9 +46,9 @@
 ;   MrVariable, MrTimeSeries, MrDist
 ;
 ; :See Also:
-;   MrDist3D__Define.pro
-;   MrTimeSeries__Define.pro
-;   MrVariable__Define.pro
+;   MrDist3D__Define.PRO
+;   MrTimeSeries__Define.PRO
+;   MrVariable__Define.PRO
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -66,103 +66,136 @@
 ;+
 ;   The initialization method.
 ;
+;   CALLING SEQUENCE:
+;       oDist = MrDist4D( data )
+;       oDist = MrDist4D( time, data )
+;       oDist = MrDist4D( time, data, phi, theta, energy )
+;
 ; :Params:
-;       TIME:           in, required, type=NxM array
+;       TIME:           in, optional, type=NxM array
 ;                       Name or reference of a MrTimeVar object, or an array
-;                           of time stamps. If a name is provided, the assiciated
+;                           of time stamps. IF a name is provided, the assiciated
 ;                           variable must exist in the variable cache.
-;       DATA:           in, required, type=NxM array
+;       DIST4D:         in, required, type=NxM array
 ;                       Name or reference of a MrVariable object, or the dependent
-;                           variable data. If a name is given, the associated variable
-;                           must exist in the variable cache. 
+;                           variable data. IF a name is given, the associated variable
+;                           must exist in the variable cache.
+;       PHI:            in, optional, type=Nx1 or NxM array
+;                       Azimuthal coordinates of the distribution pixels. Can be the name
+;                           or reference of a MrVariable object, or the variable data.
+;                           IF the variable is a MrTimeSeries object, its time property
+;                           must be the same as that of the implicit distribution.
+;                           It must have dimensions of [phi, theta] or [time, phi, theta]
+;       THETA:          in, optional, type=Nx1 or NxM array
+;                       Polar coordinates of the distribution pixels. Can be the name or
+;                           reference of a MrVariable object, or the variable data.
+;                           IF the variable is a MrTimeSeries object, its time property
+;                           must be the same as that of the implicit distribution.
+;                           It must have dimensions of [phi, theta] or [time, phi, theta]
+;       ENERGY:         in, optional, type=Nx1 or NxM array
+;                       Energy coordinates of the distribution pixels. Can be the name
+;                           or reference of a MrVariable object, or the variable data.
+;                           IF the variable is a MrTimeSeries object, its time property
+;                           must be the same as that of the implicit distribution.
+;                           IF data has two dimensions, one must be time and the other
+;                           must be the same Size as the fourth dimension of the
+;                           distribution.
 ;
 ; :Keywords:
-;       CACHE:          in, optional, type=boolean, default=0
-;                       If set, both `TIME` and `DATA` are added to the variable cache.
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent, 1-based dimension of `DATA`. If not provided,
-;                           the dimension of `DATA` that is equal in size to `TIME` is
-;                           chose as the default.
+;       DEGREES:        in, optional, type=boolean, default=0
+;                       If set, angles are given in degrees.
+;       ELEVATION:      in, optional, type=boolean, default=0
+;                       If set, `THETA` is taken to be the elevation angle. By default,
+;                           it is interpreted as the polar angle.
+;       MASS:           in, optional, type=float
+;                       Mass of the particle species represented in the distribution. If
+;                           given, `SPECIES` will be determined automatically.
 ;       NAME:           in, optional, type=integer
 ;                       Name to be given to the variable object.
-;       NO_CLOBBER:     in, optional, type=boolean, default=0
-;                       If set, do not clobber variables of the same name. Instead,
-;                           rename this variable by appending "_#" to `NAME`, where
-;                           "#" represents a unique number. Ignored unless `CACHE` is set.
-;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
-;                           and will be left undefined (a MrTimeSeries object will not
-;                           be destroyed, but its array will be empty).
-;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
-;       T_NAME:         in, optional, type=integer
-;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
-;                           is an array of time stamps.
+;       RADIANS:        in, optional, type=boolean, default=0
+;                       If set, angles are given in radians.
+;       SPECIES:        in, optional, type=string, default='e'
+;                       Species of particle represented in the distribution. Options are:
+;                           {'e', 'H', 'He', 'O'}. If given, `MASS` will be determined
+;                           automatically. Takes precedence over `MASS`.
+;       UNITS:          in, optional, type=string, default='PSD'
+;                       Units of the distribution. Options are: {'PSD', 'EFLUX', 'DIFF FLUX'}
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrTimeSeries::Init is also accepted here.
 ;-
-function MrDist4D::INIT, time, dist3D, phi, theta, energy, $
+FUNCTION MrDist4D::INIT, time, dist4D, phi, theta, energy, $
 DEGREES=degrees, $
+ELEVATION=elevation, $
 MASS=mass, $
 NAME=name, $
 RADIANS=radians, $
 SPECIES=species, $
 UNITS=units, $
+VSC=Vsc, $
 _REF_EXTRA=extra
-	compile_opt idl2
+	Compile_Opt idl2
 
 	;Error handling
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return, 0
-	endif
+		RETURN, 0
+	ENDIF
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = 'MrDist4D'
+	IF N_Elements(name) EQ 0 THEN name = 'MrDist4D'
+	IF N_Elements(species) EQ 0 && N_Elements(mass) EQ 0 THEN species = 'e'
 
 ;-----------------------------------------------------
 ; Initialize \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	success = self -> MrTimeSeries::Init( NAME          = name, $
-	                                      _STRICT_EXTRA = extra )
-	if ~success then message, 'Unable to initialize superclass.'
+	self.oDist = MrTimeSeries( NAME         = name, $
+	                          _STRICT_EXTRA = extra )
+	IF ~Obj_Valid(self.oDist) THEN Message, 'Unable to initialize distribution function object property.'
 
 ;-----------------------------------------------------
 ; Set Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if n_elements(dist3D) gt 0 then begin
-		;Store the data
-		self -> SetData, time, dist3D, phi, theta, energy, $
+	;Distribution function
+	IF N_Elements(time) GT 0 THEN BEGIN
+		self -> SetData, time, dist4D, phi, theta, energy, $
 		                 UNITS   = units, $
 		                 DEGREES = degrees, $
 		                 RADIANS = radians
-	endif
+	ENDIF
+	
+	;Spacecraft potential
+	IF N_Elements(Vsc) GT 0 $
+		THEN self -> SetVsc, Vsc $
+		ELSE self.oVsc = MrScalarTS()
 
 ;-----------------------------------------------------
 ; Set Properties \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	self -> SetProperty, MASS       = mass, $
-	                     SPECIES    = species
+	self -> SetProperty, ELEVATION = elevation, $
+	                     MASS      = mass, $
+	                     SPECIES   = species
 
-	return, 1
-end
+	RETURN, 1
+END
 
 
 ;+
 ;   Clean up after the object is destroyed
 ;-
-pro MrDist4D::CLEANUP
-	compile_opt idl2
-	on_error, 2
+PRO MrDist4D::CLEANUP
+	Compile_Opt idl2
+	On_Error, 2
 	
-	;Superclass
-	self -> MrTimeSeries::Cleanup
-end
+	;Destroy objects
+	Obj_Destroy, self.oDist
+	Obj_Destroy, self.oVsc
+END
 
 
 ;+
-;   Convert the distribution function from one set of units to another. The conversion
+;   Convert the distribution FUNCTION from one set of units to another. The conversion
 ;   factors are:
 ;                                        PARTICLE
 ;           |  PARTICLE FLUX (F)  |  ENERGY FLUX (FE)  |  PHASE SPACE DENSITY (f)  |
@@ -175,8 +208,8 @@ end
 ;   Such that f = [ m^2 / (2 * E^2) ] * FE, etc.
 ;
 ; :Params:
-;       FLUX:           in, required, type=fltarr
-;                       Distribution function for which to convert units
+;       FLUX:           in, required, type=FltArr
+;                       Distribution FUNCTION FOR which to convert units
 ;       TO_UNITS:       in, required, type=string
 ;                       Convert to these units.  Options are::
 ;                           Energy:                'ENERGY'      - eV
@@ -197,9 +230,9 @@ end
 ; :Returns:
 ;       NEW_FLUX:       Distribution with new units.
 ;-
-pro MrDist4D::ConvertUnits, to_units
-	compile_opt idl2
-	on_error, 2
+PRO MrDist4D::ConvertUnits, to_units
+	Compile_Opt idl2
+	On_Error, 2
 
 	toUnits = strupcase(to_units)
 
@@ -214,72 +247,72 @@ pro MrDist4D::ConvertUnits, to_units
 	;                           = [ 1 / (m^4 * 1e8 /cm^4/m^4 / s^4) ]           / ( cm^2 * s * sr ) * 0.5 * 1.602e-19^(-2) * N^2 * 1.672e-27^2
 	;                           = [ 1 / (cm^4 / s^4) ]                          / ( cm^2 * s * sr ) * 0.5 * 1.602e-19^(-2) * N^2 * 1.672e-27^2 * 1e-8
 	;                           = ( s^4 / cm^4 )                                / ( cm^2 * s * sr ) * 0.5 * 1.602e-19^(-2) * N^2 * 1.672e-27^2 * 1e-8
-	;                           = s^3 / cm^6 * 0.5 * 1.602e-19^(-2) * N^2 * 1.672e-27^2 * 1e-8
+	;                           = s^3 / cm^6 * N^2 * 1.602e-19^(-2) 1.672e-27^2 * 1e-8
 	;                           = s^3 / cm^6 * N^2 * 5.44933e-25
 	;                           = s^3 / m^6  * N^2 * 5.44933e-13
 	;                           = s^3 / km^6 * N^2 * 5.44933e+5
 	;
 	
 	;Mass number
-	case self.species of
+	CASE self.species of
 		'H':  N = 1
 		'He': N = 2
 		'O':  N = 16
 		'e':  N = MrConstants('m_e') / MrConstants('m_p')
-		else: message, 'Species not recognized.'
-	endcase
+		ELSE: Message, 'Species not recognized.'
+	ENDCASE
 	
 	;Must still divide by the values of E^2!!
 	eflux_to_psd = N^2 * 5.44933e-25
 	
 	;Vectorize multiplication
-	oEnergy = self['DEPEND_3']
-	dims    = size(*self.data, /DIMENSIONS)
-	if obj_isa(oEnergy, 'MrTimeSeries') $
-		then tempE = rebin( reform( oEnergy['DATA'], dims[0], 1, 1, dims[3] ), dims ) $
-		else tempE = rebin( reform( oEnergy['DATA'],       1, 1, 1, dims[3] ), dims )
+	oEnergy = self.oDist['DEPEND_3']
+	dims    = Size(self.oDist, /DIMENSIONS)
+	IF Obj_IsA(oEnergy, 'MrTimeSeries') $
+		THEN tempE = rebin( reform( oEnergy['DATA'], dims[0], 1, 1, dims[3] ), dims ) $
+		ELSE tempE = rebin( reform( oEnergy['DATA'],       1, 1, 1, dims[3] ), dims )
 	
 	;Energy Flux
-	if self.units eq 'EFLUX' then begin
+	IF self.units EQ 'EFLUX' THEN BEGIN
 		
 		;Convert to:
-		case toUnits of
+		CASE toUnits of
 			'DIFF FLUX': new_flux = self['DATA'] / temporary(tempE) * 1e3     ; 1/eV * (1e3 eV/keV) = 1e3/keV
 			'PSD':       new_flux = eflux_to_psd * self['DATA'] / temporary(tempE)^2
 			'DF':        new_flux = eflux_to_psd * self['DATA'] / temporary(tempE)^2
 			'EFLUX':     new_flux = self['DATA']
-			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
-		endcase
+			ELSE: Message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
+		ENDCASE
 	
 	;Differential flux
-	endif else if self.units eq 'DIFF FLUX' then begin
+	ENDIF ELSE IF self.units EQ 'DIFF FLUX' THEN BEGIN
 		;Convert from PF to PEF
-		eflux = self['DATA'] * tempE * 1e-3     ; 1/keV * (1e-3 keV/eV) = 1e-3/eV
+		eflux = self.oDist['DATA'] * tempE * 1e-3     ; 1/keV * (1e-3 keV/eV) = 1e-3/eV
 		
 		;Convert to:
-		case toUnits of
+		CASE toUnits of
 			'EFLUX':     new_flux = temporary(eflux)
 			'PSD':       new_flux = eflux_to_psd * temporary(eflux) / temporary(tempE)^2
 			'DF':        new_flux = eflux_to_psd * temporary(eflux) / temporary(tempE)^2
 			'DIFF FLUX': new_flux = self['DATA']
-			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
-		endcase
+			ELSE: Message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
+		ENDCASE
 	
 	;Phase space density
-	endif else if self.units eq 'PSD' || self.units eq 'DF' then begin
+	ENDIF ELSE IF self.units EQ 'PSD' || self.units EQ 'DF' THEN BEGIN
 		;Convert to:
-		case toUnits of
-			'EFLUX':     new_flux = self['DATA'] / eflux_to_psd * temporary(tempE)^2
-			'DIFF FLUX': new_flux = self['DATA'] / eflux_to_psd * temporary(tempE) * 1e3   ; 1/eV * (1e3 eV/keV) = 1e3/keV
-			'PSD':       new_flux = self['DATA']
-			'DF':        new_flux = self['DATA']
-			else: message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
-		endcase
+		CASE toUnits of
+			'EFLUX':     new_flux = self.oDist['DATA'] / eflux_to_psd * temporary(tempE)^2
+			'DIFF FLUX': new_flux = self.oDist['DATA'] / eflux_to_psd * temporary(tempE) * 1e3   ; 1/eV * (1e3 eV/keV) = 1e3/keV
+			'PSD':       new_flux = self.oDist['DATA']
+			'DF':        new_flux = self.oDist['DATA']
+			ELSE: Message, 'Cannot convert from "' + self.units + '" to "' + to_units + '".'
+		ENDCASE
 	
 	;Invalid
-	endif else begin
-		message, 'Invalid FROM_UNIT: "' + self.units + '".'
-	endelse
+	ENDIF ELSE BEGIN
+		Message, 'Invalid FROM_UNIT: "' + self.units + '".'
+	ENDELSE
 
 ;-------------------------------------------
 ; Set Properties ///////////////////////////
@@ -287,32 +320,163 @@ pro MrDist4D::ConvertUnits, to_units
 	
 	;Set properties
 	self.units = toUnits
-	case toUnits of
-		'EFLUX':     self -> SetAttrValue, 'UNITS', 'keV / cm^2 / s / sr / keV'
-		'ENERGY':    self -> SetAttrValue, 'UNITS', 'eV'
-		'DIFF FLUX': self -> SetAttrValue, 'UNITS', '# / cm^2 / s / sr / keV'
-		'PSD':       self -> SetAttrValue, 'UNITS', 's^2 / cm^6'
-		else: message, 'Invalid units: "' + to_units + '".'
-	endcase
+	CASE toUnits of
+		'EFLUX':     self.oDist['UNITS'] = 'keV / cm^2 / s / sr / keV'
+		'ENERGY':    self.oDist['UNITS'] = 'eV'
+		'DIFF FLUX': self.oDist['UNITS'] = '# / cm^2 / s / sr / keV'
+		'PSD':       self.oDist['UNITS'] = 's^2 / cm^6'
+		ELSE: Message, 'Invalid units: "' + to_units + '".'
+	ENDCASE
 	
 	;Set the object properties
-	*self.data = temporary(new_flux)
-end
+	self.oDist -> SetData, Temporary(new_flux)
+END
+
+
+;+
+;   Compute the 0th moment of the distribution, density.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       ON:             out, required, type=MrScalarTS
+;                       Density as a function of time.
+;-
+FUNCTION MrDist4D::Density, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oN)      GT 0 THEN Obj_Destroy, oN
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Density'
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	N     = FltArr( nTime )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		N[i] = oDist3D -> Density()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Energy-time spectrogram
+	oN = MrScalarTS( self.oDist['TIMEVAR'], N, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
+	
+	;Attributes
+	oN['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oN['LOG']           = 1B
+	oN['UNITS']         = 'cm^-3'
+	oN['TITLE']         = 'N!C(cm^-3)'
+	oN['SI_CONVERSION'] = '1e-6>m^-3'
+	
+	RETURN, oN
+END
+
+
+;+
+;   Compute entropy.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       OS:             out, required, type=MrScalarTS
+;                       Entropy as a function of time.
+;-
+FUNCTION MrDist4D::Entropy, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oS)      GT 0 THEN Obj_Destroy, oS
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Entropy'
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	S     = FltArr( nTime )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		S[i] = oDist3D -> Entropy()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Energy-time spectrogram
+	oS = MrScalarTS( self.oDist['TIMEVAR'], N, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
+	
+	;Attributes
+	oS['CATDESC']       = 'Entropy computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oS['LOG']           = 1B
+	oS['PLOT_TITLE']    = 'Entropy'
+	oS['UNITS']         = 'J/K'
+	oS['TITLE']         = 'S!C(J/K/m^3)'
+	oS['SI_CONVERSION'] = '>'
+	oS['VAR_NOTES']     = 'S = -kH, where k is Boltzman constant and H is the Boltzman ' + $
+	                      'H-function: \Integral f ln(f) d^3v'
+	
+	RETURN, oS
+END
 
 
 ;+
 ;   Display the energy bins
 ;-
-pro MrDist4D::EBins
-	compile_opt idl2
-	on_error, 2
+PRO MrDist4D::EBins
+	Compile_Opt idl2
+	On_Error, 2
 
 	;Grab the two energy tables
 	oE0 = MrVar_Get(e0_vname)
 	oE1 = MrVar_Get(e1_vname)
 	
 	;Create an index vector
-	nEnergy = n_elements(oE0)
+	nEnergy = N_Elements(oE0)
 	idx     = indgen(nEnergy)
 
 	;Print a header
@@ -320,137 +484,59 @@ pro MrDist4D::EBins
 	
 	;Print the energy table
 	;   - Scalar integer 0 returns the object itself.
-	;   - To return the value at index zero, the index must be an array: index = [0]
-	for i = 0, nEnergy-1 do print, idx[i], oE0[[i]], oE1[[i]], FORMAT='(2x, i2, 2x, f9.2, 2x, f9.2)'
-end
+	;   - To RETURN the value at index zero, the index must be an array: index = [0]
+	FOR i = 0, nEnergy-1 do print, idx[i], oE0[[i]], oE1[[i]], FORMAT='(2x, i2, 2x, f9.2, 2x, f9.2)'
+END
 
 
 ;+
-;   Extract a single distribution function.
-;
-; :Params:
-;       IDX:                in, required, type=integer
-;                           Time index for which the 3D distribution is returned.
-;
-; :Returns:
-;       DIST3D:             out, required, type=MrVariable object
-;                           A 3D distribution function.
-;-
-function MrDist4D::GetDist3D, idx
-	compile_opt idl2
-	on_error, 2
-
-;-----------------------------------------------------
-; Type of Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	oPhi    = self['DEPEND_1']
-	oTheta  = self['DEPEND_2']
-	oEnergy = self['DEPEND_3']
-	
-	;Are the dependent variables time-dependent
-	tf_angleTS  = obj_isa(oPhi,    'MrTimeSeries')
-	tf_energyTS = obj_isa(oEnergy, 'MrTimeSeries')
-
-;-----------------------------------------------------
-; Create Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	
-	case 1 of
-		;BOTH
-		tf_angleTS && tf_energyTS: begin
-			dist3D = MrDist3D( reform( (*self.data)[idx,*,*,*] ), $
-			                   reform( oPhi[idx,*,*] ), $
-			                   reform( oTheta[idx,*,*] ), $
-			                   reform( oEnergy[idx,*,*] ), $
-			                   /DEGREES, $
-			                   MASS  = self.mass, $
-			                   UNITS = self.units )
-		endcase
-		
-		;ANGLES
-		tf_angleTS: begin
-			dist3D = MrDist3D( reform( (*self.data)[idx,*,*,*] ), $
-			                   reform( oPhi[idx,*,*] ), $
-			                   reform( oTheta[idx,*,*] ), $
-			                   oEnergy['DATA'], $
-			                   /DEGREES, $
-			                   MASS  = self.mass, $
-			                   UNITS = self.units )
-		endcase
-		
-		;ENERGY
-		tf_energyTS: begin
-			dist3D = MrDist3D( reform( (*self.data)[idx,*,*,*] ), oPhi['DATA'], oTheta['DATA'], $
-			                   reform( oEnergy[idx,*] ), $
-			                   /DEGREES, $
-			                   MASS  = self.mass, $
-			                   UNITS = self.units )
-		endcase
-		
-		;NEITHER
-		else: begin
-			dist3D = MrDist3D( reform( (*self.data)[idx,*,*,*] ), oPhi['DATA'], oTheta['DATA'], oEnergy['DATA'], $
-			                   /DEGREES, $
-			                   MASS  = self.mass, $
-			                   UNITS = self.units )
-		endcase
-	endcase
-
-;-----------------------------------------------------
-; Done \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	return, Dist3D
-end
-
-
-;+
-;   Reduce the 3D distribution function to a 1D distribution in azimuth angle.
+;   Reduce the 3D distribution FUNCTION to a 1D distribution in azimuth angle.
 ;
 ; :Keywords:
 ;       NE_BINS:        in, optional, type=integer
 ;                       Number of energy bins in the reduced distribution. The default
 ;                           is to use the same bins and the original distribution.
-;       PHI_RANGE:      in, optional, type=fltarr(2), default=[0.0\, 360.0]
+;       PHI_RANGE:      in, optional, type=FltArr(2), default=[0.0\, 360.0]
 ;                       The range in azimuthal angle (degrees) over which to average.
-;       THETA_RANGE:    in, optional, type=fltarr(2), default=[0.0\, 180.0]
+;       THETA_RANGE:    in, optional, type=FltArr(2), default=[0.0\, 180.0]
 ;                       The range in polar angle (degrees) over which to average.
 ;
 ; :Returns:
 ;       OESPEC:         out, required, type=MrTimeSeries
 ;                       A 1D distribution in time, averaged over polar and azimuth angle.
 ;-
-function MrDist4D::GetESpec, $
+FUNCTION MrDist4D::ESpec, $
 CACHE=cache, $
 PHI_RANGE=phi_range, $
 NAME=name, $
 NE_BINS=nE_bins, $
 THETA_RANGE=theta_range
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		if n_elements(oDist3D) gt 0 then obj_destroy, oDist3D
-		if n_elements(oESpec)  gt 0 then obj_destroy, oESpec
-		if n_elements(oEBins)  gt 0 then obj_destroy, oEBins
-		return, !Null
-	endif
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oESpec)  GT 0 THEN Obj_Destroy, oESpec
+		IF N_Elements(oEBins)  GT 0 THEN Obj_Destroy, oEBins
+		RETURN, !Null
+	ENDIF
 	
 	;Defaults
-	tf_cache = keyword_set(cache)
-	if n_elements(name) eq 0 then name = self.name + '_ESpec'
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_ESpec'
 
 	;Allocate memory
-	dims      = size(self, /DIMENSIONS)
+	dims      = Size(self.oDist, /DIMENSIONS)
 	nTime     = dims[0]
 	nPhi      = dims[1]
 	nTheta    = dims[2]
 	nEnergy   = dims[3]
-	ESpec = fltarr( nTime, nEnergy )
+	ESpec = FltArr( nTime, nEnergy )
 
 	;Step over each time
-	for i = 0, nTime - 1 do begin
+	FOR i = 0, nTime - 1 DO BEGIN
 		oDist3D = self -> GetDist3D(i)
 		
 		;Reduce the distribution
@@ -460,18 +546,18 @@ THETA_RANGE=theta_range
 		                               THETA_RANGE = theta_range )
 
 		;Destroy the object
-		obj_destroy, oDist3D
-	endfor
+		Obj_Destroy, oDist3D
+	ENDFOR
 	
 	;Energy-time spectrogram
-	oESpec = MrTimeSeries( self.oTime, ESpec, $
-	                           CACHE = tf_cache, $
-	                           NAME  = name, $
-	                           /NO_COPY )
+	oESpec = MrTimeSeries( self.oDist['TIMEVAR'], ESpec, $
+	                       CACHE = tf_cache, $
+	                       NAME  = name, $
+	                       /NO_COPY )
 	
 	;Ordinate
 ;	binName = name + '_EBins'
-;	oEBins  = size(e_bins, /N_DIMENSIONS) eq 2 $
+;	oEBins  = Size(e_bins, /N_DIMENSIONS) EQ 2 $
 ;	               ? MrTimeSeries( self.oTime, e_bins, NAME=binName, /NO_COPY ) $
 ;	               : MrVariable( e_bins, NAME=binName, /NO_COPY )
 	
@@ -481,20 +567,451 @@ THETA_RANGE=theta_range
 
 	;Energy bins have not changed
 	;   - MUST ALSO UPDATE MRDIST3D::SPECE
-	oEBins = self['DEPEND_3']
+	oEBins = self.oDist['DEPEND_3']
 
 	;Sepctrogram attributes
-	oESpec -> AddAttr, 'DEPEND_1', oEBins
-	oESpec -> AddAttr, 'SCALE',    1B
-	oESpec -> AddAttr, 'LOG',      1B
-	oESpec -> AddAttr, 'UNITS',    self['UNITS']
+	oESpec['DEPEND_1'] = oEBins
+	oESpec['SCALE']    = 1B
+	oESpec['LOG']      = 1B
+	oESpec['UNITS']    = self.oDist['UNITS']
 	
-	return, oESpec
-end
+	RETURN, oESpec
+END
 
 
 ;+
-;   Reduce the 3D distribution function to a 2D distribution in polar angle and energy,
+;   Extract a single distribution FUNCTION.
+;
+; :Params:
+;       IDX:                in, required, type=integer
+;                           Time index FOR which the 3D distribution is returned.
+;
+; :Returns:
+;       DIST3D:             out, required, type=MrVariable object
+;                           A 3D distribution FUNCTION.
+;-
+FUNCTION MrDist4D::GetDist3D, idx
+	Compile_Opt idl2
+	On_Error, 2
+
+;-----------------------------------------------------
+; Extract Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Get the independent variables
+	oPhi    = self.oDist['DEPEND_1']
+	oTheta  = self.oDist['DEPEND_2']
+	oEnergy = self.oDist['DEPEND_3']
+	
+	;Extract data for the time indicated
+	;   - PHI may have dimensions of [nPhi], [nTime, nPhi] or [nTime, nPhi, nTheta]
+	;   - Similarly for THETA
+	phi    = Obj_IsA(oPhi,    'MrTimeSeries') ? Reform(oPhi[idx,*,*])   : oPhi['DATA']
+	theta  = Obj_IsA(oTheta,  'MrTimeSeries') ? Reform(oTheta[idx,*,*]) : oTheta['DATA']
+	energy = Obj_IsA(oEnergy, 'MrTimeSeries') ? Reform(oEnergy[idx,*])  : oEnergy['DATA']
+	IF N_Elements(self.oVsc) GT 0 THEN Vsc = self.oVsc[[idx]]
+
+;-----------------------------------------------------
+; Phi Deltas \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;PHI DELTA PLUS
+	IF oPhi -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
+		oDPhi_plus = MrVar_Get( oPhi['DELTA_PLUS_VAR'] )
+		IF Obj_IsA(oDPhi_plus, 'MrTimeSeries') $
+			THEN dphi_plus = Reform( oDPhi_Plus[idx,*] ) $
+			ELSE dphi_plus = oDPhi_Plus['DATA']
+	
+	ENDIF ELSE IF oPhi -> HasAttr('DELTA_PLUS') THEN BEGIN
+		dphi_plus = oPhi['DELTA_PLUS']
+	ENDIF
+	
+	;PHI DELTA MINUS
+	IF oPhi -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
+		oDPhi_minus = MrVar_Get( oPhi['DELTA_MINUS_VAR'] )
+		IF Obj_IsA(oDPhi_minus, 'MrTimeSeries') $
+			THEN dphi_minus = Reform( oDPhi_Plus[idx,*] ) $
+			ELSE dphi_minus = oDPhi_Plus['DATA']
+	
+	ENDIF ELSE IF oPhi -> HasAttr('DELTA_MINUS') THEN BEGIN
+		dphi_minus = oPhi['DELTA_MINUS']
+	ENDIF
+
+;-----------------------------------------------------
+; Theta Deltas \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;DELTA PLUS
+	IF oTheta -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
+		oDTheta_plus = MrVar_Get( oTheta['DELTA_PLUS_VAR'] )
+		IF Obj_IsA(oDTheta_plus, 'MrTimeSeries') $
+			THEN dtheta_plus = Reform( oDTheta_Plus[idx,*] ) $
+			ELSE dtheta_plus = oDTheta_Plus['DATA']
+	
+	ENDIF ELSE IF oTheta -> HasAttr('DELTA_PLUS') THEN BEGIN
+		dtheta_plus = oTheta['DELTA_PLUS']
+	ENDIF
+	
+	;DELTA MINUS
+	IF oTheta -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
+		oDTheta_minus = MrVar_Get( oTheta['DELTA_MINUS_VAR'] )
+		IF Obj_IsA(oDTheta_minus, 'MrTimeSeries') $
+			THEN dtheta_minus = Reform( oDTheta_Plus[idx,*] ) $
+			ELSE dtheta_minus = oDTheta_Plus['DATA']
+	
+	ENDIF ELSE IF oTheta -> HasAttr('DELTA_MINUS') THEN BEGIN
+		dtheta_minus = oTheta['DELTA_MINUS']
+	ENDIF
+
+;-----------------------------------------------------
+; Energy Deltas \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;DELTA PLUS
+	IF oEnergy -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
+		oDE_plus = MrVar_Get( oEnergy['DELTA_PLUS_VAR'] )
+		IF Obj_IsA(oDE_plus, 'MrTimeSeries') $
+			THEN dE_plus = Reform( oDE_Plus[idx,*] ) $
+			ELSE dE_plus = oDE_Plus['DATA']
+	
+	ENDIF ELSE IF oEnergy -> HasAttr('DELTA_PLUS') THEN BEGIN
+		dE_plus = oEnergy['DELTA_PLUS']
+	ENDIF
+	
+	;DELTA MINUS
+	IF oEnergy -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
+		oDE_minus = MrVar_Get( oEnergy['DELTA_MINUS_VAR'] )
+		IF Obj_IsA(oDE_minus, 'MrTimeSeries') $
+			THEN dE_minus = Reform( oDE_minus[idx,*] ) $
+			ELSE dE_minus = oDE_minus['DATA']
+	
+	ENDIF ELSE IF oEnergy -> HasAttr('DELTA_MINUS') THEN BEGIN
+		dE_minus = oE['DELTA_MINUS']
+	ENDIF
+
+;-----------------------------------------------------
+; Create Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Create the 3D distribution
+	dist3D = MrDist3D( Reform( self.oDist[idx,*,*,*] ), $
+	                   Temporary(phi), $
+	                   Temporary(theta), $
+	                   Temporary(energy), $
+	                   Temporary(Vsc), $
+	                   /DEGREES, $
+	                   DENERGY_MINUS = dE_minus, $
+	                   DENERGY_PLUS  = dE_plus, $
+	                   DPHI_MINUS    = dphi_minus, $
+	                   DPHI_PLUS     = dphi_plus, $
+	                   DTHETA_MINUS  = dtheta_minus, $
+	                   DTHETA_PLUS   = dtheta_plus, $
+	                   ELEVATION     = self.elevation, $
+	                   MASS          = self.mass, $
+	                   UNITS         = self.units )
+
+;-----------------------------------------------------
+; Done \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	RETURN, Dist3D
+END
+
+
+;+
+;   Transform a spherical coordinate grid into a cartesian coordinate grid.
+;
+; :Keywords:
+;       ELEVATION:          out, optional, type=boolean
+;                           If set, THETA is taken to be the elevation angle.
+;       MASS:               out, optional, type=float
+;                           Mass (kg) of the species represented in the distribution.
+;       SPECIES:            out, optional, type=string
+;                           The particle species represented in the distribution.
+;       UNITS:              out, optional, type=string
+;                           Units of the distribution FUNCTION.
+;       _REF_EXTRA:         out, optional, type=any
+;                           Any keyword accepted by MrTimeSeries::GetProperty
+;-
+PRO MrDist4D::GetProperty, $
+ELEVATION=elevation, $
+MASS=mass, $
+SPECIES=species, $
+UNITS=units, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	On_Error, 2
+	
+	IF arg_present(mass)      GT 0 THEN mass      = self.mass
+	IF arg_present(elevation) GT 0 THEN elevation = self.elevation
+	IF arg_present(species)   GT 0 THEN species   = self.species
+	IF arg_present(units)     GT 0 THEN units     = self.units
+	
+	;Distribution properties
+	IF N_Elements(extra) GT 0 THEN self.oDist -> GetProperty, _STRICT_EXTRA=extra
+END
+
+
+;+
+;   Compute the third moment of the distribution (heat flux).
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       OP:             out, required, type=MrTimeSeries
+;                       Heat flux tensor as a function of time.
+;-
+FUNCTION MrDist4D::HeatFlux, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oN)      GT 0 THEN Obj_Destroy, oN
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Pressure'
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	Q     = FltArr( nTime, 3 )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		Q[i,*] = oDist3D -> HeatFlux2()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Energy-time spectrogram
+	oQ = MrVectorTS( self.oDist['TIMEVAR'], Q, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
+	
+	;Attributes
+	oQ['CATDESC']       = 'Heat flux computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oQ['LABEL']         = ['Qx', 'Qy', 'Qz']
+	oQ['UNITS']         = 'W'
+	oQ['PLOT_TITLE']    = 'Heat Flux'
+	oQ['TITLE']         = 'Q!C(nW)'
+	oQ['SI_CONVERSION'] = '1e-9>W'
+	
+	RETURN, oQ
+END
+
+
+;+
+;   Compute the moments of the distribution function: density, velocity, pressure,
+;   temperature, and heatflux. Their computations are inter-dependent.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       OP:             out, required, type=MrTimeSeries
+;                       Pressure tensor as a function of time.
+;-
+PRO MrDist4D::Moments, $
+CACHE=cache, $
+DENSITY=oN, $
+ENTROPY=oS, $
+HEATFLUX=oQ, $
+PRESSURE=oP, $
+TEMPERATURE=oT, $
+VELOCITY=oV, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oN)      GT 0 THEN Obj_Destroy, oN
+		RETURN
+	ENDIF
+
+;-----------------------------------------------------
+; Compute Moments \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	N     = FltArr( nTime )
+	S     = FltArr( nTime )
+	V     = FltArr( nTime, 3 )
+	P     = FltArr( nTime, 3, 3 )
+	T     = FltArr( nTime, 3, 3 )
+	Q     = FltArr( nTime, 3 )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		oDist3D -> Moments_v2, DENSITY       = n_temp, $
+		                       ENTROPY       = s_temp, $
+		                       HEATFLUX      = q_temp, $
+		                       PRESSURE      = p_temp, $
+		                       TEMPERATURE   = t_temp, $
+		                       VELOCITY      = v_temp, $
+		                       _STRICT_EXTRA = extra
+
+		;Store data
+		N[i]     = Temporary(n_temp)
+		S[i]     = Temporary(s_temp)
+		Q[i,*]   = Temporary(q_temp)
+		P[i,*,*] = Temporary(p_temp)
+		T[i,*,*] = Temporary(t_temp)
+		V[i,*]   = Temporary(v_temp)
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+
+;-----------------------------------------------------
+; Density \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Energy-time spectrogram
+	oN = MrScalarTS( self.oDist['TIMEVAR'], N, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_density', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oN['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oN['LOG']           = 1B
+	oN['PLOT_TITLE']    = 'Density'
+	oN['UNITS']         = 'cm^-3'
+	oN['TITLE']         = 'N!C(cm^-3)'
+	oN['SI_CONVERSION'] = '1e-6>m^-3'
+
+;-----------------------------------------------------
+; Entropy \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Energy-time spectrogram
+	oS = MrScalarTS( self.oDist['TIMEVAR'], S, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_entropy', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oS['CATDESC']       = 'Entropy computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oS['LOG']           = 1B
+	oS['PLOT_TITLE']    = 'Entropy'
+	oS['UNITS']         = 'J/K'
+	oS['TITLE']         = 'S!C(J/K/m^3)'
+	oS['SI_CONVERSION'] = '>'
+	oS['VAR_NOTES']     = 'S = -kH, where k is Boltzman constant and H is the Boltzman ' + $
+	                      'H-function: \Integral f ln(f) d^3v'
+
+;-----------------------------------------------------
+; Velocity \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Energy-time spectrogram
+	oV = MrVectorTS( self.oDist['TIMEVAR'], V, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_velocity', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oV['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oV['LABEL']         = ['Vx', 'Vy', 'Vz']
+	oV['PLOT_TITLE']    = 'Velocity'
+	oV['UNITS']         = 'km/s'
+	oV['TITLE']         = 'V!C(km/s)'
+	oV['SI_CONVERSION'] = '1e3>m/s'
+
+;-----------------------------------------------------
+; Pressure \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Energy-time spectrogram
+	oP = MrMatrixTS( self.oDist['TIMEVAR'], P, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_pressure', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oP['CATDESC']       = 'Pressure computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oP['LABEL']         = 'P'
+	oP['LABEL_PTR_1']   = ['x', 'y', 'z']
+	oP['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oP['PLOT_TITLE']    = 'Pressure'
+	oP['UNITS']         = 'nPa'
+	oP['PLOT_TITLE']    = 'Pressure Tensor'
+	oP['TITLE']         = 'P!C(nPa)'
+	oP['SI_CONVERSION'] = '1e-9>Pa'
+
+;-----------------------------------------------------
+; Temperature \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Temperature tensor
+	oT = MrMatrixTS( self.oDist['TIMEVAR'], T, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_temperature', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oT['CATDESC']       = 'Temperature computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oT['LABEL']         = 'T'
+	oT['LABEL_PTR_1']   = ['x', 'y', 'z']
+	oT['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oT['PLOT_TITLE']    = 'Temperature'
+	oT['UNITS']         = 'eV'
+	oT['PLOT_TITLE']    = 'Temperature Tensor'
+	oT['TITLE']         = 'T!C(eV)'
+	oT['SI_CONVERSION'] = '>'
+
+;-----------------------------------------------------
+; Heat Flux \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Energy-time spectrogram
+	oQ = MrVectorTS( self.oDist['TIMEVAR'], Q, $
+	                 CACHE = cache, $
+	                 NAME  = self.oDist.name + '_heatflux', $
+	                 /NO_COPY )
+	
+	;Attributes
+	oQ['CATDESC']       = 'Heat flux computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oQ['LABEL']         = ['Qx', 'Qy', 'Qz']
+	oQ['PLOT_TITLE']    = 'Heat Flux'
+	oQ['UNITS']         = 'W'
+	oQ['TITLE']         = 'Q!C(nW)'
+	oQ['SI_CONVERSION'] = '1e-9>W'
+END
+
+
+;+
+;   Reduce the 3D distribution FUNCTION to a 2D distribution in polar angle and energy,
 ;   averaging over azimuth angle.
 ;
 ; :Keywords:
@@ -508,49 +1025,49 @@ end
 ;       NPHI_BINS:      in, optional, type=integer
 ;                       Number of polar angle bins in the reduced distribution. The
 ;                           default is to use the same bins and the original distribution.
-;       THETA_RANGE:    in, optional, type=fltarr(2), default=[0.0\, 180.0]
+;       THETA_RANGE:    in, optional, type=FltArr(2), default=[0.0\, 180.0]
 ;                       The range in polar angle (degrees) over which to average.
 ;
 ; :Returns:
 ;       DIST2D:         out, required, type=MrTimeSeries object
 ;                       A time-varying 2D distribution in polar angle and energy.
 ;-
-function MrDist4D::GetPhiE, $
+FUNCTION MrDist4D::PhiE, $
 CACHE=cache, $
 NAME=name, $
 NE_BINS=ne_bins, $
 NPHI_BINS=nPhi_bins, $
 THETA_RANGE=theta_range
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		if n_elements(oDist3D)  gt 0 then obj_destroy, oDist3D
-		if n_elements(oPhiE)    gt 0 then obj_destroy, oPhiE
-		if n_elements(oPhiBins) gt 0 then obj_destroy, oPhiBins
-		if n_elements(oEBins)   gt 0 then obj_destroy, oEBins
-		return, !Null
-	endif
+		IF N_Elements(oDist3D)  GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oPhiE)    GT 0 THEN Obj_Destroy, oPhiE
+		IF N_Elements(oPhiBins) GT 0 THEN Obj_Destroy, oPhiBins
+		IF N_Elements(oEBins)   GT 0 THEN Obj_Destroy, oEBins
+		RETURN, !Null
+	ENDIF
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = self.name + '_PhiE'
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_PhiE'
 
 ;-------------------------------------------
 ; Reduce the 4D Distribution ///////////////
 ;-------------------------------------------
 
 	;Allocate memory
-	dims    = size(self, /DIMENSIONS)
+	dims    = Size(self.oDist, /DIMENSIONS)
 	nTimes  = dims[0]
 	nPhi    = dims[1]
 	nTheta  = dims[2]
 	nEnergy = dims[3]
-	PhiE  = fltarr( nTimes, nPhi, nEnergy )
-	
+	PhiE  = FltArr( nTimes, nPhi, nEnergy )
+
 	;Step over each time
-	for i = 0, n_elements(nTimes) - 1 do begin
+	FOR i = 0, nTimes - 1 DO BEGIN
 		oDist3D = self -> GetDist3D(i)
 		
 		;Reduce the distribution
@@ -560,29 +1077,31 @@ THETA_RANGE=theta_range
 		                               THETA_RANGE = theta_range )
 
 		;Destroy the 3D distribution
-		obj_destroy, oDist3D
-	endfor
+		Obj_Destroy, oDist3D
+	ENDFOR
 
 ;-------------------------------------------
 ; Datasets /////////////////////////////////
 ;-------------------------------------------
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
 	
 	;Theta-Energy distribution
-	oPhiE = MrTimeSeries( self.oTime, PhiE, $
+	oPhiE = MrTimeSeries( oTime, PhiE, $
 	                      CACHE = cache, $
 	                      NAME  = name, $
 	                      /NO_COPY )
 	
 	;Phi
 	binName  = name + '_PhiBins'
-	oPhiBins = size(phi, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, phi, NAME=binName, /NO_COPY ) $
+	oPhiBins = Size(phi, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, phi, NAME=binName, /NO_COPY ) $
 	                 : MrVariable( phi, NAME=binName, /NO_COPY )
 	
 	;Energy
 	binName     = name + '_EnergyBins'
-	oEnergyBins = size(energy, /N_DIMENSIONS) eq 2 $
-	                  ? MrTimeSeries( self.oTime, energy, NAME=binName, /NO_COPY ) $
+	oEnergyBins = Size(energy, /N_DIMENSIONS) EQ 2 $
+	                  ? MrTimeSeries( oTime, energy, NAME=binName, /NO_COPY ) $
 	                  : MrVariable( energy, NAME=binName, /NO_COPY )
 
 ;-------------------------------------------
@@ -590,125 +1109,143 @@ THETA_RANGE=theta_range
 ;-------------------------------------------
 	
 	;Phi attributes
-	oPhiBins -> AddAttr, 'DELTA_MINUS', dPhi
-	oPhiBins -> AddAttr, 'DELTA_PLUS',  dPhi
-	oPhiBins -> AddAttr, 'UNITS',       'degrees'
-	oPhiBins -> AddAttr, 'TITLE',       'Azimuth'
-	oPhiBins -> AddAttr, 'PLOT_TITLE',  'Azimuthal Bin Centers'
+	oPhiBins['DELTA_MINUS'] = dPhi
+	oPhiBins['DELTA_PLUS']  = dPhi
+	oPhiBins['UNITS']       = 'degrees'
+	oPhiBins['TITLE']       = 'Azimuth'
+	oPhiBins['PLOT_TITLE']  = 'Azimuthal Bin Centers'
 	
 	;Energy attributes
-;	oEBins -> AddAttr, 'UNITS', self.oEnergy['UNITS']
-;	oEBins -> AddAttr, 'TITLE', 'Energy'
+;	oEBins['UNITS'] = self.oEnergy['UNITS']
+;	oEBins['TITLE'] = 'Energy'
 
 	;Energy bins have not changed
 	;   - MUST ALSO UPDATE MRDIST3D::SPECE
-	oEBins = self['DEPEND_3']
+	oEBins = self.oDist['DEPEND_3']
 
 	;Distribution attributes
-	oPhiE -> AddAttr, 'DEPEND_1', oPhiBins
-	oPhiE -> AddAttr, 'DEPEND_2', oEBins
-	oPhiE -> AddAttr, 'SCALE',    1B
-	oPhiE -> AddAttr, 'LOG',      1B
-	oPhiE -> AddAttr, 'UNITS',    self['UNITS']
+	oPhiE['DEPEND_1'] = oPhiBins
+	oPhiE['DEPEND_2'] = oEBins
+	oPhiE['SCALE']    = 1B
+	oPhiE['LOG']      = 1B
+	oPhiE['UNITS']    = self.oDist['UNITS']
 	
-	;Return the 2D distribution
-	return, oPhiE
-end
+	;RETURN the 2D distribution
+	RETURN, oPhiE
+END
 
 
 ;+
-;   Reduce the 3D distribution function to a 1D distribution in azimuth angle.
+;   Reduce the 3D distribution FUNCTION to a 1D distribution in azimuth angle.
 ;
 ; :Keywords:
-;       E_RANGE:        in, optional, type=fltarr(2), default=[min, max]
+;       E_RANGE:        in, optional, type=FltArr(2), default=[min, max]
 ;                       The range in energy, in electron volts (eV) over which to average.
 ;       NPHI_BINS:      in, optional, type=integer
 ;                       Number of polar angle bins in the reduced distribution. The
 ;                           default is to use the same bins and the original distribution.
-;       THETA_RANGE:    in, optional, type=fltarr(2), default=[0.0\, 180.0]
+;       THETA_RANGE:    in, optional, type=FltArr(2), default=[0.0\, 180.0]
 ;                       The range in polar angle (degrees) over which to average.
 ;
 ; :Returns:
 ;       OPHISPEC:       out, required, type=MrTimeSeries
 ;                       A 1D distribution in time, averaged over energy and polar angle.
 ;-
-function MrDist4D::GetPhiSpec, $
+FUNCTION MrDist4D::PhiSpec, $
 CACHE=cache, $
 E_RANGE=E_range, $
 NAME=name, $
 NPHI_BINS=nPhi_bins, $
-THETA_RANGE=theta_range
-	compile_opt idl2
+THETA_RANGE=theta_range, $
+UNITS=units, $
+WEIGHT=weight
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		if n_elements(oDist3D)  gt 0 then obj_destroy, oDist3D
-		if n_elements(oPhiSpec) gt 0 then obj_destroy, oPhiSpec
-		if n_elements(oPhiBins) gt 0 then obj_destroy, oPhiBins
-		return, !Null
-	endif
+		IF N_Elements(oDist3D)  GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oPhiSpec) GT 0 THEN Obj_Destroy, oPhiSpec
+		IF N_Elements(oPhiBins) GT 0 THEN Obj_Destroy, oPhiBins
+		RETURN, !Null
+	ENDIF
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = self.name + '_PhiSpec'
+	IF N_Elements(units) EQ 0 THEN units = self.units
+	IF N_Elements(name)  EQ 0 THEN name  = self.oDist.name + '_PhiSpec'
+	
+	;Velocity-space weights
+	tf_weights = 0
+	IF N_Elements(weights) GT 0 THEN BEGIN
+		tf_weights = 1B
+		oW         = MrVar_Get(weights)
+	ENDIF
 
 	;Allocate memory
-	dims    = size(self, /DIMENSIONS)
+	dims    = Size(self.oDist, /DIMENSIONS)
 	nTime   = dims[0]
 	nPhi    = dims[1]
 	nTheta  = dims[2]
 	nEnergy = dims[3]
-	phiSpec = fltarr( nTime, nPhi )
+	phiSpec = FltArr( nTime, nPhi )
 	
 	;Step over each time
-	for i = 0, nTime - 1 do begin
+	FOR i = 0, nTime - 1 DO BEGIN
 		oDist3D = self -> GetDist3D(i)
+		IF units NE self.units THEN oDist3D -> SetUnits, units
+		
+		;Get the weights
+		IF tf_weights THEN w = Reform(oW[i,*,*,*])
 		
 		;Reduce the distribution
-		phiSpec[i,*] = oDist3D -> PhiSpec( phi_bins, dPhi, $
-		                                   E_RANGE     = e_range, $
-		                                   NPHI_BINS   = nPhi_bins, $
-		                                   THETA_RANGE = theta_range )
+		phiSpec[i,*] = oDist3D -> PhiSpec_v2( phi_bins, dPhi, $
+		                                      E_RANGE     = e_range, $
+		                                      NPHI_BINS   = nPhi_bins, $
+		                                      THETA_RANGE = theta_range, $
+		                                      WEIGHT      = w )
 
 		;Destroy the object
-		obj_destroy, oDist3D
-	endfor
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
 	
 	;Phi-time spectrogram
-	oPhiSpec = MrTimeSeries( self.oTime, phiSpec, $
+	oPhiSpec = MrTimeSeries( oTime, phiSpec, $
 	                         CACHE = cache, $
 	                         NAME  = name, $
 	                         /NO_COPY )
 	
 	;Abscissa
 	binName  = name + '_PhiBins'
-	oPhiBins = size(phi_bins, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, phi_bins, NAME=binName, /NO_COPY ) $
+	oPhiBins = Size(phi_bins, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, phi_bins, NAME=binName, /NO_COPY ) $
 	                 : MrVariable( phi_bins, NAME=binName, /NO_COPY )
 	
 	;Phi attributes
-	oPhiBins -> AddAttr, 'DELTA_MINUS', dPhi
-	oPhiBins -> AddAttr, 'DELTA_PLUS',  dPhi
-	oPhiBins -> AddAttr, 'UNITS',       'degrees'
-	oPhiBins -> AddAttr, 'TITLE',       'Azimuth'
-	oPhiBins -> AddAttr, 'PLOT_TITLE',  'Azimuthal Bin Centers'
+	oPhiBins['DELTA_MINUS'] = dPhi
+	oPhiBins['DELTA_PLUS']  = dPhi
+	oPhiBins['UNITS']       = 'degrees'
+	oPhiBins['TITLE']       = 'Azimuth'
+	oPhiBins['PLOT_TITLE']  = 'Azimuthal Bin Centers'
 
 	;Sepctrogram attributes
-	oPhiSpec -> AddAttr, 'DEPEND_1',   oPhiBins
-	oPhiSpec -> AddAttr, 'SCALE',      1B
-	oPhiSpec -> AddAttr, 'LOG',        1B
-	oPhiSpec -> AddAttr, 'UNITS',      self['UNITS']
-	oPhiSpec -> AddAttr, 'TITLE',      'Phi Dist'
-	oPhiSpec -> AddAttr, 'PLOT_TITLE', 'Distribution in Phi'
+	oPhiSpec['DEPEND_1']   = oPhiBins
+	oPhiSpec['SCALE']      = 1B
+	oPhiSpec['LOG']        = 1B
+	oPhiSpec['UNITS']      = self.oDist['UNITS']
+	oPhiSpec['TITLE']      = 'Phi Dist'
+	oPhiSpec['PLOT_TITLE'] = 'Distribution in Phi'
 	
-	return, oPhiSpec
-end
+	RETURN, oPhiSpec
+END
 
 
 ;+
-;   Reduce the 3D distribution function to a 2D distribution in polar angle and energy,
-;   averaging over azimuth angle.
+;   Reduce the 3D distribution FUNCTION to a 2D distribution in azimuth and polar angles,
+;   averaging over energy.
 ;
 ; :Keywords:
 ;       CACHE:          in, optional, type=boolean, default=0
@@ -718,244 +1255,321 @@ end
 ;       NE_BINS:        in, optional, type=integer
 ;                       Number of energy bins in the reduced distribution. The default
 ;                           is to use the same bins and the original distribution.
-;       NTHETA_BINS:    in, optional, type=integer
+;       NPHI_BINS:      in, optional, type=integer
 ;                       Number of polar angle bins in the reduced distribution. The
 ;                           default is to use the same bins and the original distribution.
-;       PHI_RANGE:      in, optional, type=fltarr(2), default=[0.0\, 360.0]
-;                       The range in azimuthal angle (degrees) over which to average.
+;       THETA_RANGE:    in, optional, type=FltArr(2), default=[0.0\, 180.0]
+;                       The range in polar angle (degrees) over which to average.
 ;
 ; :Returns:
 ;       DIST2D:         out, required, type=MrTimeSeries object
 ;                       A time-varying 2D distribution in polar angle and energy.
 ;-
-function MrDist4D::GetThetaE, $
+FUNCTION MrDist4D::PhiTheta, $
 CACHE=cache, $
 NAME=name, $
-NE_BINS=ne_bins, $
-NTHETA_BINS=nTheta_bins, $
-PHI_RANGE=phi_range
-	compile_opt idl2
-	on_error, 2
+E_RANGE=E_Range, $
+NPHI_BINS=nPhi_bins, $
+NTHETA_BINS=nTheta_bins
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D)    GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oPhiTheta)  GT 0 THEN Obj_Destroy, oPhiTheta
+		IF N_Elements(oPhiBins)   GT 0 THEN Obj_Destroy, oPhiBins
+		IF N_Elements(oThetaBins) GT 0 THEN Obj_Destroy, oThetaBins
+		RETURN, !Null
+	ENDIF
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = self.name + '_ThetaE'
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_PhiTheta'
 
 ;-------------------------------------------
 ; Reduce the 4D Distribution ///////////////
 ;-------------------------------------------
 
 	;Allocate memory
-	dims    = size(self, /DIMENSIONS)
+	dims    = Size(self.oDist, /DIMENSIONS)
 	nTimes  = dims[0]
-	nTheta  = dims[1]
-	nPhi    = dims[2]
+	nPhi    = dims[1]
+	nTheta  = dims[2]
 	nEnergy = dims[3]
-	ThetaE  = fltarr( nTimes, nTheta, nEnergy )
+	PhiE    = FltArr( nTimes, nPhi, nTheta )
 	
 	;Step over each time
-	for i = 0, n_elements(nTimes) - 1 do begin
+	FOR i = 0, N_Elements(nTimes) - 1 DO BEGIN
 		oDist3D = self -> GetDist3D(i)
 		
 		;Reduce the distribution
-		ThetaE[i,*,*] = oDist3D -> ThetaE( theta, energy, dTheta, dE, $
-		                                   NE_BINS     = ne_bins, $
-		                                   NTHETA_BINS = nTheta_bins, $
-		                                   PHI_RANGE   = phi_range )
-		                                   
+		PhiTheta[i,*,*] = oDist -> ThetaPhi( phi, theta, dPhi, dTheta, $
+		                                     E_RANGE     = E_Range, $
+		                                     NPHI_BINS   = nPhi_bins, $
+		                                     NTHETA_BINS = nTheta_bins )
+		
 		;Destroy the 3D distribution
-		obj_destroy, oDist3D
-	endfor
+		Obj_Destroy, oDist3D
+	ENDFOR
 
 ;-------------------------------------------
 ; Datasets /////////////////////////////////
 ;-------------------------------------------
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
 	
 	;Theta-Energy distribution
-	oThetaE = MrTimeSeries( self.oTime, ThetaE, $
-	                         CACHE = cache, $
-	                         NAME  = name, $
-	                         /NO_COPY )
+	oPhiTheta = MrTimeSeries( oT, PhiTheta, $
+	                          CACHE = cache, $
+	                          NAME  = name, $
+	                          /NO_COPY )
+	
+	;Phi
+	binName  = name + '_PhiBins'
+	oPhiBins = Size(phi, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, phi, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( phi, NAME=binName, /NO_COPY )
 	
 	;Theta
 	binName    = name + '_ThetaBins'
-	oThetaBins = size(theta, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, theta_bins, NAME=binName, /NO_COPY ) $
+	oThetaBins = Size(theta, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, theta_bins, NAME=binName, /NO_COPY ) $
 	                 : MrVariable( theta_bins, NAME=binName, /NO_COPY )
-	
-	;Energy
-	binName     = name + '_EnergyBins'
-	oEnergyBins = size(energy, /N_DIMENSIONS) eq 2 $
-	                  ? MrTimeSeries( self.oTime, energy, NAME=binName, /NO_COPY ) $
-	                  : MrVariable( energy, NAME=binName, /NO_COPY )
 
 ;-------------------------------------------
 ; Attributes ///////////////////////////////
 ;-------------------------------------------
 	
+	;Phi attributes
+	oPhiBins['DELTA_MINUS'] = dPhi
+	oPhiBins['DELTA_PLUS']  = dPhi
+	oPhiBins['UNITS']       = 'degrees'
+	oPhiBins['TITLE']       = 'Azimuth'
+	oPhiBins['PLOT_TITLE']  = 'Azimuthal Bin Centers'
+	
 	;Theta attributes
-	oThetaBins -> AddAttr, 'DELTA_MINUS', dTheta
-	oThetaBins -> AddAttr, 'DELTA_PLUS',  dTheta
-	oThetaBins -> AddAttr, 'UNITS',      'degrees'
-	oThetaBins -> AddAttr, 'TITLE',      'Polar Angle'
-	oThetaBins -> AddAttr, 'PLOT_TITLE', 'Polar Bin Centers'
+	oThetaBins['DELTA_MINUS'] = dTheta
+	oThetaBins['DELTA_PLUS']  = dTheta
+	oThetaBins['UNITS']      = 'degrees'
+	oThetaBins['TITLE']      = 'Polar Angle'
+	oThetaBins['PLOT_TITLE'] = 'Polar Bin Centers'
 	
-	;Energy attributes
-;	oEBins -> AddAttr, 'UNITS', self.oEnergy['UNITS']
-;	oEBins -> AddAttr, 'TITLE', 'Energy'
-
-	;Energy bins have not changed
-	;   - MUST ALSO UPDATE MRDIST3D::SPECE
-	oEBins = self['DEPEND_3']
-
 	;Distribution attributes
-	oESpec -> AddAttr, 'DEPEND_1', oThetaBins
-	oESpec -> AddAttr, 'DEPEND_2', oEBins
-	oESpec -> AddAttr, 'SCALE',    1B
-	oESpec -> AddAttr, 'LOG',      1B
-	oESpec -> AddAttr, 'UNITS',    self['UNITS']
+	oPhiTheta['DEPEND_1'] = oPhiBins
+	oPhiTheta['DEPEND_2'] = oThetaBins
+	oPhiTheta['SCALE']    = 1B
+	oPhiTheta['LOG']      = 1B
+	oPhiTheta['UNITS']    = self.oDist['UNITS']
 	
-	;Return the 2D distribution
-	return, oThetaE
-end
+	;RETURN the 2D distribution
+	RETURN, oThetaBins
+END
 
 
 ;+
-;   Reduce the 3D distribution function to a 1D distribution in polar angle.
+;   Compute the second moment of the distribution (pressure).
 ;
 ; :Keywords:
-;       E_RANGE:        in, optional, type=fltarr(2), default=[min, max]
-;                       The range in energy, in electron volts (eV) over which to average.
-;       NTHETA_BINS:    in, optional, type=integer
-;                       Number of polar angle bins in the reduced distribution. The
-;                           default is to use the same bins and the original distribution.
-;       PHI_RANGE:      in, optional, type=fltarr(2), default=[0.0\, 360.0]
-;                       The range in azimuthal angle (degrees) over which to average.
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
 ;
 ; :Returns:
-;       OTHETASPEC:     out, required, type=MrTimeSeries
-;                       A 1D distribution in time, averaged over energy and azimuth.
+;       OP:             out, required, type=MrTimeSeries
+;                       Pressure tensor as a function of time.
 ;-
-function MrDist4D::GetThetaSpec, $
+FUNCTION MrDist4D::Pressure, $
 CACHE=cache, $
-E_RANGE=e_range, $
-NAME=name, $
-NTHETA_BINS=nTheta_bins, $
-PHI_RANGE=phi_range
-	compile_opt idl2
+NAME=name
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		if n_elements(oDist3D)    gt 0 then obj_destroy, oDist3D
-		if n_elements(oThetaSpec) gt 0 then obj_destroy, oThetaSpec
-		if n_elements(oThetaBins) gt 0 then obj_destroy, oThetaBins
-		return, !Null
-	endif
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oN)      GT 0 THEN Obj_Destroy, oN
+		RETURN, !Null
+	ENDIF
 	
 	;Defaults
-	tf_cache = keyword_set(cache)
-	if n_elements(name) eq 0 then name = self.name + '_ThetaSpec'
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Pressure'
 
 	;Allocate memory
-	dims      = size(self, /DIMENSIONS)
-	nTime     = dims[0]
-	nPhi      = dims[1]
-	nTheta    = dims[2]
-	nEnergy   = dims[3]
-	ThetaSpec = fltarr( nTime, nTheta )
-	
+	nTime = self.oDist -> GetNPts()
+	P     = FltArr( nTime, 3, 3 )
+
 	;Step over each time
-	for i = 0, nTime - 1 do begin
+	FOR i = 0, nTime - 1 DO BEGIN
 		oDist3D = self -> GetDist3D(i)
 		
 		;Reduce the distribution
-		ThetaSpec[i,*] = oDist3D -> ThetaSpec(theta_bins, dTheta, $
-		                                      E_RANGE     = e_range, $
-		                                      NTHETA_BINS = nTheta_bins, $
-		                                      PHI_RANGE   = phi_range )
+		P[i,*,*] = oDist3D -> Pressure()
 
 		;Destroy the object
-		obj_destroy, oDist3D
-	endfor
+		Obj_Destroy, oDist3D
+	ENDFOR
 	
-	;Theta-time spectrogram
-	oThetaSpec = MrTimeSeries( self.oTime, thetaSpec, $
-	                           CACHE = tf_cache, $
-	                           NAME  = name, $
-	                           /NO_COPY )
+	;Energy-time spectrogram
+	oP = MrMatrixTS( self.oDist['TIMEVAR'], P, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
 	
-	;Abscissa
+	;Attributes
+	oP['CATDESC']       = 'Pressure computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oP['LABEL']         = 'P'
+	oP['LABEL_PTR_1']   = ['x', 'y', 'z']
+	oP['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oP['UNITS']         = 'nPa'
+	oP['PLOT_TITLE']    = 'Pressure Tensor'
+	oP['TITLE']         = 'P!C(nPa)'
+	oP['SI_CONVERSION'] = '1e-9>Pa'
+	
+	RETURN, oP
+END
+
+
+;+
+;   Rebin the distribution. This is useful, for example, if the angular bins have
+;   been rotated into a new coordinate system. Distinct velocity-space bins from
+;   the old distribution may fall into the same velocity-space bin when rebinned
+;   after rotation. In this case, data is weighted by the volume of the old
+;   velocity-space bin and averaged into the new bin.
+;
+; :Params:
+;       DV:             in, required, type=TxNxMxL fltarr
+;                       Volume of each velocity space element of the distribution function
+;                           before re-binning.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;       NPHI_BINS:      in, optional, type=integer, default=same as implicit f
+;                       Number of azimuthal bins in the output distribution.
+;       NTHETA_BINS:    in, optional, type=integer, default=same as implicit f
+;                       Number of polar bins in the output distribution.
+;       PHI_RANGE:      in, optional, type=fltarr(2), default=[-180.0, 180.0]
+;                       Azimuthal range of the output distribution function.
+;       THETA_RANGE:    in, optional, type=fltarr(2), default=[0.0, 180.0]
+;                       Polar range of the output distribution function.
+;
+; :Returns:
+;       ODIST:          out, required, type=TxNxMxL fltarr
+;                       The re-binned distribution function.
+;
+;-
+FUNCTION MrDist4D::RebinAngles, odV, $
+CACHE=cache, $
+NAME=name, $
+NPHI_BINS=nPhi_Bins, $
+NTHETA_BINS=nTheta_Bins, $
+PHI_RANGE=phi_range, $
+THETA_RANGE=theta_range
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D)    GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oPhiBins)   GT 0 THEN Obj_Destroy, oPhiBins
+		IF N_Elements(oThetaBins) GT 0 THEN Obj_Destroy, oThetaBins
+		IF N_Elements(oDist)      GT 0 THEN Obj_Destroy, oDist
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_rebinned'
+
+	;Allocate memory
+	dims    = Size(self.oDist, /DIMENSIONS)
+	nTime   = dims[0]
+	nPhi    = dims[1]
+	nTheta  = dims[2]
+	nEnergy = dims[3]
+	f       = FltArr( nTime, nPhi, nTheta, nEnergy )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		f[i,*,*,*] = oDist3D -> RebinAngles( Reform(odV[i,*,*,*]), phi, dPhi, theta, dTheta, $
+		                                     NPHI_BINS   = nPhi_Bins, $
+		                                     NTHETA_BINS = nTheta_Bins, $
+		                                     PHI_RANGE   = phi_range, $
+		                                     THETA_RANGE = theta_range )
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+
+;-------------------------------------------
+; Datasets /////////////////////////////////
+;-------------------------------------------
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
+	
+	;Energy-time spectrogram
+	oDist = MrTimeSeries( oTime, f, $
+	                      CACHE = tf_cache, $
+	                      NAME  = name, $
+	                      /NO_COPY )
+	
+	;Phi
+	binName  = name + '_PhiBins'
+	oPhiBins = Size(phi, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, phi, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( phi, NAME=binName, /NO_COPY )
+	
+	;Theta
 	binName    = name + '_ThetaBins'
-	oThetaBins = size(theta_bins, /N_DIMENSIONS) eq 2 $
-	                 ? MrTimeSeries( self.oTime, theta_bins, NAME=binName, /NO_COPY ) $
-	                 : MrVariable( theta_bins, NAME=binName, /NO_COPY )
+	oThetaBins = Size(theta, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, theta, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( theta, NAME=binName, /NO_COPY )
+
+;-------------------------------------------
+; Attributes ///////////////////////////////
+;-------------------------------------------
+	;Phi attributes
+	oPhiBins['DELTA_MINUS'] = dPhi/2.0
+	oPhiBins['DELTA_PLUS']  = dPhi/2.0
+	oPhiBins['UNITS']       = 'degrees'
+	oPhiBins['TITLE']       = 'Azimuth'
+	oPhiBins['PLOT_TITLE']  = 'Azimuthal Bin Centers'
 	
 	;Theta attributes
-	oThetaBins -> AddAttr, 'DELTA_MINUS', dTheta
-	oThetaBins -> AddAttr, 'DELTA_PLUS',  dTheta
-	oThetaBins -> AddAttr, 'UNITS',      'degrees'
-	oThetaBins -> AddAttr, 'TITLE',      'Polar Angle'
-	oThetaBins -> AddAttr, 'PLOT_TITLE', 'Polar Bin Centers'
-
-	;Sepctrogram attributes
-	oThetaSpec -> AddAttr, 'DEPEND_1',   oThetaBins
-	oThetaSpec -> AddAttr, 'SCALE',      1B
-	oThetaSpec -> AddAttr, 'LOG',        1B
-	oThetaSpec -> AddAttr, 'UNITS',      self['UNITS']
-	oThetaSpec -> AddAttr, 'TITLE',      'Theta Dist'
-	oThetaSpec -> AddAttr, 'PLOT_TITLE', 'Distribution in Theta'
+	oThetaBins['DELTA_MINUS'] = dTheta/2.0
+	oThetaBins['DELTA_PLUS']  = dTheta/2.0
+	oThetaBins['UNITS']      = 'degrees'
+	oThetaBins['TITLE']      = 'Polar Angle'
+	oThetaBins['PLOT_TITLE'] = 'Polar Bin Centers'
 	
-	return, oThetaSpec
-end
+	;Distribution attributes
+	self.oDist       -> CopyAttrTo, oDist
+	oDist['DEPEND_1'] = oPhiBins
+	oDist['DEPEND_2'] = oThetaBins
+	oDist['SCALE']    = 1B
+	oDist['LOG']      = 1B
+	
+	RETURN, oDist
+END
 
 
 ;+
 ;   Transform a spherical coordinate grid into a cartesian coordinate grid.
 ;
 ; :Keywords:
-;       MASS:               out, optional, type=float
-;                           Mass (kg) of the species represented in the distribution.
-;       SPECIES:            out, optional, type=string
-;                           The particle species represented in the distribution.
-;       UNITS:              out, optional, type=string
-;                           Units of the distribution function.
-;       _REF_EXTRA:         out, optional, type=any
-;                           Any keyword accepted by MrTimeSeries::GetProperty
-;-
-pro MrDist4D::GetProperty, $
-MASS=mass, $
-SPECIES=species, $
-UNITS=units, $
-_REF_EXTRA=extra
-	compile_opt idl2
-	on_error, 2
-	
-	if arg_present(mass)    gt 0 then mass    = self.mass
-	if arg_present(species) gt 0 then species = self.species
-	if arg_present(units)   gt 0 then units   = self.units
-	
-	;Superclasses
-	if n_elements(extra) gt 0 then self -> MrTimeSeries::GetProperty, _STRICT_EXTRA=extra
-end
-
-
-;+
-;   Load the distribution from source. Loaded data should be saved as properties unique
-;   to the subclass (and optionally removed from the variable cache).
-;-
-pro MrDist4D::Load
-	compile_opt idl2
-	on_error, 2
-	
-	message, 'MrDist4D::Load must be over-ridden by a subclass.'
-end
-
-
-;+
-;   Transform a spherical coordinate grid into a cartesian coordinate grid.
-;
-; :Keywords:
+;       ELEVATION:          in, optional, type=boolean
+;                           If set, THETA is taken to be the elevation angle.
 ;       MASS:               in, optional, type=float
 ;                           Mass (kg) of the species represented in the distribution.
 ;       SPECIES:            in, optional, type=string
@@ -964,90 +1578,93 @@ end
 ;       _REF_EXTRA:         in, optional, type=any
 ;                           Any keyword accepted by MrTimeSeries::SetProperty
 ;-
-pro MrDist4D::SetProperty, $
+PRO MrDist4D::SetProperty, $
+ELEVATION=elevation, $
 MASS=mass, $
 SPECIES=species
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
-	if n_elements(mass) gt 0 then begin
+	IF N_Elements(elevation) GT 0 THEN self.elevation = Keyword_Set(elevation)
+	
+	IF N_Elements(mass) GT 0 THEN BEGIN
 		N = round(mass / MrConstants('m_p'))
-		case N of
+		CASE N of
 			0:    species = 'e'
 			1:    species = 'H'
 			2:    species = 'He'
 			16:   species = 'O'
-			else: message, 'Unable to determine particle species given MASS.'
-		endcase
+			ELSE: Message, 'Unable to determine particle species given MASS.'
+		ENDCASE
 		self.mass    = mass
 		self.species = species
-	endif
+	ENDIF
 	
-	if n_elements(species) gt 0 then begin
-		if ~MrIsMember(['e', 'H', 'He', 'O'], species) $
-			then message, 'SPECIES must be {"e" | "H" | "He" | "O"}'
+	IF N_Elements(species) GT 0 THEN BEGIN
+		IF ~MrIsMember(['e', 'i', 'H', 'He', 'O'], species) $
+			THEN Message, 'SPECIES must be {"e" | "H" | "He" | "O"}'
 		self.mass    = MrConstants('m_' + species)
 		self.species = species
-	endif
-end
+	ENDIF
+END
 
 
 ;+
 ;   Set the array.
 ;
 ;   CALLING SEQUENCE:
-;       oTS -> SetData, data
-;       oTS -> SetData, time, data
-;       oTS -> SetData, time, data, phi, theta, energy
+;       oDist -> SetData, data
+;       oDist -> SetData, time, data
+;       oDist -> SetData, time, data, phi, theta, energy
 ;
 ; :Keywords:
-;       TIME:           in, required, type=NxM array
+;       TIME:           in, optional, type=NxM array
 ;                       Name or reference of a MrTimeVar object, or an array
-;                           of time stamps. If a name is provided, the assiciated
+;                           of time stamps. IF a name is provided, the assiciated
 ;                           variable must exist in the variable cache.
 ;       DATA:           in, required, type=NxM array
 ;                       Name or reference of a MrVariable object, or the dependent
-;                           variable data. If a name is given, the associated variable
+;                           variable data. IF a name is given, the associated variable
 ;                           must exist in the variable cache.
 ;       PHI:            in, optional, type=Nx1 or NxM array
 ;                       Azimuthal coordinates of the distribution pixels. Can be the name
 ;                           or reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
 ;                           It must have dimensions of [phi, theta] or [time, phi, theta]
 ;       THETA:          in, optional, type=Nx1 or NxM array
 ;                       Polar coordinates of the distribution pixels. Can be the name or
 ;                           reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
 ;                           It must have dimensions of [phi, theta] or [time, phi, theta]
 ;       ENERGY:         in, optional, type=Nx1 or NxM array
 ;                       Energy coordinates of the distribution pixels. Can be the name
 ;                           or reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
-;                           If data has two dimensions, one must be time and the other
-;                           must be the same size as the fourth dimension of the
+;                           IF data has two dimensions, one must be time and the other
+;                           must be the same Size as the fourth dimension of the
 ;                           distribution.
 ;
 ; :Keywords:
 ;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent dimension of `DATA` (1-based). If not
-;                           provided, the dimension of `DATA` that is equal in size to
-;                           `TIME` is chosen as the default. If zero or multiple
+;                       The time-dependent dimension of `DATA` (1-based). IF not
+;                           provided, the dimension of `DATA` that is equal in Size to
+;                           `TIME` is chosen as the default. IF zero or multiple
 ;                           dimensions match in this way, an error will occur.
 ;       T_TYPE:         in, optional, type=integer
-;                       If `TIME` is an array of time stamps, use this keyword to indicate
-;                           the format or time-basis. See MrTimeVar for more details.
+;                       IF `TIME` is an array of time stamps, use this keyword to indicate
+;                           the format or time-basis. See MrTimeVar FOR more details.
 ;       T_NAME:         in, optional, type=integer
 ;                       Name to be given to the MrTimeVar object. Ignored unless `TIME`
 ;                           is an array of time stamps.
 ;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `DATA` will be copied directly into the object
+;                       IF set `DATA` will be copied directly into the object
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
 ;-
-pro MrDist4D::SetData, time, data, phi, theta, energy, $
+PRO MrDist4D::SetData, time, data, phi, theta, energy, $
 DEGREES=degrees, $
 DIMENSION=dimension, $
 NO_COPY=no_copy, $
@@ -1055,11 +1672,11 @@ T_NAME=t_name, $
 T_TYPE=t_type, $
 RADIANS=radians, $
 UNITS=units
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
 		
 		;Reset data
@@ -1070,61 +1687,129 @@ UNITS=units
 		self.oPhi    = oPhi
 		self.oEnergy = oEnergy
 		
-		return
-	endif
+		RETURN
+	ENDIF
+	
+	;dist -> SetData, data
+	IF N_Elements(time) GT 0 && N_Elements(DATA) EQ 0 THEN BEGIN
+		data    = MrVar_Get(time)
+		theTime = data['DEPEND_0']
+		phi     = data['DEPEND_1']
+		theta   = data['DEPEND_2']
+		energy  = data['DEPEND_3']
+		
+	;dist -> SetData, time, data, ...
+	ENDIF ELSE BEGIN
+		theTime = time
+	ENDELSE
 	
 	;Keep the old data
-	oTime   = self.oTime
-	pDAta   = self.data
-	oPhi    = self -> GetAttrValue('DEPEND_1', /NULL)
-	oTheta  = self -> GetAttrValue('DEPEND_2', /NULL)
-	oEnergy = self -> GetAttrValue('DEPEND_3', /NULL)
+	oTime   = self.oDist['TIMEVAR']
+	oDist   = self.oDist
+	oPhi    = self.oDist -> GetAttrValue('DEPEND_1', /NULL)
+	oTheta  = self.oDist -> GetAttrValue('DEPEND_2', /NULL)
+	oEnergy = self.oDist -> GetAttrValue('DEPEND_3', /NULL)
 
 ;-----------------------------------------------------
 ; Check Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 
 	;Use the superclass
-	self -> MrTimeSeries::SetData, time, data, $
-	                               DIMENSION = dimension, $
-	                               NO_COPY   = no_copy, $
-	                               T_TYPE    = t_type, $
-	                               T_NAME    = t_name
+	self.oDist -> SetData, theTime, data, $
+	                       DIMENSION = dimension, $
+	                       NO_COPY   = no_copy, $
+	                       T_TYPE    = t_type, $
+	                       T_NAME    = t_name
 
 	;Check the results
-	;   - Make sure it is NxMxLxK (4 dimensions of any size)
-	sz = size(self)
-	if sz[0] ne 4 $
-		then message, 'Invalid dimensions: Data must be an 4D.' $
-		else ptr_free, pData
+	;   - Make sure it is NxMxLxK (4 dimensions of any Size)
+	sz = Size(self.oDist)
+	IF sz[0] NE 4 THEN Message, 'Invalid dimensions: Data must be an 4D.'
 	
 	;Units
-	if n_elements(units) eq 0 then begin
-		if self -> HasAttr('UNITS') then begin
-			units = self['UNITS']
-			if stregex(units, '(psd|phase|space|density)', /BOOLEAN, /FOLD_CASE) then begin
+	IF N_Elements(units) EQ 0 THEN BEGIN
+		IF self.oDist -> HasAttr('UNITS') THEN BEGIN
+			units = self.oDist['UNITS']
+			IF StRegEx(units, '(psd|phase|space|density|s\^3[ ]*/[ ]*cm\^6)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
 				units = 'PSD'
-			endif else if stregex(units, '(eflux|energy flux)', /BOOLEAN, /FOLD_CASE) then begin
+			ENDIF ELSE IF StRegEx(units, '(eflux|energy flux)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
 				units = 'EFLUX'
-			endif else if stregex(units, '(diff flux)', /BOOLEAN, /FOLD_CASE) then begin
+			ENDIF ELSE IF StRegEx(units, '(diff flux)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
 				units = 'DIFF FLUX'
-			endif else begin
+			ENDIF ELSE BEGIN
+				MrPrintF, 'LogWarn', 'Units "' + units + '" interpreted as "EFLUX".'
 				units = 'EFLUX'
-			endelse
-		endif else begin
+			ENDELSE
+		ENDIF ELSE BEGIN
+			MrPrintF, 'LogWarn', 'No units given. Assuming PSD.'
 			units = 'PSD'
-		endelse
-	endif
+		ENDELSE
+	ENDIF
 	
 ;-----------------------------------------------------
 ; Set Dependents \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Set remaining data
 	self.units = units
-	if n_elements(theta)  gt 0 then self -> SetTheta, theta, DEGREES=degrees, RADIANS=radians
-	if n_elements(phi)    gt 0 then self -> SetPhi, phi, DEGREES=degrees, RADIANS=radians
-	if n_elements(energy) gt 0 then self -> SetEnergy, energy
-end
+	IF N_Elements(theta)  GT 0 THEN self -> SetTheta, theta, DEGREES=degrees, RADIANS=radians
+	IF N_Elements(phi)    GT 0 THEN self -> SetPhi, phi, DEGREES=degrees, RADIANS=radians
+	IF N_Elements(energy) GT 0 THEN self -> SetEnergy, energy
+END
+
+
+;+
+;   Set the spacecraft potential.
+;
+; :Params:
+;       VSC:            in, required, type=string/integer/objref
+;                       Name, number, or MrScalarTS object for the spacecraft potential.
+;                           If VSC is a MrScalarTS object, its time property
+;                           must be the same as that of the implicit distribution.
+;                           If data has two dimensions, one must be time and the other
+;                           must be the same Size as the fourth dimension of the
+;                           distribution.
+;
+; :Keywords:
+;       NO_COPY:        in, optional, type=boolean, default=0
+;                       IF set `PHI` will be copied directly into the object
+;                           and will be left undefined (a MrTimeSeries object will not
+;                           be destroyed, but its array will be empty).
+;-
+PRO MrDist4D::SetVsc, Vsc, $
+NO_COPY=no_copy
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Dimensions
+	theDims = Size(self.oDist, /DIMENSIONS)
+	nTimes  = theDims[0]
+
+;-----------------------------------------------------
+; Obtain Variable Object \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;DATA
+	IF MrIsA(Vsc, /NUMBER, /ARRAY) THEN BEGIN
+		;Check size & create MrScalarTS variable
+		IF N_Elements(Vsc) EQ nTimes $
+			THEN oVsc = MrScalarTS( self.oDist['TIMEVAR'], Vsc, NAME=self.name + '_Vsc'  ) $
+			ELSE Message, 'VSC must have the same number of samples as the distribution.'
+	
+	;VARIABLE
+	ENDIF ELSE BEGIN
+		oVsc = MrVar_Get(Vsc)
+	
+		;Compare With Distribution
+		IF ~oVsc -> IsTimeIdentical( self.oDist ) $
+			THEN oVsc = oVsc -> Interpol(self.oDist)
+	ENDELSE
+
+;-----------------------------------------------------
+; Set Attribute \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	Obj_Destroy, self.oVsc
+	self.oVsc = oVsc
+END
 
 
 ;+
@@ -1134,32 +1819,32 @@ end
 ;       ENERGY:         in, required, type=Nx1 or NxM array
 ;                       Energy coordinates of the distribution pixels. Can be the name
 ;                           or reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
-;                           If data has two dimensions, one must be time and the other
-;                           must be the same size as the fourth dimension of the
+;                           IF data has two dimensions, one must be time and the other
+;                           must be the same Size as the fourth dimension of the
 ;                           distribution.
 ;
 ; :Keywords:
 ;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `PHI` will be copied directly into the object
+;                       IF set `PHI` will be copied directly into the object
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
 ;-
-pro MrDist4D::SetEnergy, energy, $
+PRO MrDist4D::SetEnergy, energy, $
 NO_COPY=no_copy
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Dimensions
-	theDims = size(*self.data, /DIMENSIONS)
+	theDims = Size(self.oDist, /DIMENSIONS)
 	nTimes  = theDims[0]
 	nEnergy = theDims[3]
 	
 	;
 	; Steps:
 	;   1. Obtain variable object
-	;   2. Compare size to distribution function
+	;   2. Compare Size to distribution FUNCTION
 	;   3. Set DEPEND_3 attribute
 	;
 
@@ -1168,78 +1853,66 @@ NO_COPY=no_copy
 ;-----------------------------------------------------
 	
 	;Use existing ENERGY
-	if n_elements(energy) eq 0 then begin
-		if obj_valid(self.oEnergy) $
-			then oEnergy = self.oEnergy $
-			else message, 'No energy variable exists. Please provide.'
+	IF N_Elements(energy) EQ 0 THEN BEGIN
+		oEnergy = self.oDist['DEPEND_3']
 	
 	;Check given ENERGY
-	endif else begin
-		;OBJECT
-		if size(energy, /TNAME) eq 'OBJREF' then begin
-			if obj_isa(energy, 'MrVariable') $
-				then oEnergy = energy $
-				else message, 'ENERGY must be a MrVariable object or subclass.'
-		
-		;NAME
-		endif else if size(energy, /TNAME) eq 'STRING' then begin
-			;Cached?
-			if MrVar_IsCached(energy) $
-				then oEnergy = MrVar_Get(energy) $
-				else message, 'ENERGY must be the name of a cached variable.'
-		
+	ENDIF ELSE BEGIN
 		;DATA
-		endif else begin
-			szTheta = size(energy, /DIMENSIONS)
-			nDims   = n_elements(szTheta)
+		IF MrIsA(energy, /NUMBER, /ARRAY) THEN BEGIN
+			szTheta = Size(energy, /DIMENSIONS)
+			nDims   = N_Elements(szTheta)
 			
 			;Check dimensions
-			if nDims eq 1 then begin
+			IF nDims EQ 1 THEN BEGIN
 				oEnergy = MrVariable( energy, NAME=self.name + '_energy'  )
 			
 			;Time-dependent
-			endif else if nDims eq 2 then begin
+			ENDIF ELSE IF nDims EQ 2 THEN BEGIN
 				;One must be TIME
-				if szTheta[0] eq nTime || szTheta[1] eq nTimes $
-					then oEnergy = MrTimeSeries( self.oTime, energy, NAME=self.name + '_energy' ) $
-					else message, 'Invalid dimensions: ENERGY.'
+				IF szTheta[0] EQ nTime || szTheta[1] EQ nTimes $
+					THEN oEnergy = MrTimeSeries( self.oTime, energy, NAME=self.name + '_energy' ) $
+					ELSE Message, 'Invalid dimensions: ENERGY.'
 			
 			;Invalid
-			endif else begin
-				message, 'ENERGY must have 1 or 2 dimensions.'
-			endelse
-		endelse
-	endelse
+			ENDIF ELSE BEGIN
+				Message, 'ENERGY must have 1 or 2 dimensions.'
+			ENDELSE
+		
+		;VARIABLE
+		ENDIF ELSE BEGIN
+			oEnergy = MrVar_Get(energy)
+		ENDELSE
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Compare With Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
 	;Time objects
-	if obj_isa(oEnergy, 'MrTimeSeries') then begin
+	IF Obj_IsA(oEnergy, 'MrTimeSeries') THEN BEGIN
 		;Make sure DIST and ENERGY use the same time object
-		energyTime = energy['TIMEVAR']
-		if ~energyTime -> IsIdentical( self.oTime ) $
-			then message, 'ENERGY and DIST have different time objects.'
-	endif
+		IF ~oEnergy -> IsTimeIdentical( self.oDist ) $
+			THEN Message, 'ENERGY and DIST have different time objects.'
+	ENDIF
 	
 	;Data Size
-	dims  = size(oEnergy, /DIMENSIONS)
-	nDims = n_elements(dims)
-	if nDims eq 2 then begin
-		if dims[0] ne nTimes then message, 'Invalid dimensions: ENERGY.'
-		if dims[1] ne nEnergy then message, 'Invalid dimensions: ENERGY.'
-	endif else if nDims eq 1 then begin
-		if dims[0] ne nEnergy then message, 'Invalid dimensions: ENERGY.'
-	endif else begin
-		message, 'ENERGY must have <= 2 dimensions.'
-	endelse
+	dims  = Size(oEnergy, /DIMENSIONS)
+	nDims = N_Elements(dims)
+	IF nDims EQ 1 THEN BEGIN
+		IF dims[0] NE nEnergy THEN Message, 'Invalid dimensions: ENERGY.'
+	ENDIF ELSE IF nDims EQ 2 THEN BEGIN
+		IF dims[0] NE nTimes THEN Message, 'Invalid dimensions: ENERGY.'
+		IF dims[1] NE nEnergy THEN Message, 'Invalid dimensions: ENERGY.'
+	ENDIF ELSE BEGIN
+		Message, 'ENERGY must have 1 or 2 dimensions.'
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Set Attribute \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	self -> SetAttrValue, 'DEPEND_3', oEnergy, /CREATE
-end
+	self.oDist['DEPEND_3'] = oEnergy
+END
 
 
 ;+
@@ -1249,44 +1922,44 @@ end
 ;       PHI:            in, required, type=Nx1 or NxM array
 ;                       Azimuthal coordinates of the distribution pixels. Can be the name
 ;                           or reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
 ;                           It must have dimensions of [phi, theta] or [time, phi, theta]
 ;
 ; :Keywords:
 ;       DEGREES:        in, optional, type=boolean, default=1
-;                       If set to zero, `THETA` has units of radians. Degrees are
+;                       IF set to zero, `THETA` has units of radians. Degrees are
 ;                           assumed. Cannot be used with `RADIANS`.
 ;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `THETA` will be copied directly into the object
+;                       IF set `THETA` will be copied directly into the object
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
 ;       RADIANS:        in, optional, type=boolean, default=1
-;                       If set, `THETA` has units of radians. Otherwise, degrees are
+;                       IF set, `THETA` has units of radians. Otherwise, degrees are
 ;                           assumed. Cannot be used with `DEGREES`.
 ;-
-pro MrDist4D::SetPhi, phi, $
+PRO MrDist4D::SetPhi, phi, $
 DEGREES=degrees, $
 NO_COPY=no_copy, $
 RADIANS=radians
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Dimensions
-	theDims = size(*self.data, /DIMENSIONS)
-	nTimes   = theDims[0]
+	theDims = Size(self.oDist, /DIMENSIONS)
+	nTimes  = theDims[0]
 	nPhi    = theDims[1]
 	nTheta  = theDims[2]
 	
-	if n_elements(degrees) gt 0 && n_elements(radians) gt 0 $
-		then message, 'DEGREES and RADIANS are mutually exclusive.'
-	if n_elements(degrees) gt 0 then tf_degrees = keyword_set(degrees)
-	if n_elements(radians) gt 0 then tf_degrees = ~keyword_set(radians)
+	IF N_Elements(degrees) GT 0 && N_Elements(radians) GT 0 $
+		THEN Message, 'DEGREES and RADIANS are mutually exclusive.'
+	IF N_Elements(degrees) GT 0 THEN tf_degrees = Keyword_Set(degrees)
+	IF N_Elements(radians) GT 0 THEN tf_degrees = ~Keyword_Set(radians)
 	
 	;
 	; Steps:
 	;   1. Obtain variable object
-	;   2. Compare size to distribution function
+	;   2. Compare Size to distribution FUNCTION
 	;   3. Set DEPEND_2 attribute
 	;
 	
@@ -1295,105 +1968,95 @@ RADIANS=radians
 ;-----------------------------------------------------
 	
 	;Use existing PHI
-	if n_elements(phi) eq 0 then begin
-		if obj_valid(self.oPhi) $
-			then oPhi = self.oPhi $
-			else message, 'No phi variable exists. Please provide.'
+	IF N_Elements(phi) EQ 0 THEN BEGIN
+		oPhi = self.oDist['DEPEND_1']
 	
 	;Check given PHI
-	endif else begin
-		;OBJECT
-		if size(phi, /TNAME) eq 'OBJREF' then begin
-			if obj_isa(phi, 'MrVariable') $
-				then oPhi = phi $
-				else message, 'PHI must be a MrVariable object or subclass.'
-		
-		;NAME
-		endif else if size(phi, /TNAME) eq 'STRING' then begin
-			;Cached?
-			if MrVar_IsCached(phi) $
-				then oPhi = MrVar_Get(phi) $
-				else message, 'PHI must be the name of a cached variable.'
-		
+	ENDIF ELSE BEGIN
 		;DATA
-		endif else begin
-			dims  = size(phi, /DIMENSIONS)
-			nDims = n_elements(dims)
+		IF MrIsA(phi, /NUMBER, /ARRAY) THEN BEGIN
+			dims  = Size(phi, /DIMENSIONS)
+			nDims = N_Elements(dims)
 			
 			;Check dimensions
-			if nDims eq 1 then begin
+			IF nDims EQ 1 THEN BEGIN
 				oPhi = MrVariable( phi, NAME=self.name + '_phi'  )
 			
 			;Time-dependent
-			endif else if nDims eq 2 then begin
+			ENDIF ELSE IF nDims EQ 2 THEN BEGIN
 				;One must be TIME
-				if dims[0] eq nTimes && dims[1] eq nPhi $
-					then oPhi = MrTimeSeries( self.oTime, phi, NAME=self.name + '_phi' ) $
-					else message, 'Invalid dimensions: PHI.'
+				IF dims[0] EQ nTimes && dims[1] EQ nPhi $
+					THEN oPhi = MrTimeSeries( self.oTime, phi, NAME=self.name + '_phi' ) $
+					ELSE Message, 'Invalid dimensions: PHI.'
 			
 			;Invalid
-			endif else begin
-				message, 'PHI must have 1 or 2 dimensions.'
-			endelse
-		endelse
-	endelse
+			ENDIF ELSE BEGIN
+				Message, 'PHI must have 1 or 2 dimensions.'
+			ENDELSE
+		
+		;VARIABLE
+		ENDIF ELSE BEGIN
+			oPhi = MrVar_Get(phi)
+		ENDELSE
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Compare With Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
 	;Time objects
-	if obj_isa(oPhi, 'MrTimeSeries') then begin
+	IF Obj_IsA(oPhi, 'MrTimeSeries') THEN BEGIN
 		;Make sure DIST and PHI use the same time object
-		phiTime = phi['TIMEVAR']
-		if ~phiTime -> IsIdentical( self.oTime ) $
-			then message, 'PHI and DIST have different time objects.'
-	endif
+		IF ~oPhi -> IsTimeIdentical( self.oDist ) $
+			THEN Message, 'PHI and DIST have different time objects.'
+	ENDIF
 	
 	;Data Size
-	dims  = size(oPhi, /DIMENSIONS)
-	nDims = n_elements(dims)
-	if nDims eq 2 then begin
-		if dims[0] ne nPhi then message, 'Invalid dimensions: PHI.'
-		if dims[1] ne nTheta then message, 'Invalid dimensions: PHI.'
-	endif else if nDims eq 3 then begin
-		if dims[0] ne nTimes then message, 'Invalid dimensions: PHI.'
-		if dims[1] ne nPhi then message, 'Invalid dimensions: PHI.'
-		if dims[2] ne nTheta then message, 'Invalid dimensions: PHI.'
-	endif else begin
-		message, 'PHI must have 2 or 3 dimensions.'
-	endelse
+	dims  = Size(oPhi, /DIMENSIONS)
+	nDims = N_Elements(dims)
+	IF nDims EQ 1 THEN BEGIN
+		IF dims[0] NE nPhi THEN Message, 'Invalid dimensions: PHI.'
+	ENDIF ELSE IF nDims EQ 2 THEN BEGIN
+		IF dims[0] NE nTimes THEN Message, 'Invalid dimensions: PHI.'
+		IF dims[1] NE nPhi   THEN Message, 'Invalid dimensions: PHI.'
+	ENDIF ELSE IF nDims EQ 3 THEN BEGIN
+		IF dims[0] NE nTimes THEN Message, 'Invalid dimensions: PHI.'
+		IF dims[1] NE nPhi   THEN Message, 'Invalid dimensions: PHI.'
+		IF dims[2] NE nTheta THEN Message, 'Invalid dimensions: PHI.'
+	ENDIF ELSE BEGIN
+		Message, 'PHI must have 1, 2, or 3 dimensions.'
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if n_elements(tf_degrees) eq 0 then begin
-		if oPhi -> HasAttr('UNITS') then begin
+	IF N_Elements(tf_degrees) EQ 0 THEN BEGIN
+		IF oPhi -> HasAttr('UNITS') THEN BEGIN
 			units = oPhi['UNITS']
-			case 1 of
+			CASE 1 of
 				stregex(units, 'deg', /BOOLEAN, /FOLD_CASE): tf_degrees = 1B
 				stregex(units, 'rad', /BOOLEAN, /FOLD_CASE): tf_degrees = 0B
-				else: begin
+				ELSE: BEGIN
 					MrPrintF, 'LogWarn', 'Units not recognized "' + units + '". Assuming degrees.'
 					tf_degrees = 1B
-				endelse
-			endcase
-		endif else begin
-			tf_degrees = n_elements(radians) eq 0 ? keyword_set(degrees) : ~keyword_set(radians)
-		endelse
-	endif
-	
+				ENDELSE
+			ENDCASE
+		ENDIF ELSE BEGIN
+			tf_degrees = N_Elements(radians) EQ 0 ? Keyword_Set(degrees) : ~Keyword_Set(radians)
+		ENDELSE
+	ENDIF
+
 	;Convert to degrees
-	if ~tf_degrees then begin
+	IF ~tf_degrees THEN BEGIN
 		oPhi -> SetData, oPhi['DATA']*!radeg
 		oPhi['UNITS'] = 'degrees'
-	endif
+	ENDIF
 
 ;-----------------------------------------------------
 ; SetProperties \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	self -> SetAttrValue, 'DEPEND_1', oPhi, /CREATE
-end
+	self.oDist['DEPEND_1'] = oPhi
+END
 
 
 ;+
@@ -1403,42 +2066,42 @@ end
 ;       THETA:          in, required, type=Nx1 or NxM array
 ;                       Polar coordinates of the distribution pixels. Can be the name or
 ;                           reference of a MrVariable object, or the variable data.
-;                           If the variable is a MrTimeSeries object, its time property
+;                           IF the variable is a MrTimeSeries object, its time property
 ;                           must be the same as that of the implicit distribution.
 ;                           It must have dimensions of [phi, theta] or [time, phi, theta]
 ;
 ; :Keywords:
 ;       DEGREES:        in, optional, type=boolean, default=1
-;                       If set to zero, `THETA` has units of radians. Degrees are
+;                       IF set to zero, `THETA` has units of radians. Degrees are
 ;                           assumed. Cannot be used with `RADIANS`.
 ;       NO_COPY:        in, optional, type=boolean, default=0
-;                       If set `THETA` will be copied directly into the object
+;                       IF set `THETA` will be copied directly into the object
 ;                           and will be left undefined (a MrTimeSeries object will not
 ;                           be destroyed, but its array will be empty).
 ;       RADIANS:        in, optional, type=boolean, default=1
-;                       If set, `THETA` has units of radians. Otherwise, degrees are
+;                       IF set, `THETA` has units of radians. Otherwise, degrees are
 ;                           assumed. Cannot be used with `DEGREES`.
 ;-
-pro MrDist4D::SetTheta, theta, $
+PRO MrDist4D::SetTheta, theta, $
 DEGREES=degrees, $
 NO_COPY=no_copy, $
 RADIANS=radians
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Dimensions
-	theDims = size(*self.data, /DIMENSIONS)
-	nTimes   = theDims[0]
+	theDims = Size(self.oDist, /DIMENSIONS)
+	nTimes  = theDims[0]
 	nPhi    = theDims[1]
 	nTheta  = theDims[2]
 	
-	if n_elements(degrees) gt 0 && n_elements(radians) gt 0 $
-		then message, 'DEGREES and RADIANS are mutually exclusive.'
+	IF N_Elements(degrees) GT 0 && N_Elements(radians) GT 0 $
+		THEN Message, 'DEGREES and RADIANS are mutually exclusive.'
 	
 	;
 	; Steps:
 	;   1. Obtain variable object
-	;   2. Compare size to distribution function
+	;   2. Compare Size to distribution FUNCTION
 	;   3. Units
 	;   4. Set DEPEND_2 attribute
 	;
@@ -1448,105 +2111,515 @@ RADIANS=radians
 ;-----------------------------------------------------
 
 	;Use existing THETA
-	if n_elements(theta) eq 0 then begin
-		if obj_valid(self.oTheta) $
-			then oTheta = self.oTheta $
-			else message, 'No theta variable exists. Please provide.'
+	IF N_Elements(theta) EQ 0 THEN BEGIN
+		oTheta = self.oDist['DEPEND_2']
 	
 	;Check given THETA
-	endif else begin
-		;OBJECT
-		if size(theta, /TNAME) eq 'OBJREF' then begin
-			if obj_isa(theta, 'MrVariable') $
-				then oTheta = theta $
-				else message, 'THETA must be a MrVariable object or subclass.'
-		
-		;NAME
-		endif else if size(theta, /TNAME) eq 'STRING' then begin
-			;Cached?
-			if MrVar_IsCached(theta) $
-				then oTheta = MrVar_Get(theta) $
-				else message, 'THETA must be the name of a cached variable.'
-		
+	ENDIF ELSE BEGIN
 		;DATA
-		endif else begin
-			dims  = size(theta, /DIMENSIONS)
-			nDims = n_elements(dims)
+		IF MrIsA(theta, /NUMBER, /ARRAY) THEN BEGIN
+			dims  = Size(theta, /DIMENSIONS)
+			nDims = N_Elements(dims)
 			
 			;Check dimensions
-			if nDims eq 1 then begin
+			IF nDims EQ 1 THEN BEGIN
 				oTheta = MrVariable( theta, NAME=self.name + '_theta'  )
 			
 			;Time-dependent
-			endif else if nDims eq 2 then begin
+			ENDIF ELSE IF nDims EQ 2 THEN BEGIN
 				;One must be TIME
-				if dims[0] eq nTimes && dims[1] eq nTheta $
-					then oTheta = MrTimeSeries( self.oTime, theta, NAME=self.name + '_theta' ) $
-					else message, 'Invalid dimensions: THETA.'
+				IF dims[0] EQ nTimes && dims[1] EQ nTheta $
+					THEN oTheta = MrTimeSeries( self.oTime, theta, NAME=self.name + '_theta' ) $
+					ELSE Message, 'Invalid dimensions: THETA.'
 			
 			;Invalid
-			endif else begin
-				message, 'THETA must have 1 or 2 dimensions.'
-			endelse
-		endelse
-	endelse
+			ENDIF ELSE BEGIN
+				Message, 'THETA must have 1 or 2 dimensions.'
+			ENDELSE
+		
+		;VARIABLE
+		ENDIF ELSE BEGIN
+			oTheta = MrVar_Get(theta)
+		ENDELSE
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Compare With Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
 	;Time objects
-	if obj_isa(oTheta, 'MrTimeSeries') then begin
+	IF Obj_IsA(oTheta, 'MrTimeSeries') THEN BEGIN
 		;Make sure DIST and THETA use the same time object
-		thetaTime = theta['TIMEVAR']
-		if ~thetaTime -> IsIdentical(self.oTime) $
-			then message, 'THETA and DIST have different time objects.'
-	endif
+		IF ~oTheta -> IsTimeIdentical(self.oDist) $
+			THEN Message, 'THETA and DIST have different time objects.'
+	ENDIF
 	
 	;Data Size
-	dims  = size(oTheta, /DIMENSIONS)
-	nDims = n_elements(dims)
-	if nDims eq 2 then begin
-		if dims[0] ne nPhi   then message, 'Invalid dimensions: THETA.'
-		if dims[1] ne nTheta then message, 'Invalid dimensions: THETA.'
-	endif else if nDims eq 3 then begin
-		if dims[0] ne nTimes  then message, 'Invalid dimensions: THETA.'
-		if dims[1] ne nPhi   then message, 'Invalid dimensions: THETA.'
-		if dims[2] ne nTheta then message, 'Invalid dimensions: THETA.'
-	endif else begin
-		message, 'THETA must have 2 or 3 dimensions.'
-	endelse
+	dims  = Size(oTheta, /DIMENSIONS)
+	nDims = N_Elements(dims)
+	IF nDims EQ 1 THEN BEGIN
+		IF dims[0] NE nTheta THEN Message, 'Invalid dimensions: THETA.'
+	ENDIF ELSE IF nDims EQ 2 THEN BEGIN
+		IF dims[0] NE nTimes THEN Message, 'Invalid dimensions: THETA.'
+		IF dims[1] NE nTheta THEN Message, 'Invalid dimensions: THETA.'
+	ENDIF ELSE IF nDims EQ 3 THEN BEGIN
+		IF dims[0] NE nTimes THEN Message, 'Invalid dimensions: THETA.'
+		IF dims[1] NE nPhi   THEN Message, 'Invalid dimensions: THETA.'
+		IF dims[2] NE nTheta THEN Message, 'Invalid dimensions: THETA.'
+	ENDIF ELSE BEGIN
+		Message, 'THETA must have 1, 2, or 3 dimensions.'
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if n_elements(tf_degrees) eq 0 then begin
-		if oTheta -> HasAttr('UNITS') then begin
+	IF N_Elements(tf_degrees) EQ 0 THEN BEGIN
+		IF oTheta -> HasAttr('UNITS') THEN BEGIN
 			units = oTheta['UNITS']
-			case 1 of
+			CASE 1 of
 				stregex(units, 'deg', /BOOLEAN, /FOLD_CASE): tf_degrees = 1B
 				stregex(units, 'rad', /BOOLEAN, /FOLD_CASE): tf_degrees = 0B
-				else: begin
+				ELSE: BEGIN
 					MrPrintF, 'LogWarn', 'Units not recognized "' + units + '". Assuming degrees.'
 					tf_degrees = 1B
-				endelse
-			endcase
-		endif else begin
-			tf_degrees = n_elements(radians) eq 0 ? keyword_set(degrees) : ~keyword_set(radians)
-		endelse
-	endif
+				ENDELSE
+			ENDCASE
+		ENDIF ELSE BEGIN
+			tf_degrees = N_Elements(radians) EQ 0 ? Keyword_Set(degrees) : ~Keyword_Set(radians)
+		ENDELSE
+	ENDIF
 	
 	;Convert to degrees
-	if ~tf_degrees then begin
+	IF ~tf_degrees THEN BEGIN
 		oTheta -> SetData, oTheta['DATA']*!radeg
 		oTheta['UNITS'] = 'degrees'
-	endif
+	ENDIF
 
 ;-----------------------------------------------------
 ; SetProperties \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	self -> SetAttrValue, 'DEPEND_2', oTheta, /CREATE
-end
+	self.oDist['DEPEND_2'] = oTheta
+END
+
+
+;+
+;   Reduce the 3D distribution FUNCTION to a 2D distribution in polar angle and energy,
+;   averaging over azimuth angle.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       IF set, the output variable will be added to the variable cache.
+;       NAME:           in, optional, type=string, default=self.name + '_ThetaE'
+;                       Name to be given to the output variable.
+;       NE_BINS:        in, optional, type=integer
+;                       Number of energy bins in the reduced distribution. The default
+;                           is to use the same bins and the original distribution.
+;       NTHETA_BINS:    in, optional, type=integer
+;                       Number of polar angle bins in the reduced distribution. The
+;                           default is to use the same bins and the original distribution.
+;       PHI_RANGE:      in, optional, type=FltArr(2), default=[0.0\, 360.0]
+;                       The range in azimuthal angle (degrees) over which to average.
+;
+; :Returns:
+;       DIST2D:         out, required, type=MrTimeSeries object
+;                       A time-varying 2D distribution in polar angle and energy.
+;-
+FUNCTION MrDist4D::ThetaE, $
+CACHE=cache, $
+NAME=name, $
+NE_BINS=ne_bins, $
+NTHETA_BINS=nTheta_bins, $
+PHI_RANGE=phi_range
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D)    GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oThetaE)    GT 0 THEN Obj_Destroy, oThetaE
+		IF N_Elements(oThetaBins) GT 0 THEN Obj_Destroy, oThetaBins
+		IF N_Elements(oEBins)     GT 0 THEN Obj_Destroy, oEBins
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_ThetaE'
+
+;-------------------------------------------
+; Reduce the 4D Distribution ///////////////
+;-------------------------------------------
+
+	;Allocate memory
+	dims    = Size(self.oDist, /DIMENSIONS)
+	nTimes  = dims[0]
+	nPhi    = dims[1]
+	nTheta  = dims[2]
+	nEnergy = dims[3]
+	ThetaE  = FltArr( nTimes, nTheta, nEnergy )
+	
+	;Step over each time
+	FOR i = 0, nTimes - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		ThetaE[i,*,*] = oDist3D -> ThetaE( theta, energy, dTheta, dE, $
+		                                   NE_BINS     = ne_bins, $
+		                                   NTHETA_BINS = nTheta_bins, $
+		                                   PHI_RANGE   = phi_range )
+		                                   
+		;Destroy the 3D distribution
+		Obj_Destroy, oDist3D
+	ENDFOR
+
+;-------------------------------------------
+; Datasets /////////////////////////////////
+;-------------------------------------------
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
+	
+	;Theta-Energy distribution
+	oThetaE = MrTimeSeries( oTime, ThetaE, $
+	                        CACHE = cache, $
+	                        NAME  = name, $
+	                        /NO_COPY )
+	
+	;Theta
+	binName    = name + '_ThetaBins'
+	oThetaBins = Size(theta, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, theta, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( theta, NAME=binName, /NO_COPY )
+	
+	;Energy
+	binName     = name + '_EnergyBins'
+	oEnergyBins = Size(energy, /N_DIMENSIONS) EQ 2 $
+	                  ? MrTimeSeries( oTime, energy, NAME=binName, /NO_COPY ) $
+	                  : MrVariable( energy, NAME=binName, /NO_COPY )
+
+;-------------------------------------------
+; Attributes ///////////////////////////////
+;-------------------------------------------
+	
+	;Theta attributes
+	oThetaBins['DELTA_MINUS'] = dTheta
+	oThetaBins['DELTA_PLUS']  = dTheta
+	oThetaBins['UNITS']      = 'degrees'
+	oThetaBins['TITLE']      = 'Polar Angle'
+	oThetaBins['PLOT_TITLE'] = 'Polar Bin Centers'
+	
+	;Energy attributes
+;	oEBins['UNITS'] = self.oEnergy['UNITS']
+;	oEBins['TITLE'] = 'Energy'
+
+	;Energy bins have not changed
+	;   - MUST ALSO UPDATE MRDIST3D::SPECE
+	oEBins = self.oDist['DEPEND_3']
+
+	;Distribution attributes
+	oThetaE['DEPEND_1'] = oThetaBins
+	oThetaE['DEPEND_2'] = oEBins
+	oThetaE['SCALE']    = 1B
+	oThetaE['LOG']      = 1B
+	oThetaE['UNITS']    = self.oDist['UNITS']
+	
+	;RETURN the 2D distribution
+	RETURN, oThetaE
+END
+
+
+;+
+;   Reduce the 3D distribution FUNCTION to a 1D distribution in polar angle.
+;
+; :Keywords:
+;       E_RANGE:        in, optional, type=FltArr(2), default=[min, max]
+;                       The range in energy, in electron volts (eV) over which to average.
+;       NTHETA_BINS:    in, optional, type=integer
+;                       Number of polar angle bins in the reduced distribution. The
+;                           default is to use the same bins and the original distribution.
+;       PHI_RANGE:      in, optional, type=FltArr(2), default=[0.0\, 360.0]
+;                       The range in azimuthal angle (degrees) over which to average.
+;
+; :Returns:
+;       OTHETASPEC:     out, required, type=MrTimeSeries
+;                       A 1D distribution in time, averaged over energy and azimuth.
+;-
+FUNCTION MrDist4D::ThetaSpec, $
+CACHE=cache, $
+E_RANGE=e_range, $
+NAME=name, $
+NTHETA_BINS=nTheta_bins, $
+PHI_RANGE=phi_range
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D)    GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oThetaSpec) GT 0 THEN Obj_Destroy, oThetaSpec
+		IF N_Elements(oThetaBins) GT 0 THEN Obj_Destroy, oThetaBins
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_ThetaSpec'
+
+	;Allocate memory
+	dims      = Size(self.oDist, /DIMENSIONS)
+	nTime     = dims[0]
+	nPhi      = dims[1]
+	nTheta    = dims[2]
+	nEnergy   = dims[3]
+	ThetaSpec = FltArr( nTime, nTheta )
+	
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		ThetaSpec[i,*] = oDist3D -> ThetaSpec(theta_bins, dTheta, $
+		                                      E_RANGE     = e_range, $
+		                                      NTHETA_BINS = nTheta_bins, $
+		                                      PHI_RANGE   = phi_range )
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Time variable
+	oTime = self.oDist['TIMEVAR']
+	
+	;Theta-time spectrogram
+	oThetaSpec = MrTimeSeries( oTime, thetaSpec, $
+	                           CACHE = tf_cache, $
+	                           NAME  = name, $
+	                           /NO_COPY )
+	
+	;Abscissa
+	binName    = name + '_ThetaBins'
+	oThetaBins = Size(theta_bins, /N_DIMENSIONS) EQ 2 $
+	                 ? MrTimeSeries( oTime, theta_bins, NAME=binName, /NO_COPY ) $
+	                 : MrVariable( theta_bins, NAME=binName, /NO_COPY )
+	
+	;Theta attributes
+	oThetaBins['DELTA_MINUS'] = dTheta
+	oThetaBins['DELTA_PLUS']  = dTheta
+	oThetaBins['UNITS']      = 'degrees'
+	oThetaBins['TITLE']      = 'Polar Angle'
+	oThetaBins['PLOT_TITLE'] = 'Polar Bin Centers'
+
+	;Sepctrogram attributes
+	oThetaSpec['DEPEND_1']   = oThetaBins
+	oThetaSpec['SCALE']      = 1B
+	oThetaSpec['LOG']        = 1B
+	oThetaSpec['UNITS']      = self['UNITS']
+	oThetaSpec['TITLE']      = 'Theta Dist'
+	oThetaSpec['PLOT_TITLE'] = 'Distribution in Theta'
+	
+	RETURN, oThetaSpec
+END
+
+
+;+
+;   Compute the temperature from the second moment of the distribution (pressure),
+;   using the ideal gas equation of state.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       OP:             out, required, type=MrTimeSeries
+;                       Pressure tensor as a function of time.
+;-
+FUNCTION MrDist4D::Temperature, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oN)      GT 0 THEN Obj_Destroy, oN
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Temperature'
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	T     = FltArr( nTime, 3, 3 )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		T[i,*,*] = oDist3D -> Temperature()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Temperature tensor
+	oT = MrMatrixTS( self.oDist['TIMEVAR'], T, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
+	
+	;Attributes
+	oT['CATDESC']       = 'Temperature computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oT['LABEL']         = 'T'
+	oT['LABEL_PTR_1']   = ['x', 'y', 'z']
+	oT['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oT['UNITS']         = 'eV'
+	oT['PLOT_TITLE']    = 'Temperature Tensor'
+	oT['TITLE']         = 'T!C(eV)'
+	oT['SI_CONVERSION'] = '>'
+	
+	RETURN, oT
+END
+
+
+;+
+;   Reduce the 3D distribution FUNCTION to a 1D distribution in azimuth angle.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       ON:             out, required, type=MrScalarTS
+;                       Density as a function of time.
+;-
+FUNCTION MrDist4D::Velocity, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(oV)      GT 0 THEN Obj_Destroy, oV
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_Velocity'
+
+	;Allocate memory
+	nTime = self.oDist -> GetNPts()
+	V     = FltArr( nTime, 3 )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		V[i,*] = oDist3D -> Velocity()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Energy-time spectrogram
+	oV = MrVectorTS( self.oDist['TIMEVAR'], V, $
+	                 CACHE = tf_cache, $
+	                 NAME  = name, $
+	                 /NO_COPY )
+	
+	;Attributes
+	oV['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
+	                      'of the distribution function.'
+	oV['LABEL']         = ['Vx', 'Vy', 'Vz']
+	oV['UNITS']         = 'km/s'
+	oV['TITLE']         = 'V!C(km/s)'
+	oV['SI_CONVERSION'] = '1e3>m/s'
+	
+	RETURN, oV
+END
+
+
+;+
+;   Compute the size of velocity-space volume elements.
+;
+;       dV = v^2 * Sin(theta) * dv * dTheta * dPhi
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the output is added to the variable cache.
+;       NAME:           in, optional, type=integer
+;                       Name to be given to the variable object.
+;
+; :Returns:
+;       DV:             out, required, type=MrScalarTS
+;                       Size of each velocity-space volume element.
+;-
+FUNCTION MrDist4D::VolumeElement, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		IF N_Elements(oDist3D) GT 0 THEN Obj_Destroy, oDist3D
+		IF N_Elements(odV)      GT 0 THEN Obj_Destroy, odV
+		RETURN, !Null
+	ENDIF
+	
+	;Defaults
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = self.oDist.name + '_dV'
+
+	;Allocate memory
+	dims    = Size(self.oDist, /DIMENSIONS)
+	nTime   = dims[0]
+	nPhi    = dims[1]
+	nTheta  = dims[2]
+	nEnergy = dims[3]
+	dV    = FltArr( nTime, nPhi, nTheta, nEnergy )
+
+	;Step over each time
+	FOR i = 0, nTime - 1 DO BEGIN
+		oDist3D = self -> GetDist3D(i)
+		
+		;Reduce the distribution
+		dV[i,*,*,*] = oDist3D -> VolumeElement()
+
+		;Destroy the object
+		Obj_Destroy, oDist3D
+	ENDFOR
+	
+	;Energy-time spectrogram
+	odV = MrTimeSeries( self.oDist['TIMEVAR'], dV, $
+	                    CACHE = tf_cache, $
+	                    NAME  = name, $
+	                    /NO_COPY )
+	
+	;Attributes
+	self.oDist          -> CopyAttrTo, odV, ['DEPEND_1', 'DEPEND_2', 'DEPEND_3']
+	odV['CATDESC']       = 'Size of each velocity space volume element.'
+	odV['UNITS']         = 'sr m^3/s^3'
+	odV['TITLE']         = 'dV!C(sr m^3/s^3)'
+	odV['SI_CONVERSION'] = '1e0>sr m^3/s^3'
+	
+	RETURN, odV
+END
 
 
 ;+
@@ -1555,13 +2628,15 @@ end
 ; :Params:
 ;       CLASS:          out, optional, type=structure
 ;-
-pro MrDist4D__DEFINE
-	compile_opt idl2
+PRO MrDist4D__DEFINE
+	Compile_Opt idl2
 	
 	class = { MrDist4D, $
-	          inherits MrTimeSeries, $
-	          mass:    0.0, $
-	          species: '', $
-	          units:   '' $
+	          elevation: 0B, $
+	          mass:      0.0, $
+	          oVsc:      Obj_New(), $
+	          oDist:     Obj_New(), $
+	          species:   '', $
+	          units:     '' $
 	        }
-end
+END

@@ -462,20 +462,20 @@ end
 ;       J:              out, required, type=MrVectorTS objref
 ;                       The current density.
 ;-
-function MrVar_BField_4sc::J, $
+FUNCTION MrVar_BField_4sc::J, $
 NAME=name, $
 CACHE=cache
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return, !Null
-	end
+		RETURN, !Null
+	END
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = 'j_recipvec'
+	IF N_Elements(name) EQ 0 THEN name = 'j_recipvec'
 
 	;Compute curl
 	;   - Compute (del x B)
@@ -486,17 +486,18 @@ CACHE=cache
 	;   - J = 1/mu0 * del x B
 	;   - A factor of 1e-3/mu0 converts nT/km to nA/m^2
 	J = curl * ( 1e-3 / MrConstants('mu_0') )
-	obj_destroy, curl
+	Obj_Destroy, curl
 	
 	;Add attributes
 	J -> SetName, name
-	J -> AddAttr, 'CATDESC',    'Current denstiy from the reciprocal vector technique.'
+	J -> AddAttr, 'CATDESC',    'Current denstiy from the reciPROcal vector technique.'
 	J -> AddAttr, 'PLOT_TITLE', 'Current Density'
 	J -> AddAttr, 'UNITS',      'nA/m^2'
 	J -> AddAttr, 'TITLE',      'J!C(nA/m^2)'
+	IF Keyword_Set(cache) THEN J -> Cache
 
-	return, J
-end
+	RETURN, J
+END
 
 
 ;+
@@ -525,23 +526,24 @@ end
 ;       OKAPPA:         out, required, type=MrVectorTS objref
 ;                       The square of the adiabatic scattering parameter.
 ;-
-function MrVar_BField_4sc::Kappa, energy, mass, $
+FUNCTION MrVar_BField_4sc::Kappa, energy, mass, $
 NAME=name, $
 CACHE=cache
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return, !Null
-	end
+		RETURN, !Null
+	END
 	
 	;Defaults
-	if n_elements(name) eq 0 then name = 'kappa'
-	if size(mass, /TNAME) eq 'STRING' $
-		then m = MrConstants(mass) $
-		else m = mass
+	IF N_Elements(energy) NE 1 THEN Message, 'ENERGY must have 1 element.'
+	IF N_Elements(name) EQ 0 THEN name = 'kappa'
+	IF Size(mass, /TNAME) EQ 'STRING' $
+		THEN m = MrConstants(mass) $
+		ELSE m = mass
 	
 	;Larmor radius
 	;   - r = m v / ( q B )
@@ -551,7 +553,6 @@ CACHE=cache
 	v    = MrRel_Velocity(energy, m)
 	r    = ( 1e9 * m / MrConstants('q') ) * v / bmag
 	
-	
 	;Curvature radius
 	oRCurv  = self -> R_Curvature()
 	
@@ -560,15 +561,16 @@ CACHE=cache
 	
 	;Add attributes
 	oKappa -> SetName, name
-	oKappa -> AddAttr, 'CATDESC',    'Adiabatic scattering parameter'
-	oKappa -> AddAttr, 'PLOT_TITLE', 'Scattering parameter'
-	oKappa -> AddAttr, 'UNITS',      ''
-	oKappa -> AddAttr, 'TITLE',      '\kappa^2'
-	oKappa -> AddAttr, 'VARNOTES',   'Larmor radius / curvature radius'
-	if keyword_set(cache) then oKappa -> Cache
+	oKappa['CATDESC']    = 'Adiabatic scattering parameter'
+	oKappa['LOG']        = 1B
+	oKappa['PLOT_TITLE'] = 'Scattering parameter'
+	oKappa['UNITS']      = ''
+	oKappa['TITLE']      = '\kappa^2'
+	oKappa['VARNOTES']   = 'Larmor radius / curvature radius'
+	IF Keyword_Set(cache) THEN oKappa -> Cache
 
-	return, oKappa
-end
+	RETURN, oKappa
+END
 
 
 ;+
