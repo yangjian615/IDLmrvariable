@@ -124,7 +124,7 @@ WIN=win
 			continue
 		endif
 		if varCount eq 0 then begin
-			MrPrintF, 'LogWarn', 'Variable not found: "' + variables[i] + '".'
+			MrPrintF, 'LogWarn', 'Variable not found: "' + _varNames[i] + '".'
 			continue
 		endif
 		

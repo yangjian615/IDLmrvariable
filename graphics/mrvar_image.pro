@@ -117,7 +117,6 @@ _REF_EXTRA=extra
 ;-------------------------------------------
 ; Setup Graphics ///////////////////////////
 ;-------------------------------------------
-	
 	;Get the window
 	if n_elements(overplot) gt 0 then begin
 		win        = overplot.window
@@ -137,9 +136,23 @@ _REF_EXTRA=extra
 
 	;Use seconds since midnight, formatted as HH:MM:SS
 	if obj_isa(oX, 'MrTimeVar') then begin
-		x_data      = oX -> GetData('SSM')
-		xtitle      = 'Time from ' + oX[0, 0:9]
-		xtickformat = 'time_labels'
+		trange = MrVar_GetTRange()
+		tr_ssm = MrVar_GetTRange('SSM')
+		x_data = oX -> GetData('SSM')
+		dt     = tr_ssm[1] - tr_ssm[0]
+
+		;Less than 2 seconds
+		if dt lt 5.0 then begin
+			xrange      = tr_ssm - floor(tr_ssm[0])
+			xtitle      = 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
+			xtickformat = ''
+			x_data      -= floor(tr_ssm[0])
+
+		;More than two seconds
+		endif else begin
+			xtitle      = 'Time from ' + oX[0, 0:9]
+			xtickformat = 'time_labels'
+		endelse
 	endif else begin
 		x_data = oX['DATA']
 	endelse
@@ -189,8 +202,8 @@ _REF_EXTRA=extra
 	if n_elements(dxm) eq 0 && n_elements(dym) gt 0 then begin
 		MrPrintF, 'LogWarn', 'No DELTA_(PLUS|MINUS) given for X.'
 		dxm = 0
-		dxp = x_data[1:*] - ox_data
-		dxp = [dxm, dxm[-1]]
+		dxp = x_data[1:*] - x_data
+		dxp = [dxp, dxp[-1]]
 	endif
 	if n_elements(dxm) gt 0 && n_elements(dym) eq 0 then begin
 		MrPrintF, 'LogWarn', 'No DELTA_(PLUS|MINUS) given for Y.'
@@ -244,6 +257,7 @@ _REF_EXTRA=extra
 		              RGB_TABLE     = oZ -> GetAttrValue('RGB_TABLE',     /NULL), $
 		              RANGE         = oZ -> GetAttrValue('AXIS_RANGE',    /NULL), $
 		              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL), $
+		              TITLE         = oZ -> GetAttrValue('PLOT_TITLE',    /NULL), $
 		              TOP           = oZ -> GetAttrValue('TOP',           /NULL) )
 
 ;-------------------------------------------
