@@ -61,7 +61,7 @@ function MrDist_DeltaE, energy_bins
 	;   - Assume time is first dimension
 	if size(energy_bins, /N_DIMENSIONS) eq 2 then begin
 		dims   = size(energy_bins, /DIMENSIONS)
-		dLogE  = alog10(energy_bins[*,1] - alog10(energy_bins[*,0])
+		dLogE  = alog10(energy_bins[*,1]) - alog10(energy_bins[*,0])
 		deltaE = energy_bins * rebin(dLogE, dims[0], dims[1]) / alog10( exp(1) )
 	
 	;Time-independent energy bins

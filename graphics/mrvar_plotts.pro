@@ -195,8 +195,11 @@ YSIZE=ysize
 	vars = variables
 
 	;Time range
-	trange  = MrVar_GetTRange('SSM')
-	win    -> SetGlobal, XRANGE=trange
+	;   - If the time interval is too short, MrVar_Plot will change units from
+	;     in seconds since midnight to seconds since t0. Setting the global XRANGE
+	;     here will not account for that.
+;	trange  = MrVar_GetTRange('SSM')
+;	win    -> SetGlobal, XRANGE=trange
 	
 	;Return the plot
 	if tf_refresh then win -> Refresh

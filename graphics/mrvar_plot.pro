@@ -33,7 +33,20 @@
 ;
 ; PURPOSE:
 ;+
-;   Plot MrVariable data
+;   Plot MrVariable data.
+;
+;   NOTES
+;       For MrVariables with a 'DEPEND_0' attribute that has a MrTimeVar as its value,
+;       the x-range is determined from the global time scale set by MrVar_SetTRange.
+;       The time range can be obtained using
+;
+;           trange = MrVar_GetTRange()
+;           tr_ssm = MrVar_GetTRange('SSM')
+;
+;       If the total time range is less than two seconds, time is converted to seconds
+;       and displayed as seconds since Floor(tr_ssm[0]). For all other time intervals,
+;       time is converted to seconds since midnight on trange[0] and displayed using the
+;       XTICKFORMAT='time_labels'.
 ;
 ;   Calling Sequence:
 ;       p = MrVar_Plot(x)
@@ -124,12 +137,26 @@ _REF_EXTRA=extra
 	if oY -> HasAttr('FILLVAL') $
 		then y_data = replace_fillval(oY['DATA'], oY['FILLVAL']) $
 		else y_data = oY['DATA']
-	
+
 	;Use seconds since midnight, formatted as HH:MM:SS
 	if obj_isa(oX, 'MrTimeVar') then begin
-		x_data      = oX -> GetData('SSM')
-		xtitle      = 'Time from ' + oX[0, 0:9]
-		xtickformat = 'time_labels'
+		trange = MrVar_GetTRange()
+		tr_ssm = MrVar_GetTRange('SSM')
+		x_data = oX -> GetData('SSM')
+		dt     = tr_ssm[1] - tr_ssm[0]
+
+		;Less than 2 seconds
+		if dt lt 5.0 then begin
+			xrange      = tr_ssm - floor(tr_ssm[0])
+			xtitle      = 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
+			xtickformat = ''
+			x_data      -= floor(tr_ssm[0])
+
+		;More than two seconds
+		endif else begin
+			xtitle      = 'Time from ' + oX[0, 0:9]
+			xtickformat = 'time_labels'
+		endelse
 	endif else begin
 		x_data = oX['DATA']
 	endelse
@@ -164,7 +191,7 @@ _REF_EXTRA=extra
 	MrVar_SetAxisProperties, p1, oY, /YAXIS
 	
 	;Set user-given properties
-	p1 -> SetProperty, XTITLE=xtitle, XTICKFORMAT=xtickformat
+	p1 -> SetProperty, XRANGE=xrange, XTITLE=xtitle, XTICKFORMAT=xtickformat
 	if n_elements(extra) gt 0 then p1 -> SetProperty, _STRICT_EXTRA=extra
 
 ;-------------------------------------------
@@ -180,6 +207,7 @@ _REF_EXTRA=extra
 			                   COLOR      = '', $
 			                   FILL_COLOR = '', $
 			                   LINESTYLE  = 'None', $
+			                   NAME       = 'Lgd: ' + oY.name, $
 			                   TARGET     = p1 )
 		
 		;Add a legend item
@@ -189,6 +217,7 @@ _REF_EXTRA=extra
 			                   COLOR      = '', $
 			                   FILL_COLOR = '', $
 			                   LINESTYLE  = 'NONE', $
+			                   NAME       = 'Lgd: ' + oY.name, $
 			                   TARGET     = overplot )
 		endelse
 	endif

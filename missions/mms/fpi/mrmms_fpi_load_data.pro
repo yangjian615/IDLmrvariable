@@ -165,7 +165,11 @@ pro MrMMS_FPI_Load_Data_Dist, name
 
 	;BRST mode
 	;   - Two energy tables alternate based on STEPTABLE_PARITY
-	if stregex(parts[3], '^brst', /BOOLEAN) then begin
+	;   - Before v3.0.0, two scalar energy tables were provided and they had to
+	;     be combined into a time-varying energy matrix via the "steptable_parity"
+	;     variable.
+	;   - As of v3.0.0, this process has been done by the FPI team.
+	if MrVar_IsCached( prefix + 'energy0' + suffix ) then begin
 		;Get the sector, pixel, and energy tables
 		oParity  = MrVar_Get( prefix + 'steptable_parity' + suffix )
 		oEnergy0 = MrVar_Get( prefix + 'energy0'          + suffix )
@@ -178,12 +182,12 @@ pro MrMMS_FPI_Load_Data_Dist, name
 		energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
 		energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_name, /CACHE)
 		energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_name,  /CACHE)
-		
+	
 		;Names of new energy tables
 		eTable_name = prefix + 'energy_table'   + suffix
 		eMean_name  = prefix + 'energy_geomean' + suffix
 	
-	;SRVY mode
+	;SRVY & BRST v3.0.0+
 	endif else begin
 		;There is only one energy table
 		eTable_name = prefix + 'energy' + suffix

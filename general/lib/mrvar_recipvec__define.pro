@@ -100,7 +100,7 @@ TIME=time
 ;-----------------------------------------------------
 ; Load Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if n_params() eq 4 then self -> SetData, r1, r2, r3, r4
+	if n_params() eq 4 then self -> SetData, r1, r2, r3, r4, TIME=time
 	
 	return, 1
 end
@@ -520,8 +520,8 @@ TIME=time
 	;Check object class
 	R        = MrVar_Get(r1)
 	objClass = obj_class(R)
-	if ~obj_isa(R, 'MrScalarTS') && ~obj_isa(R, 'MrVectorTS') && ~obj_isa(R, 'MrMatrixTS') $
-		then message, 'P1-4 must be a MrScalarTS, MrVectorTS, or MrMatrixTS object.'
+	if ~obj_isa(R, 'MrVectorTS') $
+		then message, 'P1-4 must be a MrVectorTS object.'
 	
 	;Get the time variable
 	;   - Must call ::SetData_P first

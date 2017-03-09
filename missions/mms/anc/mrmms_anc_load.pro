@@ -344,7 +344,7 @@ VARNAMES=varnames
 		                 VERBOSE      = !MrMMS.verbose
 
 		;Load Attributes
-		case instr[iuniq] of
+		case instr[idx] of
 			'DEFATT': MrMMS_Anc_Load_Attrs_DefAtt, vnames_temp
 			'DEFEPH': MrMMS_Anc_Load_Attrs_DefEph, vnames_temp
 			else: message, 'Ancillary product not recognized: "' + instr[idx] + '".'

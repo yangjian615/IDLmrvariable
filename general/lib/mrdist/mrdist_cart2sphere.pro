@@ -177,8 +177,8 @@ ORIENTATION=orientation
 ;-----------------------------------------------------
 
 	;Phi: Move range from (-!pi,!pi] to [0, 2*!pi)
-	iPhi       = where(phi lt 0, nPhi)
-	phi[iPhi] += 2.0*!pi
+;	iPhi       = where(phi lt 0, nPhi)
+;	phi[iPhi] += 2.0*!pi
 	
 	;Convert to degrees
 	if tf_degrees then begin

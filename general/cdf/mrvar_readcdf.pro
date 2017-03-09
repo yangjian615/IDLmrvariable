@@ -76,11 +76,13 @@
 ;
 ; :Common Blocks:
 ;   MrVar_ReadCDF_common::
-;       CDF_VNAMES   - CDF variable names of all unique variables from all files
-;       CACHE_VNAMES - MrVariable names of all variables that have been read
-;       CDF_VCOUNT   - Total number of variables that have been read
-;       FILE_VNAMES  - CDF variable names of variables that have been read from the current file.
-;       FILE_VCOUNT  - Number of variables read from the current file
+;       CDF_VNAMES     - CDF variable names of all unique variables from all files
+;       CACHE_VNAMES   - MrVariable names of all variables that have been read
+;       CDF_VCOUNT     - Total number of variables that have been read
+;       FILE_VNAMES    - CDF variable names of variables that have been read from the current file.
+;       FILE_VCOUNT    - Number of variables read from the current file
+;       SUPPORT_VNAMES - The variables in CACHE_VNAMES that were read as support data.
+;       SUPPORT_VCOUNT - The number of variable names in SUPPORT_VNAMES.
 ;       
 ; :Author:
 ;   Matthew Argall::
@@ -102,6 +104,9 @@
 ;                           and once as a variable - when /SUPPORT_DATA is set. - MRA
 ;       2016/10/06  -   Added the SUFFIX keyword. - MRA
 ;       2016/10/06  -   Major rewrite to support MrTimeSeries & simplify program flow. - MRA
+;       2016/01/04  -   Support variables that are read via _GetVarAttrs are removed from
+;                           the variable cache unless SUPPORT_DATA or VARFORMAT are set.
+;                           They still exist as variable attributes, though. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -111,19 +116,19 @@
 ;       VARNAME:            in, required, type=string/object
 ;                           Name of the variable to be clobbered.
 ;-
-pro MrVar_ReadCDF_Clobber, varname
-	compile_opt idl2
-	on_error, 2
+PRO MrVar_ReadCDF_Clobber, varname
+	Compile_Opt idl2
+	On_Error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 	
 	;Get the variable
-	iRemove = where(cdf_vnames eq varname, nRemove, COMPLEMENT=iKeep, NCOMPLEMENT=nKeep)
-	if nRemove gt 1 then message, 'Duplicate variable names found'
+	iRemove = Where(cdf_vnames EQ varname, nRemove, COMPLEMENT=iKeep, NCOMPLEMENT=nKeep)
+	IF nRemove GT 1 THEN Message, 'Duplicate variable names found'
 	
 	;Remove the variables
-	if nRemove gt 0 then begin
+	IF nRemove GT 0 THEN BEGIN
 		;Remove and delete variable from cache
 		MrVar_Delete, cache_vnames[iRemove]
 	
@@ -133,21 +138,21 @@ pro MrVar_ReadCDF_Clobber, varname
 		cdf_vcount           -= 1
 		
 		;Reorder
-		iSpace = where(cdf_vnames eq '', nSpace, COMPLEMENT=iName, NCOMPLEMENT=nName)
-		if nSpace gt 0 && nName gt 0 then begin
+		iSpace = Where(cdf_vnames EQ '', nSpace, COMPLEMENT=iName, NCOMPLEMENT=nName)
+		IF nSpace GT 0 && nName GT 0 THEN BEGIN
 			cache_vnames = [cache_vnames[iName], cache_vnames[iSpace]]
 			cdf_vnames   = [cdf_vnames[iName],   cdf_vnames[iSpace]]
-		endif
-	endif
+		ENDIF
+	ENDIF
 	
 	;Reorganize the variables from the current file as well.
-	iRemove = where(file_vnames eq varname or file_vnames eq '', nRemove, COMPLEMENT=iKeep, NCOMPLEMENT=nKeep)
-	if nRemove gt 0 then begin
+	iRemove = Where(file_vnames EQ varname or file_vnames EQ '', nRemove, COMPLEMENT=iKeep, NCOMPLEMENT=nKeep)
+	IF nRemove GT 0 THEN BEGIN
 		file_vnames[iRemove]  = ''
 		file_vcount          -= 1
-		if nKeep gt 0 then file_vnames = [file_vnames[iKeep], file_vnames[iRemove]]
-	endif
-end
+		IF nKeep GT 0 THEN file_vnames = [file_vnames[iKeep], file_vnames[iRemove]]
+	ENDIF
+END
 
 
 ;+
@@ -172,42 +177,43 @@ end
 ;                           Result of CDF_VarInq() on the variable for which data is
 ;                               returned.
 ;-
-function MrVar_ReadCDF_GetData, cdfID, varname, $
+FUNCTION MrVar_ReadCDF_GetData, cdfID, varname, $
 NO_CLOBBER = no_clobber, $
 VARINQ = varinq
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 	
 ;-----------------------------------------------------
 ; Read Variable Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Number of records -- read all
-	cdf_control, cdfID, GET_VAR_INFO=var_info, VARIABLE=varname
+	CDF_Control, cdfID, GET_VAR_INFO=var_info, VARIABLE=varname
 	rec_count = var_info.maxrec + 1
 	
 	;
-	; If REC_COUNT=0, CDF_VarGet will issue an error. However, if we undefine
+	; If REC_COUNT=0, CDF_VarGet will issue an error. However, IF we undefine
 	; REC_COUNT, it will read a PadValue and issue a warning. Here, we choose
 	; to read in zero records
 	;
 	
-	if rec_count gt 0 then begin
+	IF rec_count GT 0 THEN BEGIN
 		;Do not show annoying cdf_varget warnings
 		!Quiet = 1
 
 		;Get its data
-		cdf_varget, cdfID, varname, data, $
+		CDF_VarGet, cdfID, varname, data, $
 		            REC_COUNT = rec_count, $
 		            /STRING
 
 		;Turn on normal warnings.
 		!Quiet = 0
-	endif else begin
+	ENDIF ELSE BEGIN
 		MrPrintF, 'logwarn', 'Variable has zero records: "' + varname + '".'
-	endelse
+		data = !Null
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Book-keeping \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -218,8 +224,8 @@ VARINQ = varinq
 	file_vnames[file_vcount]  = varname
 	file_vcount              += 1
 	
-	return, data
-end
+	RETURN, data
+END
 
 
 ;+
@@ -249,32 +255,32 @@ end
 ;                           If set, variables will be renamed if one with the
 ;                               same name already exists in the cache.
 ;-
-function MrVar_ReadCDF_GetVar, vname, vtype, $
+FUNCTION MrVar_ReadCDF_GetVar, vname, vtype, $
 NO_CLOBBER=no_clobber, $
 SUFFIX=suffix
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 	
 	;Defaults
 	;   - Clobber existing variables
-	tf_clobber = ~keyword_set(no_clobber)
+	tf_clobber = ~Keyword_Set(no_clobber)
 	
 	;Has the variable been read yet?
-	tf_has = max(cdf_vnames eq vname, imax)
+	tf_has = Max(cdf_vnames EQ vname, imax)
 
 ;-----------------------------------------------------
 ; Get Existing Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if tf_has then begin
+	IF tf_has THEN BEGIN
 		oVar = MrVar_Get(cache_vnames[imax])
 
 ;-----------------------------------------------------
 ; Create New Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else begin
+	ENDIF ELSE BEGIN
 
 	;-----------------------------------------------------
 	; Clobber Duplicate Name \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -282,33 +288,36 @@ SUFFIX=suffix
 		;Check if there is a variable by the same name already in the cache
 		old_var = MrVar_Get(vname+vsuffix, COUNT=count)
 
-		;If there is, and we clobber, then clobber its DEPEND_# attributes
-		if count gt 0 && tf_clobber then begin
+		;If there is, and we clobber, then clobber its DEPEND_[0-3] and
+		;DELTA_(MINUS|PLUS)_VAR attributes
+		IF count GT 0 && tf_clobber THEN BEGIN
+			attrClobber = [ 'DEPEND_' + string( [0,1,2,3], FORMAT='(i1)' ), $
+			                'DELTA_' + ['MINUS', 'PLUS'] + '_VAR' ]
+		
 			;Step through each possible DEPEND_N
-			for i = 0, 3 do begin
-				;Look for dependent variable
-				depN    = 'DEPEND_' + string(i, FORMAT='(i0)')
-				depVal  = old_var -> GetAttrValue(depN, /NULL)
-				
-				;If DEPEND_N was an object, it may have been made
+			FOR i = 0, N_Elements(attrClobber)-1 DO BEGIN
+				;Look for attributes
+				attrVal  = old_var -> GetAttrValue(attrClobber[i], /NULL)
+
+				;If ATTRVAL was an object, it may have been made
 				;invalid by clobbering a different variable.
-				if size(depVal, /TNAME) eq 'OBJREF' then begin
-					if obj_valid(depVal) $
-						then depName = depVal.name $
-						else old_var -> RemoveAttr, depN
-				endif else begin
-					depName = depVal
-				endelse
+				IF Size(attrVal, /TNAME) EQ 'OBJREF' THEN BEGIN
+					IF Obj_Valid(attrVal) $
+						THEN attrName = attrVal.name $
+						ELSE old_var -> RemoveAttr, attrClobber[i]
+				ENDIF ELSE BEGIN
+					attrName = attrVal
+				ENDELSE
 
 				;Remove dependent variable
 				;   - If the variable has already been read, then it has
 				;     already been sufficiently clobbered.
-				if depName ne !Null && ~MrIsMember(cache_vnames, depName) then begin
-					MrVar_Delete, depName
-					old_var -> RemoveAttr, depN
-				endif
-			endfor
-		endif
+				IF attrName NE !Null && ~MrIsMember(cache_vnames, attrName) THEN BEGIN
+					MrVar_Delete, attrName
+					old_var -> RemoveAttr, attrClobber[i]
+				ENDIF
+			ENDFOR
+		ENDIF
 
 	;-----------------------------------------------------
 	; Create & Cache Variable \\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -316,7 +325,7 @@ SUFFIX=suffix
 		;We do not want to create new variables every time the same
 		;file is read, so default to clobbering any pre-existing
 		;variable by the same name.
-		oVar = obj_new( vtype, $
+		oVar = Obj_New( vtype, $
 		                /CACHE, $
 		                NAME       = vname + vsuffix, $
 		                NO_CLOBBER = ~tf_clobber )
@@ -330,11 +339,15 @@ SUFFIX=suffix
 		cdf_vnames[cdf_vcount]    = vname
 		cache_vnames[cdf_vcount]  = oVar.name
 		cdf_vcount               += 1
-	endelse
+		IF cdf_vcount GE N_Elements(cdf_vnames) THEN BEGIN
+			cdf_vnames = [cdf_vnames, StrArr(cdf_vcount)]
+			cache_vnames = [cache_vnames, StrArr(cdf_vcount)]
+		ENDIF
+	ENDELSE
 
 	;Return the variable
-	return, oVar
-end
+	RETURN, oVar
+END
 
 
 ;+
@@ -346,39 +359,39 @@ end
 ;       VARNAME:            in, required, type=string/object
 ;                           Name of the variable whose data will be read.
 ;-
-pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
-	compile_opt idl2
-	on_error, 2
+PRO MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
+	Compile_Opt idl2
+	On_Error, 2
 
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 
 	;Number of attributes
 	;   - Variable attributes should be saved after global attributes
-	;   - I have seen some files where this is not the case
+	;   - I have seen some files where this is not the CASE
 	;   - So, loop over all attributes
-	cdfinq  = cdf_inquire(cdfID)
+	cdfinq  = CDF_Inquire(cdfID)
 	varname = oVar['CDF_NAME']
 
 ;-----------------------------------------------------
 ; Loop Over Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	for i = 0, cdfinq.natts - 1 do begin
-		;Check if the variable has the attribute
+	FOR i = 0, cdfinq.natts - 1 do BEGIN
+		;Check IF the variable has the attribute
 		;   - Skip the attribute if it does not exist for this variable
-		cdf_attget_entry, cdfID, i, varname, cdf_type, attrValue, tf_exists, ATTRIBUTE_NAME=attrName
-		if tf_exists eq 0 then continue
+		CDF_AttGet_Entry, cdfID, i, varname, cdf_type, attrValue, tf_exists, ATTRIBUTE_NAME=attrName
+		IF tf_exists EQ 0 THEN CONTINUE
 
 	;-----------------------------------------------------
 	; DELTA_(PLUS|MINUS)_VAR or DEPEND_[0-3] or LABL_PTR_[1-3] 
 	;-----------------------------------------------------
-		if stregex(attrName, '(DELTA_(PLUS|MINUS)_VAR|(DEPEND|LABL_PTR)_[0-3])', /BOOLEAN) then begin
+		IF StRegEx(attrName, '(DELTA_(PLUS|MINUS)_VAR|(DEPEND|LABL_PTR)_[0-3])', /BOOLEAN) THEN BEGIN
 			
 			;
 			; Bug in MMS_FPI_DES-DIST files has DELTA_PLUS|MINUS_VAR refer
 			; back to the parent variable.
 			;
-			if varname eq attrValue then continue
+			IF varname EQ attrValue THEN CONTINUE
 			
 			;
 			; The DELTA_PLUS_VAR, DELTA_MINUS_VAR, DEPEND_[0-3], and LABL_PTR_[0-3]
@@ -394,45 +407,53 @@ pro MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 			; Follow the pointer to the variable, read its data, then use it as the
 			; variable attribute value.
 			;
-			; DELTA_PLUS_VAR, DELTA_MINUS_VAR
+			; DELTA_(MINUS|PLUS)_VAR
 			; Follow the pointer to the variable, read and cache its data, then set
 			; the DEPEND_[0-3] attribute value equal to the cached variable name.
 			;
 
 			;ATTRVALUE is the name of the variable that serves as DEPEND_[0-3]
 			;   - Check if the variable has yet been read.
-			iName = where(file_vnames eq attrValue, nName)
-			if nName eq 0 then begin
+			iName = Where(file_vnames EQ attrValue, nName)
+			IF nName EQ 0 THEN BEGIN
 				;Read the data
 				;   - Creates and caches the variable
-				;   - Do not clobber other DEPEND_[0-3] data. They often
+				;   - Do not clobber other DEPEND_0 data. They often
 				;     have the same name (e.g. Epoch)
-				oAttr = MrVar_ReadCDF_ReadVar( cdfID, attrValue, /NO_CLOBBER )
-			endif else begin
+				oAttr = MrVar_ReadCDF_ReadVar( cdfID, attrValue, NO_CLOBBER=(attrName eq 'DEPEND_0') )
+				
+				;Save the names of the support variables.
+				IF ~MrIsMember(support_vnames, attrValue) THEN BEGIN
+					support_vnames[support_vcount] = oAttr.name
+					support_vcount += 1
+					IF support_vcount GE N_Elements(support_vnames) $
+						THEN support_vnames = [support_vnames, StrArr(support_vcount)]
+				ENDIF
+			ENDIF ELSE BEGIN
 				oAttr = MrVar_ReadCDF_GetVar(attrValue)
-			endelse
+			ENDELSE
 
-			; Delete the LABL_PTR_# variable from the cache
+			;Delete the LABL_PTR_# variable from the cache
 			;   - But only if it has not already been read into the cache
 			;   - If /SUPPORT_DATA is set, it will be read into the cache as a variable
-			if nName eq 0 && stregex(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) then begin
-				oVar -> SetAttrValue, attrName, oAttr['DATA'], /CREATE
+			IF nName EQ 0 && StRegEx(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) THEN BEGIN
+				oVar[attrName] = oAttr['DATA']
 				MrVar_ReadCDF_Clobber, attrValue
 			
 			;Add DEPEND_[0-3] or DELTA_(PLUS|MINUS)_VAR to the variable attributes
-			endif else begin
-				oVar -> SetAttrValue, attrName, oAttr.name, /CREATE
-			endelse
+			ENDIF ELSE BEGIN
+				oVar[attrName] = oAttr
+			ENDELSE
 
 	;-----------------------------------------------------
 	; Other Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
-		endif else begin
-			;We have an attribute-value pair (i.e. not a pointer to a variable)
-			oVar -> SetAttrValue, attrName, attrValue, /CREATE
-		endelse
-	endfor
-end
+		ENDIF ELSE BEGIN
+			;Set the attribute-value pair
+			oVar[attrName] = attrValue
+		ENDELSE
+	ENDFOR
+END
 
 
 ;+
@@ -451,7 +472,7 @@ end
 ;                           The type of MrVariable object that best represents
 ;                               data of `VARNAME`.
 ;-
-function MrVar_ReadCDF_GetVarType, cdfID, varname
+FUNCTION MrVar_ReadCDF_GetVarType, cdfID, varname
 	compile_opt idl2
 	on_error, 2
 	
@@ -463,38 +484,38 @@ function MrVar_ReadCDF_GetVarType, cdfID, varname
 	
 	;Is there a DEPEND_0 attribute?
 	cdf_attget_entry, cdfID, 'DEPEND_0', varname, attr_type, dep0_vname, tf_exists
-	if tf_exists then begin
+	IF tf_exists THEN BEGIN
 		dep0_inq      = cdf_varinq(cdfID, dep0_vname)
 		tf_timeseries = MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], dep0_inq.datatype)
-	endif else begin
+	ENDIF ELSE BEGIN
 		tf_timeseries = 0B
-	endelse
+	ENDELSE
 
 	;Scalar or time
-	if nDims eq 1 && varinq.dimvar[0] eq 0 then begin
+	IF nDims EQ 1 && varinq.dimvar[0] EQ 0 THEN BEGIN
 		;Is the variable an epoch datatype?
-		if MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], varinq.datatype) $
-			then vartype = 'MrTimeVar' $
-			else vartype = tf_timeseries ? 'MrScalarTS' : 'MrVariable'
+		IF MrIsMember(['CDF_EPOCH', 'CDF_EPOCH16', 'CDF_TIME_TT2000'], varinq.datatype) $
+			THEN vartype = 'MrTimeVar' $
+			ELSE vartype = tf_timeseries ? 'MrScalarTS' : 'MrVariable'
 	
 	;Vector
-	endif else if nDims eq 1 && varinq.dim[0] eq 3 then begin
+	ENDIF ELSE IF nDims EQ 1 && varinq.dim[0] EQ 3 THEN BEGIN
 		vartype = tf_timeseries ? 'MrVectorTS' : 'MrVariable'
 	
 	;Matrix
 	;   - TODO: Should ANY 2D variable be a matrix?
-	;           Could check for a "TENSOR_ORDER" attribute.
-	endif else if nDims eq 2 then begin
+	;           Could check FOR a "TENSOR_ORDER" attribute.
+	ENDIF ELSE IF nDims EQ 2 THEN BEGIN
 		vartype = tf_timeseries ? 'MrMatrixTS' : 'MrVariable'
 	
 	;Other
 	;   - TODO: Transpose time to leading dimension?
-	endif else begin
+	ENDIF ELSE BEGIN
 		vartype = tf_timeseries ? 'MrTimeSeries' : 'MrVariable'
-	endelse
+	ENDELSE
 
-	return, vartype
-end
+	RETURN, vartype
+END
 
 
 ;+
@@ -524,14 +545,14 @@ end
 ;                           If set, variables will be renamed if one with the
 ;                               same name already exists in the cache.
 ;-
-function MrVar_ReadCDF_ReadVar, cdfID, varname, $
+FUNCTION MrVar_ReadCDF_ReadVar, cdfID, varname, $
 NO_CLOBBER=no_clobber, $
 SUFFIX=suffix
 	compile_opt idl2
 	on_error, 2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 
 ;-----------------------------------------------------
 ; Read Data & Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -556,7 +577,7 @@ SUFFIX=suffix
 	;     1) Mark "Epoch" as read before obtaining its attributes
 	;
 	;   This will allow other variables to pull "Epoch" out of cache
-	;   for use as a DEPEND_0 attribute. It short-circuits the
+	;   FOR use as a DEPEND_0 attribute. It short-circuits the
 	;   infinite loop by having "Epoch_Plus" pull "Epoch" out of the
 	;   cache instead of cyclically calling MrVar_ReadCDF_ReadVar.
 	;
@@ -574,8 +595,8 @@ SUFFIX=suffix
 	;
 	
 	;Read attributes
-	if varType ne 'MrTimeVar' $
-		then MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+	IF varType NE 'MrTimeVar' $
+		THEN MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
 
 	;Create IDL graphics keywords attributes
 	MrVar_ReadCDF_VarAttr2GfxKwd, theVar
@@ -604,44 +625,44 @@ SUFFIX=suffix
 	;
 	
 	;Append
-	if varinq.recvar eq 'VARY' then begin
+	IF varinq.recvar EQ 'VARY' THEN BEGIN
 		;Data is read with dimensions of
 		;   - [DEPEND_1, DEPEND_2, DEPEND_3, NRECS=DEPEND_0]
 		;Transpose so that time is first:
 		;   - [NRECS=DEPEND_0, DEPEND_1, DEPEND_2, DEPEND_3]
 		ndims = size(data, /N_DIMENSIONS)
-		if ndims gt 1 then data = transpose(data, [nDims-1, bindgen(nDims-1)] )
+		IF ndims GT 1 THEN data = transpose(data, [nDims-1, bindgen(nDims-1)] )
 		
 		;Get the time object
-		if obj_isa(theVar, 'MrTimeSeries') then begin
-			if n_elements(theVar) eq 0 $
-				then oTime = MrVar_Get(theVar['DEPEND_0']) $
-				else oTime = theVar['TIMEVAR']
-		endif
+		IF obj_isa(theVar, 'MrTimeSeries') THEN BEGIN
+			IF n_elements(theVar) EQ 0 $
+				THEN oTime = MrVar_Get(theVar['DEPEND_0']) $
+				ELSE oTime = theVar['TIMEVAR']
+		ENDIF
 		
 		;Append data
-		if vartype eq 'MrTimeVar' $
-			then data = [theVar['DATA'], theVar -> toISO(data, varinq.datatype)] $
-			else data = [theVar['DATA'], data]
-	endif
-	
+		IF vartype EQ 'MrTimeVar' $
+			THEN data = [theVar['DATA'], theVar -> toISO(data, varinq.datatype)] $
+			ELSE data = [theVar['DATA'], data]
+	ENDIF
+
 	;Set the data
-	case vartype of
-		'MrVariable':   theVar -> SetData, data
+	CASE vartype of
+		'MrVariable':   theVar -> SetData, data, /NO_COPY
 		'MrTimeVar':    theVar -> SetData, data, /NO_COPY
-		'MrTimeSeries': theVar -> SetData, oTime, data, /NO_COPY
-		'MrScalarTS':   theVar -> SetData, oTime, data, /NO_COPY
-		'MrVectorTS':   theVar -> SetData, oTime, data, /NO_COPY
-		'MrMatrixTS':   theVar -> SetData, oTime, data, /NO_COPY
-		else: message, 'Unknown variable type: "' + vartype + '".'
-	endcase
-	
+		'MrTimeSeries': theVar -> SetData, oTime, data, DIMENSION=1, /NO_COPY
+		'MrScalarTS':   theVar -> SetData, oTime, data, DIMENSION=1, /NO_COPY
+		'MrVectorTS':   theVar -> SetData, oTime, data, DIMENSION=1, /NO_COPY
+		'MrMatrixTS':   theVar -> SetData, oTime, data, DIMENSION=1, /NO_COPY
+		ELSE: message, 'Unknown variable type: "' + vartype + '".'
+	ENDCASE
+
 	;Read attributes
-	if varType eq 'MrTimeVar' $
-		then MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
+	IF varType EQ 'MrTimeVar' $
+		THEN MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
 	
-	return, theVar
-end
+	RETURN, theVar
+END
 
 
 ;+
@@ -651,178 +672,77 @@ end
 ;       OVAR:               in, required, type=MrVariable objref
 ;                           Variable for which the graphics keywords are set.
 ;-
-pro MrVar_ReadCDF_VarAttr2GfxKwd, oVar
-	compile_opt idl2
-	on_error, 2
+PRO MrVar_ReadCDF_VarAttr2GfxKwd, oVar
+	Compile_Opt idl2
+	On_Error, 2
 
 	;PLOT_TITLE
-	if ~oVar -> HasAttr('PLOT_TITLE') then begin
-		case 1 of
-			oVar -> HasAttr('FIELDNAM'): oVar -> AddAttr, 'PLOT_TITLE', oVar['FIELDNAM']
-			oVar -> HasAttr('CATDESC'):  oVar -> AddAttr, 'PLOT_TITLE', oVar['CATDESC']
-			else: ;Do nothing
-		endcase
-	endif
+	IF ~oVar -> HasAttr('PLOT_TITLE') THEN BEGIN
+		CASE 1 of
+			oVar -> HasAttr('FIELDNAM'): oVar['PLOT_TITLE'] = oVar['FIELDNAM']
+			oVar -> HasAttr('CATDESC'):  oVar['PLOT_TITLE'] = oVar['CATDESC']
+			ELSE: ;Do nothing
+		ENDCASE
+	ENDIF
 
 	;TITLE (Axis)
-	if ~oVar -> HasAttr('TITLE') then begin
-		case 1 of
+	IF ~oVar -> HasAttr('TITLE') THEN BEGIN
+		CASE 1 of
 			oVar -> HasAttr('LABLAXIS'): title = oVar['LABLAXIS']
 			oVar -> HasAttr('FIELDNAM'): title = oVar['FIELDNAM']
-			else: title = ''
-		endcase
-		if oVar -> HasAttr('UNITS') then title = (title eq '') ? oVar['UNITS'] : title + '!C' + oVar['UNITS']
-		oVar -> AddAttr, 'TITLE', temporary(title)
-	endif
+			ELSE: title = ''
+		ENDCASE
+		IF oVar -> HasAttr('UNITS') THEN title = (title EQ '') ? oVar['UNITS'] : title + '!C' + oVar['UNITS']
+		oVar['TITLE'] = Temporary(title)
+	ENDIF
 	
 	;LABEL (Legend)
-	if ~oVar -> HasAttr('LABEL') then begin
-		if oVar -> HasAttr('LABL_PTR_1') then oVar -> AddAttr, 'LABEL', oVar['LABL_PTR_1']
-	endif
+	IF ~oVar -> HasAttr('LABEL') THEN BEGIN
+		IF oVar -> HasAttr('LABL_PTR_1') THEN oVar['LABEL'] = oVar['LABL_PTR_1']
+	ENDIF
 	
 	;MIN_VALUE
-	if ~oVar -> HasAttr('MIN_VALUE') then begin
-		if oVar -> HasAttr('VALIDMIN')   then oVar -> AddAttr, 'MIN_VALUE', oVar['VALIDMIN']
-	endif
+	IF ~oVar -> HasAttr('MIN_VALUE') THEN BEGIN
+		IF oVar -> HasAttr('VALIDMIN')   THEN oVar['MIN_VALUE'] = oVar['VALIDMIN']
+	ENDIF
 	
 	;MAX_VALUE
-	if ~oVar -> HasAttr('MAX_VALUE') then begin
-		if oVar -> HasAttr('VALIDMAX')   then oVar -> AddAttr, 'MAX_VALUE', oVar['VALIDMAX']
-	endif
-	
-	;AXIS_RANGE
-	if ~oVar -> HasAttr('AXIS_RANGE') then begin
-		if oVar -> HasAttr('SCALEMIN') && oVar -> HasAttr('SCALEMIN') $
-			then oVar -> AddAttr, 'AXIS_RANGE', [oVar['SCALEMIN'], oVar['SCALEMAX']]
-	endif
-	
-	;DIMENSION
-	if obj_isa(oVar, 'MrVectorTS') then begin
-		oVar -> AddAttr, 'DIMENSION', 1
-		oVar -> AddAttr, 'COLOR', ['Blue', 'Forest Green', 'Red']
-	endif
+	IF ~oVar -> HasAttr('MAX_VALUE') THEN BEGIN
+		IF oVar -> HasAttr('VALIDMAX')   THEN oVar['MAX_VALUE'] = oVar['VALIDMAX']
+	ENDIF
 
 	;SCALETYP
 	;   - 'log' or 'linear'
-	if ~oVar -> HasAttr('LOG') then begin
-		if oVar -> HasAttr('SCALETYP') then begin
-			tf_log = oVar['SCALETYP'] eq 'log' ? 1 : 0
-			oVar -> AddAttr, 'LOG', tf_log
-		endif
-	endif
-end
+	IF ~oVar -> HasAttr('LOG') THEN BEGIN
+		IF oVar -> HasAttr('SCALETYP') THEN BEGIN
+			tf_log = oVar['SCALETYP'] EQ 'log' ? 1 : 0
+			oVar['LOG'] = tf_log
+		ENDIF
+	ENDIF
+	
+	;AXIS_RANGE
+	IF ~oVar -> HasAttr('AXIS_RANGE') THEN BEGIN
+		IF oVar -> HasAttr('SCALEMIN') && oVar -> HasAttr('SCALEMIN') THEN BEGIN
+			oVar['AXIS_RANGE'] = [oVar['SCALEMIN'], oVar['SCALEMAX']]
 
-
-;+
-;    Helper function for MrVar_ReadCDF. Restrict time range.
-;
-; :Private:
-;
-; :Params:
-;       TRANGE:         in, required, type=strarr(2)
-;                       Time interval by which to restrict data, formatted as
-;                           ISO-8601 date-time strings.
-;-
-pro MrVar_ReadCDF_TLimit, trange
-	compile_opt idl2
-	on_error, 2
-
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
-
-;-----------------------------------------------------
-; Trim in Time \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Store the dependent variables
-	ndep0      = 0
-	dep0_names = strarr(cdf_vcount)
-
-;-----------------------------------------------------
-; Pick out the Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Find epoch variables
-	nDep0       = 0
-	epoch_names = strarr(cdf_vcount)
-	for i = 0, cdf_vcount - 1 do begin
-		theVar = MrVar_Get(cache_vnames[i])
-		if obj_isa(theVar, 'MrTimeVar') then begin
-			epoch_names[nDep0]  = theVar.name
-			nDep0              += 1
-		endif
-	endfor
-
-;-----------------------------------------------------
-; Loop Over Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	for i = 0, nDep0 - 1 do begin
-
-	;-----------------------------------------------------
-	; Set Epoch Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;Get the variable
-		epochVar = MrVar_Get(epoch_names[i])
-		
-		;Convert back to an epoch type
-		epoch_type = epochVar['CDF_TYPE']
-		case epoch_type of
-			'CDF_TIME_TT2000': range = epochVar -> iso2tt2000(trange)
-			'CDF_EPOCH_LONG':  range = epochVar -> iso2epoch16(trange)
-			'CDF_EPOCH':       range = epochVar -> iso2tepoch(trange)
-			else: message, 'Unknown datatype (' + epoch_type + ') for epoch variable "' + epochVar.name + '".'
-		endcase
-		time = epochVar -> GetData(epoch_type)
-		
-		;Get the index range
-		idx = where(MrCDF_Epoch_Compare(temporary(time), range[0], range[1]), nKeep)
-		if nKeep eq 0 then message, 'No data found in time interval for variable "' + epochVar.name + '".'
-
-		;Trim the time data
-		epochVar -> SetData, epochVar[idx]
-
-	;-----------------------------------------------------
-	; Set Data Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		for j = 0, cdf_vcount - 1 do begin
-			;Skip if the variable does not have an DEPEND_0 attribute
-			theVar = MrVar_Get(cache_vnames[j])
-			if ~theVar -> HasAttr('DEPEND_0') then continue
-			
-			;Skip if the DEPEND_0 attribute is not the one we are looking at
-			;   - DEPEND_0 may be an object or a variable name
-			oDep0 = MrVar_Get(theVar['DEPEND_0'])
-			if oDep0.name ne epochVar.name then continue
-			
-			;Trim the variable data
-			case 1 of
-				obj_isa(theVar, 'MrTimeSeries'): begin
-					case theVar.n_dimensions of
-						1: theVar -> SetData, epochVar, theVar[idx], DIMENSION=1
-						2: theVar -> SetData, epochVar, theVar[idx,*], DIMENSION=1
-						3: theVar -> SetData, epochVar, theVar[idx,*,*], DIMENSION=1
-						4: theVar -> SetData, epochVar, theVar[idx,*,*,*], DIMENSION=1
-						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
-					endcase
-				endcase
-				obj_isa(theVar, 'MrScalarTS'):   theVar -> SetData, epochVar, theVar[idx], DIMENSION=1
-				obj_isa(theVar, 'MrVectorTS'):   theVar -> SetData, epochVar, theVar[idx,*], DIMENSION=1
-				obj_isa(theVar, 'MrMatrixTS'):   theVar -> SetData, epochVar, theVar[idx,*,*], DIMENSION=1
-				theVar -> HasAttr('DEPEND_3'):   theVar -> SetData, theVar[idx,*,*,*], DIMENSION=1
-				theVar -> HasAttr('DEPEND_2'):   theVar -> SetData, theVar[idx,*,*], DIMENSION=1
-				theVar -> HasAttr('DEPEND_1'):   theVar -> SetData, theVar[idx,*], DIMENSION=1
-				theVar -> HasAttr('DEPEND_0'):   theVar -> SetData, theVar[idx], DIMENSION=1
-				else: begin
-					case theVar.n_dimensions of
-						1: theVar -> SetData, theVar[idx], DIMENSION=1
-						2: theVar -> SetData, theVar[*,idx], DIMENSION=1
-						3: theVar -> SetData, theVar[*,*,idx], DIMENSION=1
-						4: theVar -> SetData, theVar[*,*,*,idx], DIMENSION=1
-						else: message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
-					endcase
-				endcase
-			endcase
-		endfor
-	endfor
-end
+			;If LOG is set, make sure the min axis range is >= 0
+;			IF oVar -> HasAttr('LOG') && oVar['LOG'] THEN BEGIN
+;				IF oVar['SCALEMIN'] LE 0 THEN BEGIN
+;					iGood = oVar -> Where(0, /GREATER, COUNT=nGood)
+;					IF nGood GT 0 $
+;						THEN oVar['AXIS_RANGE'] = [ Min(oVar[iGood]), oVar['SCALEMAX'] ] $
+;						ELSE oVar -> RemoveAttr, 'AXIS_RANGE'
+;				ENDIF
+;			ENDIF
+		ENDIF
+	ENDIF
+	
+	;DIMENSION
+	IF obj_isa(oVar, 'MrVectorTS') THEN BEGIN
+		oVar['DIMENSION'] = 1
+		oVar['COLOR']     = ['Blue', 'Forest Green', 'Red']
+	ENDIF
+END
 
 
 ;+
@@ -865,7 +785,7 @@ end
 ;       VERBOSE:            out, optional, type=boolean, default=0
 ;                           If set, status messages will be printed to standard output.
 ;-
-pro MrVar_ReadCDF, files, $
+PRO MrVar_ReadCDF, files, $
 NO_CLOBBER=no_clobber, $
 SUFFIX=suffix, $
 SUPPORT_DATA=support_data, $
@@ -874,69 +794,69 @@ VALIDATE=validate, $
 VARFORMAT=varformat, $
 VARNAMES=varnames, $
 VERBOSE=verbose
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
-	                             cache_vnames, vsuffix
+	Common MrVar_ReadCDF_common, cdf_vnames, cdf_vcount, file_vnames, file_vcount, $
+	                             cache_vnames, support_vnames, support_vcount, vsuffix
 
 	;Get the time range (Will throw error if not set.)
-	if n_elements(trange) eq 0 then begin
-		catch, the_error
-		if the_error eq 0 $
-			then trange = MrVar_GetTRange() $
-			else trange = ['', '']
-		catch, /CANCEL
-	endif
+	IF N_Elements(trange) EQ 0 THEN BEGIN
+		Catch, the_error
+		IF the_error EQ 0 $
+			THEN trange = MrVar_GetTRange() $
+			ELSE trange = ['', '']
+		Catch, /CANCEL
+	ENDIF
 
 	;catch errors
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 	
 		;Check that warnings are turned back on
 		!Quiet = quiet_in
-		if status eq 0 then status = 1
+		IF status EQ 0 THEN status = 1
 	
 		;Close the file
-		if n_elements(cdfID) gt 0 && tf_open then cdf_close, cdfID
+		IF N_Elements(cdfID) GT 0 && tf_open THEN CDF_Close, cdfID
 
 		;Turn file validation back on
-		if MrCmpVersion('8.0') le 0 then $
-			if validate eq 0 then cdf_set_validate, /YES
+		IF MrCmpVersion('8.0') LE 0 THEN $
+			IF validate EQ 0 THEN CDF_Set_Validate, /YES
 		
 		;Issue error
-		if ~arg_present(status) then MrPrintF, 'LogErr'
-		return
-	endif
+		IF ~Arg_Present(status) THEN MrPrintF, 'LogErr'
+		RETURN
+	ENDIF
 
 	;Defaults
 	quiet_in   = !Quiet
 	status     = 0
 	tstart     = trange[0]
 	tend       = trange[1]
-	validate   = keyword_set(validate)
-	tf_support = keyword_set(support_data)
-	tf_verbose = keyword_set(verbose)
-	nvarfmt    = n_elements(varformat)
-	vsuffix    = n_elements(suffix) eq 0 ? '' : suffix
+	validate   = Keyword_Set(validate)
+	tf_support = Keyword_Set(support_data)
+	tf_verbose = Keyword_Set(verbose)
+	nvarfmt    = N_Elements(varformat)
+	vsuffix    = N_Elements(suffix) EQ 0 ? '' : suffix
 	
 ;-----------------------------------------------------
 ; CDF file names or IDs \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 
 	;CDF IDs given?
-	if isa(files, 'LONG') then begin
+	IF IsA(files, 'LONG') THEN BEGIN
 		tf_IDs = 1B
-	endif else begin
+	ENDIF ELSE BEGIN
 		tf_IDs = 0B
 	
 		;Validate the files?
-		if MrCmpVersion('8.0') le 0 then begin
-			if validate $
-				then cdf_set_validate, /YES $
-				else cdf_set_validate, /NO
-		endif
-	endelse
+		IF MrCmpVersion('8.0') LE 0 THEN BEGIN
+			IF validate $
+				THEN CDF_Set_Validate, /YES $
+				ELSE CDF_Set_Validate, /NO
+		ENDIF
+	ENDELSE
 	
 	;Allocate memory
 	;   - Resets common block variables
@@ -944,106 +864,135 @@ VERBOSE=verbose
 	;       1) All unique CDF variable names from all files
 	;       2) All variable names, as they are in the Cache
 	;       3) Variable names from the current file
+	;       4) Support data that is pointed to by a data variable's attribute value
 	;   - #2 is to avoid name conflicts with variable already in the Cache
 	;   - #3 is to avoid reading DEPEND_[0-3] variables more than once
-	nalloc       = 100
-	cache_vnames = strarr(nalloc)   ;All cache names
-	cdf_vnames   = strarr(nalloc)   ;All CDF names
-	timevar      = bytarr(nalloc)
-	cdf_vcount   = 0
+	;   - #4 is so that we can remove them from the cache (they are saved as attribute values)
+	nalloc         = 100
+	cdf_vcount     = 0
+	cache_vnames   = StrArr(nalloc)   ;All cache names
+	cdf_vnames     = StrArr(nalloc)   ;All CDF names
+	support_vcount = 0
+	support_vnames = StrArr(nalloc)   ;Support variables
+	timevar        = BytArr(nalloc)
 
 ;-----------------------------------------------------
 ; Step Through Each File \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	for i = 0, n_elements(files) - 1 do begin
+	FOR i = 0, N_Elements(files) - 1 do BEGIN
 		;Open the file
-		if tf_IDs then begin
+		IF tf_IDs THEN BEGIN
 			cdfID   = files[i]
 			tf_open = 0B
-			if tf_verbose then MrPrintF, 'LogText', files[i], FORMAT='(%"Reading CDF file with ID %i.")'
-		endif else begin
-			cdfID   = cdf_open(files[i])
+			IF tf_verbose THEN MrPrintF, 'LogText', files[i], FORMAT='(%"Reading CDF file with ID %i.")'
+		ENDIF ELSE BEGIN
+			cdfID   = CDF_Open(files[i])
 			tf_open = 1B
-			if tf_verbose then MrPrintF, 'LogText', files[i], FORMAT='(%"Reading file \"%s\".")'
-		endelse
+			IF tf_verbose THEN MrPrintF, 'LogText', files[i], FORMAT='(%"Reading file \"%s\".")'
+		ENDELSE
 		
 		;Number of variables in the file
-		cdf_info    = cdf_inquire(cdfID)
+		cdf_info    = CDF_Inquire(cdfID)
 		nVars       = cdf_info.nvars + cdf_info.nzvars
-		file_vnames = strarr(nVars)      ;Names in this CDF file
-		file_vcount = 0                  ;Counter for this CDF
+		file_vnames = StrArr(nVars)      ;Names in this CDF file
+		file_vcount = 0                  ;Counter FOR this CDF
 
 	;-----------------------------------------------------
 	; Step Through Each Variable \\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
-		for j = 0, nVars-1 do begin
+		FOR j = 0, nVars-1 do BEGIN
 			;Variable index
-			if j ge cdf_info.nvars then begin
+			IF j GE cdf_info.nvars THEN BEGIN
 				ivar   = j - cdf_info.nvars
 				isZVar = 1B
-			endif else begin
+			ENDIF ELSE BEGIN
 				ivar   = j
 				isZVar = 0B
-			endelse
+			ENDELSE
 
 			;Get the variable name and other info
-			;   - This is possible if, e.g., the variable is a DEPEND_0
+			;   - This is possible IF, e.g., the variable is a DEPEND_0
 			;     variable attribute.
-			varinq = cdf_varinq(cdfID, iVar, ZVARIABLE=isZVar)
+			varinq = CDF_VarInq(cdfID, iVar, ZVARIABLE=isZVar)
 			
-			;Skip if it has already been read
-			if MrIsMember(file_vnames, varinq.name) $
-				then continue
+			;Skip IF it has already been read
+			IF MrIsMember(file_vnames, varinq.name) $
+				THEN CONTINUE
 
-			;Skip if it does not match VARFORMAT
-			if nvarfmt ge 1 then begin
+			;Skip IF it does not match VARFORMAT
+			IF nvarfmt GE 1 THEN BEGIN
 				tf_strmatch = 0B
-				if nvarfmt eq 1 $
-					then tf_strmatch = strmatch(varinq.name, varformat) $
-					else for k = 0, nvarfmt-1 do tf_strmatch >= strmatch(varinq.name, varformat[k])
-				if ~tf_strmatch then CONTINUE
+				IF nvarfmt EQ 1 $
+					THEN tf_strmatch = StrMatch(varinq.name, varformat) $
+					ELSE FOR k = 0, nvarfmt-1 DO tf_strmatch >= StrMatch(varinq.name, varformat[k])
+				IF ~tf_strmatch THEN CONTINUE
 			
 			;Skip support data
-			endif else if ~tf_support then begin
-				cdf_attget_entry, cdfID, 'VAR_TYPE', varinq.name, cdf_type, var_type, tf_exists
-				if tf_exists && var_type ne 'data' then CONTINUE
-			endif
+			ENDIF ELSE IF ~tf_support THEN BEGIN
+				CDF_AttGet_Entry, cdfID, 'VAR_TYPE', varinq.name, cdf_type, var_type, tf_exists
+				IF tf_exists && var_type NE 'data' THEN CONTINUE
+			ENDIF
 			
 			;Read data and attributes
 			!Null = MrVar_ReadCDF_ReadVar( cdfID, varinq.name, $
 			                               NO_CLOBBER = no_clobber, $
 			                               SUFFIX     = suffix )
-		endfor
+		ENDFOR
 		
 		;Close the data file
-		if tf_open then begin
-			cdf_close, cdfID
+		IF tf_open THEN BEGIN
+			CDF_Close, cdfID
 			tf_open = 0B
 			cdfID   = 0LL
-		endif
-	endfor
+		ENDIF
+	ENDFOR
 
 	;Trim results
-	if cdf_vcount eq 0 then begin
+	IF cdf_vcount EQ 0 THEN BEGIN
 		cache_vnames = ''
-	endif else begin
+	ENDIF ELSE BEGIN
 		cdf_vnames   = cdf_vnames[0:cdf_vcount-1]
 		cache_vnames = cache_vnames[0:cdf_vcount-1]
-	endelse
+	ENDELSE
+	support_vnames = support_vnames[0:support_vcount-1]
 
 ;-----------------------------------------------------
-; Restrict Time Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Finish Up \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if ~array_equal(trange, '') && cdf_vcount gt 0 $
-		then MrVar_ReadCDF_TLimit, trange
+	;Limit time range
+	;   - This must come before support variables are removed
+	;     from the cache so that if any support variables are
+	;     time-dependent, their time range changes with their
+	;     parent variable.
+	IF ~Array_Equal(trange, '') && cdf_vcount GT 0 $
+		THEN MrVar_TLimit, cache_vnames, trange
+	
+	;Remove support variables from cache
+	;   - They will still exist as variable attributes.
+	IF ~tf_support && support_vcount GT 0 THEN BEGIN
+		;Keep support variables that were requested explicitly
+		tf_keep = BytArr(support_vcount)
+		FOR i = 0, nvarfmt-1 DO BEGIN
+			tf_keep OR= StrMatch(support_vnames, varformat[i])
+		ENDFOR
+		
+		;Remove support data
+		iRemove = Where(~tf_keep, nRemove)
+		IF nRemove GT 0 THEN BEGIN
+			;From cache
+			MrVar_Remove, support_vnames[iRemove]
+		
+			;From common block variables
+			!Null = MrIsMember(support_vnames[iRemove], cache_vnames, COMPLEMENT=iKeep)
+			cdf_vnames   = cdf_vnames[iKeep]
+			cache_vnames = cache_vnames[iKeep]
+		ENDIF
+	ENDIF
 
-;-----------------------------------------------------
-; Return \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
 	;Return variable names
-	if arg_present(varnames) then varnames = cache_vnames
+	IF Arg_Present(varnames) THEN varnames = cache_vnames
 
 	;Turn file validation back on
-	if MrCmpVersion('8.0') le 0 then $
-		if validate eq 0 then cdf_set_validate, /YES
-end
+	IF MrCmpVersion('8.0') LE 0 THEN $
+		IF validate EQ 0 THEN CDF_Set_Validate, /YES
+END

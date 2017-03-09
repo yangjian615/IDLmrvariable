@@ -19,13 +19,7 @@
 ;                               z' = B               North
 ;                               y' = z' x [1,0,0]    Usually duskward
 ;                               x' = y' x z'         Usually sunward
-;
-; :Keywords:
-;       DIMENSION:      in, optional, type=integer
-;                       The time-dependent dimension. If zero the grid vectors are
-;                           assumed to be time indepenent. If undefined, the dimension
-;                           of size other than 3 will be chosen.
-;       TYPE:           in, optional, type=boolean
+;       FAC:            in, optional, type=boolean, default='CROSSX'
 ;                       The type of FAC coordinates to use. If `VEC` is not defined,
 ;                           then TYPE is set to the empty string automatically. Otherwise,
 ;                           'EXB' is the default. Choices are::
@@ -41,10 +35,20 @@
 ;                                         z' = B                Magnetic field direction
 ;                                         x' = B x R            Azimuthal (counter clockwise)
 ;                                         y' = B x (B x R)      Radial outward
-;                               'XAXIS' or '' - `VEC` is ignored.
+;                               'CROSSX' - `VEC` is ignored.
 ;                                         z' = B               Magnetic field direction
 ;                                         y' = z' x [1,0,0]    Azimuthal direction
 ;                                         x' = y' x z'         Radial direction
+;                               '' - Custom coordinates.
+;                                         z' = PAR             Parallel direction
+;                                         y' = z' x PERP       Perpendicular direction
+;                                         x' = y' x z'         Other perpendicular direction
+;
+; :Keywords:
+;       DIMENSION:      in, optional, type=integer
+;                       The time-dependent dimension. If zero the grid vectors are
+;                           assumed to be time indepenent. If undefined, the dimension
+;                           of size other than 3 will be chosen.
 ;
 ; :Returns:
 ;       T:              The transformation matrix to the field-aligned coordinate system.
@@ -61,29 +65,27 @@
 ;   Modification History::
 ;       2016/03/09  -   Written by Matthew Argall
 ;-
-function MrDist_FAC, b, vec, $
-DIMENSION=dimension, $
-TYPE=type
+function MrDist_FAC, par, perp, fac, $
+DIMENSION=dimension
 	compile_opt idl2
 	on_error, 2
 	
 	;Defaults
-	if n_elements(type) eq 0 then type = 'ExB'
-	fac_type = n_elements(vec) eq 0 ? '' : strupcase(type)
+	fac_type = n_elements(fac) eq 0 ? 'CROSSX' : strupcase(fac)
 
 	;Normalize the vectors
-	b_hat = MrVector_Normalize(b)
-	v_hat = MrVector_Normalize(vec)
+	par_hat = MrVector_Normalize(par)
+	if n_elements(perp) GT 0 THEN perp_hat = MrVector_Normalize(perp)
 
 ;-----------------------------------------------------
 ; Electric Field \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	if fac_type eq 'EXB' then begin
 		;Parallel: B
-		z_hat = temporary(b_hat)
+		z_hat = temporary(par_hat)
 		
 		;Perp-1: ExB
-		x_hat = MrVector_Cross(temporary(v_hat), z_hat)
+		x_hat = MrVector_Cross(temporary(perp_hat), z_hat)
 		x_hat = MrVector_Normalize(x_hat)
 		
 		;Perp-2: Bx(ExB)
@@ -94,10 +96,10 @@ TYPE=type
 ;-----------------------------------------------------
 	endif else if fac_type eq 'VXB' then begin
 		;Parallel: B
-		z_hat = temporary(b_hat)
+		z_hat = temporary(par_hat)
 		
 		;Perp-2: bxv = -vxb = e
-		y_hat = MrVector_Cross(z_hat, temporary(v_hat))
+		y_hat = MrVector_Cross(z_hat, temporary(perp_hat))
 		y_hat = MrVector_Normalize(y_hat)
 		
 		;Perp-1: (bxv)xb = exb
@@ -108,10 +110,10 @@ TYPE=type
 ;-----------------------------------------------------
 	endif else if fac_type eq 'RADAZ' then begin
 		;Parallel: B
-		z_hat = temporary(b_hat)
+		z_hat = temporary(par_hat)
 		
 		;Perp2: bxr (azimuth)
-		y_hat = MrVector_Cross(z_hat, temporary(v_hat))
+		y_hat = MrVector_Cross(z_hat, temporary(perp_hat))
 		y_hat = MrVector_Normalize(y_hat)
 		
 		;Perp1: bx(bxr) (radial)
@@ -120,9 +122,9 @@ TYPE=type
 ;-----------------------------------------------------
 ; X-Axis \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else if fac_type eq '' gt 0 then  begin
+	endif else if fac_type eq 'CROSSX' gt 0 then  begin
 		;Parallel to B
-		z_hat = temporary(b_hat)
+		z_hat = temporary(par_hat)
 		
 		;Perp2: XxB
 		y_hat = MrVector_Cross(z_hat, [1,0,0])
@@ -132,10 +134,24 @@ TYPE=type
 		x_hat = MrVector_Cross(y_hat, z_hat)
 
 ;-----------------------------------------------------
+; Custom \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	endif else if fac_type eq '' then begin
+		;Parallel
+		z_hat = temporary(par_hat)
+		
+		;Perp2 = Par x Perp
+		y_hat = MrVector_Cross(z_hat, temporary(perp_hat))
+		y_hat = MrVector_Normalize(y_hat)
+		
+		;Perp1 = Yx(PARxPERP)
+		x_hat = MrVector_Cross(y_hat, z_hat)
+
+;-----------------------------------------------------
 ; Unknown \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	endif else begin
-		message, 'FAC TYPE not recognized: "' + type + '".'
+		message, 'FAC not recognized: "' + fac + '".'
 	endelse
 
 ;-----------------------------------------------------

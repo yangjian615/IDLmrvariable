@@ -69,7 +69,7 @@
 ;       2016-06-23  -   Check if the variable cache has been created. - MRA
 ;       2016-07-14  -   MrVariable object references may be given. - MRA
 ;       2016-08-21  -   If object references are given, veryify that they are MrVariable
-;                           objects. Added the `ISCACHED` keyword. - MRA
+;                           objects. - MRA
 ;       2016-08-28  -   Use the (new) MrVariable_Cache::Get method. - MRA
 ;-
 ;*****************************************************************************************
@@ -94,10 +94,6 @@ ISA=isa
 	endif else begin
 		variables = !Null
 		count     = 0
-		if arg_present(isCached) then begin
-			nVars     = n_elements(var)
-			isCached  = nVars eq 1 ? 0 : replicate(0, nVars)
-		endif
 	endelse
 
 	;Get the variable

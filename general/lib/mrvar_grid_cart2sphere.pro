@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrDist_Sphere2Cart
+;       MrVar_Grid_Cart2Sphere
 ;
 ; PURPOSE:
 ;+
@@ -68,15 +68,17 @@
 ;   Modification History::
 ;       2016/03/09  -   Written by Matthew Argall
 ;-
-pro MrVar_Grid_Cart2Sphere, x, y, z, oPhi, oTheta, $
+PRO MrVar_Grid_Cart2Sphere, x, y, z, oPhi, oTheta, $
+RADIANS=radians, $
 DEGREES=degrees, $
 ORIENTATION=orientation
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Defaults
-	tf_degrees = keyword_set(degrees)
-	if n_elements(orientation) eq 0 then orientation = 3
+	tf_degrees = Keyword_Set(degrees)
+	tf_radians = Keyword_Set(radians)
+	IF N_Elements(orientation) EQ 0 THEN orientation = 1
 	
 	;Get/verify variables
 	oX = MrVar_Get(x)
@@ -86,114 +88,119 @@ ORIENTATION=orientation
 ;-----------------------------------------------------
 ; Compute Spherical Coordinates \\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	case orientation of
+	CASE orientation OF
 		;PHI   - Positive from x-axis             (-180, 180]
 		;THETA - Polar angle from z-axis          [   0, 180]
-		1: begin
-			phi   = atan(oY['DATA'], oX['DATA'])
-			theta = acos(oZ['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(x^2 + y^2), z )
-		endcase
+		1: BEGIN
+			phi   = ATan(oY['DATA'], oX['DATA'])
+			theta = ACos(oZ['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(x^2 + y^2), z )
+		ENDCASE
 		
 		;PHI   - Positive from y-axis             (-180, 180]
 		;THETA - Polar angle from z-axis          [   0, 180]
-		2: begin
-			phi   = atan(-oX['DATA'], oY['DATA'])
-			theta = acos(oZ['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(x^2 + y^2), z )
-		endcase
+		2: BEGIN
+			phi   = ATan(-oX['DATA'], oY['DATA'])
+			theta = ACos(oZ['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(x^2 + y^2), z )
+		ENDCASE
 		
 		;PHI   - Positive from x-axis             (-180, 180]
 		;THETA - Elevation angle from xy-plane    [ -90,  90]
-		3: begin
-			phi   = atan(oY['DATA'], oX['DATA'])
-			theta = asin(oZ['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( z / sqrt(x^2 + y^2) )
-		endcase
+		3: BEGIN
+			phi   = ATan(oY['DATA'], oX['DATA'])
+			theta = ASin(oZ['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( z / Sqrt(x^2 + y^2) )
+		ENDCASE
 		
 		;PHI   - Positive from y-axis             (-180, 180]
 		;THETA - Elevation angle from xy-plane    [ -90,  90]
-		4: begin
-			phi   = atan(-oX['DATA'], oY['DATA'])
-			theta = asin(oZ['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( z / sqrt(x^2 + y^2) )
-		endcase
+		4: BEGIN
+			phi   = ATan(-oX['DATA'], oY['DATA'])
+			theta = ASin(oZ['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( z / Sqrt(x^2 + y^2) )
+		ENDCASE
 		
 		;PHI   - Positive from z-axis             (-180, 180]
 		;THETA - Polar angle from y-axis          [   0, 180]
-		5: begin
-			phi   = atan(oX['DATA'], oZ['DATA'])
-			theta = acos(oY['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(x^2 + z^2), y )
-		endcase
+		5: BEGIN
+			phi   = ATan(oX['DATA'], oZ['DATA'])
+			theta = ACos(oY['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(x^2 + z^2), y )
+		ENDCASE
 		
 		;PHI   - Positive from x-axis             (-180, 180]
 		;THETA - Polar angle from y-axis          [   0, 180]
-		6: begin
-			phi   = atan(-oZ['DATA'], oX['DATA'])
-			theta = acos(oY['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(x^2 + z^2), y )
-		endcase
+		6: BEGIN
+			phi   = ATan(-oZ['DATA'], oX['DATA'])
+			theta = ACos(oY['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(x^2 + z^2), y )
+		ENDCASE
 		
 		;PHI   - Positive from z-axis             (-180, 180]
 		;THETA - Elevation angle from zx-plane    [ -90,  90]
-		7: begin
-			phi   = atan(oX['DATA'], oZ['DATA'])
-			theta = asin(oY['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( y / sqrt(x^2 + z^2) )
-		endcase
+		7: BEGIN
+			phi   = ATan(oX['DATA'], oZ['DATA'])
+			theta = ASin(oY['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( y / Sqrt(x^2 + z^2) )
+		ENDCASE
 		
 		;PHI   - Positive from x-axis             (-180, 180]
 		;THETA - Elevation angle from zx-plane    [ -90,  90]
-		8: begin
-			phi   = atan(-oZ['DATA'], oX['DATA'])
-			theta = asin(oY['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( y / sqrt(x^2 + z^2) )
-		endcase
+		8: BEGIN
+			phi   = ATan(-oZ['DATA'], oX['DATA'])
+			theta = ASin(oY['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( y / Sqrt(x^2 + z^2) )
+		ENDCASE
 		
 		;PHI   - Positive from y-axis             (-180, 180]
 		;THETA - Polar angle from x-axis          [   0, 180]
-		9: begin
-			phi   = atan(oZ['DATA'], oY['DATA'])
-			theta = acos(oX['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(y^2 + z^2), x )
-		endcase
+		9: BEGIN
+			phi   = ATan(oZ['DATA'], oY['DATA'])
+			theta = ACos(oX['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(y^2 + z^2), x )
+		ENDCASE
 		
 		;PHI   - Positive from z-axis             (-180, 180]
 		;THETA - Polar angle from x-axis          [   0, 180]
-		10: begin
-			phi   = atan(-oY['DATA'], oZ['DATA'])
-			theta = acos(oX['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( sqrt(y^2 + z^2), x )
-		endcase
+		10: BEGIN
+			phi   = ATan(-oY['DATA'], oZ['DATA'])
+			theta = ACos(oX['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( Sqrt(y^2 + z^2), x )
+		ENDCASE
 		
 		;PHI   - Positive from y-axis             (-180, 180]
 		;THETA - Elevation angle from yz-plane    [ -90,  90]
-		11: begin
-			phi   = atan(oZ['DATA'], oY['DATA'])
-			theta = asin(oX['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( x / sqrt(y^2 + z^2) )
-		endcase
+		11: BEGIN
+			phi   = ATan(oZ['DATA'], oY['DATA'])
+			theta = ASin(oX['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( x / Sqrt(y^2 + z^2) )
+		ENDCASE
 		
 		;PHI   - Positive from z-axis             (-180, 180]
 		;THETA - Elevation angle from yz-plane    [ -90,  90]
-		12: begin
-			phi   = atan(-oY['DATA'], oZ['DATA'])
-			theta = asin(oX['DATA'] / sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR atan( x / sqrt(y^2 + z^2) )
-		endcase
+		12: BEGIN
+			phi   = ATan(-oY['DATA'], oZ['DATA'])
+			theta = ASin(oX['DATA'] / Sqrt(oX['DATA']^2 + oY['DATA']^2 + oZ['DATA']^2))     ;OR ATan( x / Sqrt(y^2 + z^2) )
+		ENDCASE
 		
-		else: message, 'Invalid value for ORIENTATION.'
-	endcase
+		ELSE: Message, 'Invalid value for ORIENTATION.'
+	ENDCASE
 
 ;-----------------------------------------------------
 ; Make Adjustments \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 
 	;Phi: Move range from (-!pi,!pi] to [0, 2*!pi)
-	iPhi       = where(phi lt 0, nPhi)
-	phi[iPhi] += 2.0*!pi
+;	iPhi       = where(phi LT 0, nPhi)
+;	phi[iPhi] += 2.0*!pi
 	
 	;Convert to degrees
-	if tf_degrees then begin
-		rad2deg  = size(oX, /TNAME) eq 'DOUBLE' ? 180.0D / !dpi : 180.0 /!pi
+	IF tf_degrees THEN BEGIN
+		rad2deg  = Size(oX, /TNAME) EQ 'DOUBLE' ? 180.0D / !dpi : 180.0 /!pi
 		phi     *= rad2deg
 		theta   *= rad2deg
-	endif
-	
+	ENDIF
+
 	;Create variables
-	oPhi   = MrVariable(phi, /NO_COPY)
-	oTheta = MrVariable(theta, /NO_COPY)
+	IF Size(phi, /N_DIMENSIONS) EQ 3 THEN BEGIN
+		oPhi   = MrTimeSeries( oX['TIMEVAR'], phi, /NO_COPY)
+		oTheta = MrTimeSeries( oX['TIMEVAR'], theta, /NO_COPY)
+	ENDIF ELSE BEGIN
+		oPhi   = MrVariable(phi, /NO_COPY)
+		oTheta = MrVariable(theta, /NO_COPY)
+	ENDELSE
 	
 	;Add attributes
-	oPhi   -> AddAttr, 'UNITS', (tf_degrees ? 'Degrees' : 'Radians')
-	oTheta -> AddAttr, 'UNITS', (tf_degrees ? 'Degrees' : 'Radians')
+	oPhi['UNITS']   = tf_degrees ? 'Degrees' : 'Radians'
+	oTheta['UNITS'] = tf_degrees ? 'Degrees' : 'Radians'
 end

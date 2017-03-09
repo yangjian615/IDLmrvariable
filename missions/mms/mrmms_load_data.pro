@@ -256,43 +256,28 @@ _REF_EXTRA=extra
 	;Do not let variable names get passed in
 	if n_elements(varnames) gt 0 then varnames = !Null
 	
-	;Check spacecraft
-	tf_sc    = MrIsMember(['', 'mms1', 'mms2', 'mms3', 'mms4'], sc)
-	tf_mode  = MrIsMember(['', 'slow', 'fast', 'srvy', 'brst'], mode)
-	tf_level = MrIsMember(['', 'l1a', 'l1b', 'l2pre', 'l2', 'l2plus'], level)
-	tf_instr = MrIsMember(['', 'afg', 'aspoc', 'dfg', 'dsp', 'edi', 'edp', 'epd-eis', 'feeps', 'fgm', 'fpi', 'hpca', 'mec', 'scm'], instr)
-	if ~array_equal(tf_sc, 1)    then message, 'SC must be "mms1", "mms2", "mms3", "mms4".'
-	if ~array_equal(tf_mode, 1)  then message, 'MODE must be "slow", "fast", "srvy", "brst".'
-	if ~array_equal(tf_level, 1) then message, 'LEVEL must be "l1a", "l1b", "ql", "l2pre", "l2", "l2plus".'
-	if ~array_equal(tf_instr, 1) then message, 'Invalid value for INSTR: "' + instr + '".'
-	
 	;Initialize MMS
 	MrMMS_Init
 
 ;-----------------------------------------------------
 ; Web \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	;Use the team site?
-	if max( MrIsMember(['l1a', 'l1b', 'l2pre'], level) ) then team_site = 1B
-	if max( MrIsMember(['afg', 'dfg'],          instr) ) then team_site = 1B
-	
+
 	;Change direstories to the proper request
 	;   - Always start with a new request.
-	!MrMMS -> CD, /RESET_PATH, $
-	              /RESET_QUERY, $
-	              /DOWNLOAD, $
-	              SUCCESS       = success, $
-	              SC_ID         = sc, $
-	              INSTR         = instr, $
-	              MODE          = mode, $
-	              LEVEL         = level, $
-	              OPTDESC       = optdesc, $
-	              PUBLIC_SITE   = public_site, $
-	              TEAM_SITE     = team_site, $
-	              TSTART        = trange[0], $
-	              TEND          = trange[1], $
-	              _STRICT_EXTRA = extra
-	if success eq 0 then return
+	!MrMMS -> SetProperty, /RESET_PATH, $
+	                       /RESET_QUERY, $
+	                       /DOWNLOAD, $
+	                       SC_ID         = sc, $
+	                       INSTR         = instr, $
+	                       MODE          = mode, $
+	                       LEVEL         = level, $
+	                       OPTDESC       = optdesc, $
+	                       PUBLIC_SITE   = public_site, $
+	                       TEAM_SITE     = team_site, $
+	                       DATE_START    = trange[0], $
+	                       DATE_END      = trange[1], $
+	                       _STRICT_EXTRA = extra
 	
 	;Attempt to get the data
 	files = !MrMMS -> Get(COUNT=count)
@@ -339,15 +324,14 @@ _REF_EXTRA=extra
 			;
 			; TODO: Sort files by time (and slow/fast srvy)
 			;
-		
+			
 			;Read files
 			MrVar_ReadCDF, files[iFiles], $
 			               SUFFIX       = suffix, $
 			               SUPPORT_DATA = support_data, $
 			               TRANGE       = trange, $
 			               VARFORMAT    = varformat, $
-			               VARNAMES     = temp_names, $
-			               VERBOSE      = !MrMMS.verbose
+			               VARNAMES     = temp_names
 			
 			;Save all of the variables
 			if n_elements(varnames) gt 0 $

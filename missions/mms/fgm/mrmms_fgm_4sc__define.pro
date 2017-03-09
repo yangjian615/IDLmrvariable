@@ -170,14 +170,14 @@ end
 ;   Transform a spherical coordinate grid into a cartesian coordinate grid.
 ;
 ; :Keywords:
+;       COORD_SYS:      out, optional, type=string
+;                       Coordinate system in which the data resides.
 ;       INSTR:          out, optional, type=string
 ;                       Instrument identifier.
 ;       LEVEL:          out, optional, type=string
 ;                       Data quality level.
 ;       MODE:           out, optional, type=string
 ;                       Telemetry mode.
-;       COORD_SYS:      out, optional, type=string
-;                       Coordinate system in which the data resides.
 ;-
 pro MrMMS_FGM_4sc::GetProperty, $
 INSTR=instr, $
@@ -196,6 +196,23 @@ end
 
 ;+
 ;   Load data from source files.
+;
+; :Params:
+;       MODE:           out, optional, type=string
+;                       Telemetry mode.
+;
+; :Keywords:
+;       COORD_SYS:      out, optional, type=string
+;                       Coordinate system in which the data resides.
+;       INSTR:          out, optional, type=string
+;                       Instrument identifier.
+;       LEVEL:          out, optional, type=string
+;                       Data quality level.
+;       TRANGE:         in, optional, type=strarr(2), default=MrVar_GetTRange()
+;                       The start and end times of the data interval to be loaded,
+;                           formatted as ISO-8601 strings.
+;       VARNAMES:       out, optional, type=string/strarr
+;                       Names of the variables that were loaded into the cache.
 ;-
 pro MrMMS_FGM_4sc::Load, mode, $
 COORD_SYS=coord_sys, $
@@ -203,26 +220,31 @@ INSTR=instr, $
 LEVEL=level, $
 TRANGE=trange, $
 VARNAMES=varnames
-	compile_opt idl2
+	Compile_Opt idl2
 	
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return
-	endif
+		RETURN
+	ENDIF
 	
 	;Defaults
-	if n_elements(instr)     eq 0 then instr     = 'fgm'
-	if n_elements(coord_sys) eq 0 then coord_sys = 'gse'
-	if n_elements(level) eq 0 then begin
-		case instr of
+	IF N_Elements(instr) EQ 0 THEN instr = 'fgm'
+	IF N_Elements(level) EQ 0 THEN BEGIN
+		CASE instr OF
 			'fgm': level = 'l2'
 			'afg': level = 'l2pre'
 			'dfg': level = 'l2pre'
-			else: message, 'Invalid FGM instrument: "' + instr + '".'
-		endcase
-	endif
+			ELSE: Message, 'Invalid FGM instrument: "' + instr + '".'
+		ENDCASE
+	ENDIF
+	IF N_Elements(coord_sys) EQ 0 THEN BEGIN
+		CASE level OF
+			'ql': coord_sys = 'dmpa'
+			ELSE: coord_sys = 'gse'
+		ENDCASE
+	ENDIF
 
 ;-------------------------------------------
 ; Load Data ////////////////////////////////
@@ -230,33 +252,38 @@ VARNAMES=varnames
 	
 	;Allocate memory
 	nSC      = 4
-	varnames = strarr(nSC)
-	oMag     = objarr(nSC)
+	varnames = StrArr(nSC)
+	oMag     = ObjArr(nSC)
 	
 	;Loop through each spacecraft
-	for i = 0, nSC-1 do begin
+	FOR i = 0, nSC-1 DO BEGIN
 		;Spacecraft identifier
-		sc = 'mms' + string(i+1, FORMAT='(i1)')
+		sc = 'mms' + String(i+1, FORMAT='(i1)')
 		
 		;Load the data
+		;   - QL variable names: mms1_dfg_brst_gse
+		;   - Old variable names: mms1_dfg_brst_l2pre_gse
+		;   - New variable names: mms1_dfg_b_gse_brst_l2pre
 		MrMMS_FGM_Load_Data, sc, mode, $
 		                     INSTR     = instr, $
 		                     LEVEL     = level, $
-		                     VARFORMAT = '*_b_' + coord_sys + '_*', $
+		                     VARFORMAT = ['*_b_' + coord_sys + '_*', $
+		                                  '*' + instr + '_' + mode + '_*_' + coord_sys], $
 		                     VARNAMES  = temp_names
-		
+
 		;Pull the vector magnetic field
-		iVar    = where(stregex(temp_names, '_bvec_' + coord_sys, /BOOLEAN))
+		;   - Old variable names: mms1_dfg_vec_brst_l2pre_gse
+		;   - New variable names: mms1_dfg_bvec_gse_brst_l2pre
+		iVar    = Where(StRegEx(temp_names, '_b?vec_.*' + coord_sys, /BOOLEAN))
 		oMag[i] = MrVar_Get( temp_names[iVar] )
 		
 		;Store names
 		varnames[i] = oMag[i].name
-	endfor
+	ENDFOR
 
 ;-------------------------------------------
 ; Set Data /////////////////////////////////
 ;-------------------------------------------
-	
 	;Set data
 	self -> SetData, oMag[0], oMag[1], oMag[2], oMag[3]
 
@@ -265,7 +292,7 @@ VARNAMES=varnames
 	                     MODE      = mode, $
 	                     LEVEL     = level, $
 	                     COORD_SYS = coord_sys
-end
+END
 
 
 ;+
@@ -279,24 +306,23 @@ end
 ;                           are loaded. Valid choices are derived from the optional
 ;                           descriptor of MEC file names, or 'defeph'.
 ;-
-pro MrMMS_FGM_4sc::LoadPosition, ephdesc
-	compile_opt idl2
-	on_error, 2
+PRO MrMMS_FGM_4sc::LoadPosition, ephdesc
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Defaults
-	if self.coord_sys      eq '' then message, 'COORD_SYS property must be defined.'
-	if n_elements(ephdesc) eq 0  then ephdesc   = 'ephts04d'
+	IF self.coord_sys      EQ '' THEN Message, 'COORD_SYS property must be defined.'
+	IF N_Elements(ephdesc) EQ 0  THEN ephdesc   = 'ephts04d'
 	
 	nSC      = 4
-	varnames = strarr(nSC)
-	oPos     = objarr(nSC)
-
-	for i = 0, nSC - 1 do begin
+	varnames = StrArr(nSC)
+	oPos     = ObjArr(nSC)
+	FOR i = 0, nSC - 1 DO BEGIN
 		;Spacecraft identifier
-		sc = 'mms' + string(i+1, FORMAT='(i1)')
+		sc = 'mms' + String(i+1, FORMAT='(i1)')
 		
 		;Definitive ephemeris
-		if ephdesc eq 'defeph' then begin
+		IF ephdesc EQ 'defeph' THEN BEGIN
 			MrMMS_Load_data, sc, $
 			                 ANC_PRODUCT = ephdesc, $
 			                 /ANCILLARY, $
@@ -304,22 +330,22 @@ pro MrMMS_FGM_4sc::LoadPosition, ephdesc
 			                 VARNAMES    = temp_names
 		
 		;MEC files
-		endif else begin
+		ENDIF ELSE BEGIN
 			MrMMS_Load_Data, sc, 'mec', 'srvy', 'l2', $
 			                 OPTDESC   = ephdesc, $
 			                 VARFORMAT = '*_r_' + self.coord_sys, $
 			                 VARNAMES  = temp_names
-		endelse
+		ENDELSE
 
 		;Retrieve the variable
-		iPos        = where( stregex(temp_names, '(_r_|_R$)', /BOOLEAN) )
-		oPos[i]     = MrVar_Get( (temporary(temp_names))[iPos] )
+		iPos        = Where( StRegEx(temp_names, '(_r_|_R$)', /BOOLEAN) )
+		oPos[i]     = MrVar_Get( (Temporary(temp_names))[iPos] )
 		varnames[i] = oPos[i].name
-	endfor
+	ENDFOR
 	
 	;Set object properties
 	self -> SetPosition, oPos[0], oPos[1], oPos[2], oPos[3]
-end
+END
 
 
 ;+

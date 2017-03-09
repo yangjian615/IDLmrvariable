@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_FGM_Get_TFAC
+;       MrMMS_FGM_TFAC
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;

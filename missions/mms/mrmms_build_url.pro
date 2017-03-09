@@ -48,26 +48,26 @@
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional descriptor.
 ;-
-function MrMMS_Build_URL_Dir, root, sc, instr, mode, level, optdesc, tstart
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrMMS_Build_URL_Dir, root, sc, instr, mode, level, optdesc, tstart
+	Compile_Opt idl2
+	On_Error, 2
 
-	;Use tokens if the start time was not given
-	if tstart eq '' then begin
+	;Use tokens IF the start time was not given
+	IF tstart EQ '' THEN BEGIN
 		year  = '%Y'
 		month = '%M'
-		day   = mode eq 'brst' ? '%d' : ''
-	endif else begin
-		year  = strmid(tstart, 0, 4) 
-		month = strmid(tstart, 5, 2)
-		day   = mode eq 'brst' ? strmid(tstart, 8, 2) : ''
-	endelse
+		day   = mode EQ 'brst' ? '%d' : ''
+	ENDIF ELSE BEGIN
+		year  = StrMid(tstart, 0, 4) 
+		month = StrMid(tstart, 5, 2)
+		day   = mode EQ 'brst' ? StrMid(tstart, 8, 2) : ''
+	ENDELSE
 
 	;Build the URL
-	url = strjoin( [root, sc, instr, mode, level, optdesc, year, month, day], '/')
+	url = StrJoin( [root, sc, instr, mode, level, optdesc, year, month, day], '/')
 	
-	return, url
-end
+	RETURN, url
+END
 
 
 ;+
@@ -91,22 +91,22 @@ end
 ;       VERSION:    in, required, type=string, default=''
 ;                   File version number.
 ;-
-function MrMMS_Build_URL_Join, sc, instr, mode, level, optdesc, tstart, version
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrMMS_Build_URL_Join, sc, instr, mode, level, optdesc, tstart, version
+	Compile_Opt idl2
+	On_Error, 2
 
-	;Use tokens if the start time was not given
-	if tstart eq '' then begin
-		fstart = mode eq 'brst' ? '%Y%M%d%H%m%S' : '%Y%M%d'
-	endif else begin
-		fstart = strmid(tstart, 0, 4) + strmid(tstart, 5, 2) + strmid(tstart, 8, 2)
-		if mode eq 'brst' then fstart += strmid(tstart, 11, 2) + strmid(tstart, 14, 2) + strmid(tstart, 17, 2)
-	endelse
+	;Use tokens IF the start time was not given
+	IF tstart EQ '' THEN BEGIN
+		fstart = mode EQ 'brst' ? '%Y%M%d%H%m%S' : '%Y%M%d'
+	ENDIF ELSE BEGIN
+		fstart = StrMid(tstart, 0, 4) + StrMid(tstart, 5, 2) + StrMid(tstart, 8, 2)
+		IF mode EQ 'brst' THEN fstart += StrMid(tstart, 11, 2) + StrMid(tstart, 14, 2) + StrMid(tstart, 17, 2)
+	ENDELSE
 
 	;Separate an optional descriptor form the start time.
-	if optdesc eq '' $
-		then fdesc = optdesc $
-		else fdesc = optdesc + '_'
+	IF optdesc EQ '' || optdesc EQ '*' $
+		THEN fdesc = optdesc $
+		ELSE fdesc = optdesc + '_'
 
 	;Build the file name
 	filename = sc     + '_' + $
@@ -118,30 +118,29 @@ function MrMMS_Build_URL_Join, sc, instr, mode, level, optdesc, tstart, version
 	           'v'    + version + $
 	           '.cdf'
 	
-	return, filename
-end
+	RETURN, filename
+END
 
 
 ;+
 ;   Create MMS file names
 ;
-; :Params:
-;       SC:         in, required, type=string/strarr
-;                   Spacecraft identifier. Options are 'mms1', 'mms2', 'mms3', and 'mms4'
-;       INSTR:      in, required, type=string/strarr
-;                   Instrument identifier.
-;       MODE:       in, required, type=string/strarr
-;                   Data telemetry mode.
-;       LEVEL:      in, required, type=string/strarr
-;                   Data quality level.
-;
 ; :Keywords:
 ;       COUNT:      out, optional, type=integer
 ;                   Number of URLs returned.
+;       INSTR:      in, required, type=string/strarr, default=all
+;                   Instrument identifier. All instruments are used by default.
+;       LEVEL:      in, required, type=string/strarr
+;                   Data quality level. All levels are used by default.
+;       MODE:       in, required, type=string/strarr
+;                   Data telemetry mode. All modes are used by default
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional descriptor.
 ;       URL_ROOT:   in, optional, type=string, default='https://lasp.colorado.edu/mms/sdc/public/data/'
 ;                   URL (host, scheme, path) of the data root. Cannot be used with `TEAM`.
+;       SC:         in, required, type=string/strarr, default=all
+;                   Spacecraft identifier. Options are 'mms1', 'mms2', 'mms3', and 'mms4'.
+;                       All spacecraft are used by default.
 ;       TEAM:       in, optional, type=boolean, default=0
 ;                   If set, `URL_ROOT` will be set to the team SDC site:
 ;                       'https://lasp.colorado.edu/mms/sdc/team/' (password required). 
@@ -156,57 +155,57 @@ end
 ;       FNAME:      out, reqired, type=string/strarr
 ;                   URLs of MMS CDF files.
 ;-
-function MrMMS_Build_URL, sc, instr, mode, level, $
+FUNCTION MrMMS_Build_URL, sc, instr, mode, level, $
 COUNT=count, $
 OPTDESC=optdesc, $
 TEAM=team, $
 TSTART=tstart, $
 URL_ROOT=url_root, $
 VERSION=version
-	compile_opt strictarr
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Defaults
-	if n_elements(tstart)   eq 0 then tstart  = ''
-	if n_elements(optdesc)  eq 0 then optdesc = ''
-	if n_elements(version)  eq 0 then version = '*'
-	if n_elements(url_root) eq 0 then begin
-		if keyword_set(team) $
-			then url_root = 'https://lasp.colorado.edu/mms/sdc/team/' $
-			else url_root = 'https://lasp.colorado.edu/mms/sdc/public/data/'
-	endif else begin
-		if n_elements(team) gt 0 then message, 'TEAM and URL_ROOT are mutually exclusive.'
-	endelse
+	IF N_Elements(tstart)   EQ 0 THEN tstart  = ''
+	IF N_Elements(optdesc)  EQ 0 THEN optdesc = ''
+	IF N_Elements(version)  EQ 0 THEN version = '*'
+	IF N_Elements(url_root) EQ 0 THEN BEGIN
+		IF Keyword_Set(team) $
+			THEN url_root = 'https://lasp.colorado.edu/mms/sdc/team/' $
+			ELSE url_root = 'https://lasp.colorado.edu/mms/sdc/public/data/'
+	ENDIF ELSE BEGIN
+		IF N_Elements(team) GT 0 THEN Message, 'TEAM and URL_ROOT are mutually exclusive.'
+	ENDELSE
 
-	;Number of values given
-	nSC      = n_elements(sc)
-	nInstr   = n_elements(instr)
-	nMode    = n_elements(mode)
-	nLevel   = n_elements(level)
-	nDesc    = n_elements(optdesc)
-	nTStart  = n_elements(tstart)
-	nVersion = n_elements(version)
+	;Number OF values given
+	nSC      = N_Elements(sc)
+	nInstr   = N_Elements(instr)
+	nMode    = N_Elements(mode)
+	nLevel   = N_Elements(level)
+	nDesc    = N_Elements(optdesc)
+	nTStart  = N_Elements(tstart)
+	nVersion = N_Elements(version)
 	
 	;Conflicts
-	if nTStart  gt 1 then message, 'TSTART must be scalar.'
-	if nVersion gt 1 then message, 'VERSION must be scalar.'
+	IF nTStart  GT 1 THEN Message, 'TSTART must be scalar.'
+	IF nVersion GT 1 THEN Message, 'VERSION must be scalar.'
 
 ;-----------------------------------------------------
 ; Non-Uniform Output \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Allocate memory to output
-	fname = strarr(nSC*nInstr*nMode*nLevel*nDesc)
+	fname = StrArr(nSC*nInstr*nMode*nLevel*nDesc)
 	count = 0
 
 	;Create the MMS filename
 	;   - Must use loops because:
 	;   - Replicate does not work with arrays.
 	;   - Rebin does not work with strings.
-	for i = 0, nSC    - 1 do $
-	for j = 0, nInstr - 1 do $
-	for k = 0, nMode  - 1 do $
-	for l = 0, nLevel - 1 do $
-	for m = 0, nDesc  - 1 do begin
+	FOR i = 0, nSC    - 1 DO $
+	FOR j = 0, nInstr - 1 DO $
+	FOR k = 0, nMode  - 1 DO $
+	FOR l = 0, nLevel - 1 DO $
+	FOR m = 0, nDesc  - 1 DO BEGIN
 		
 		;Filename
 		fname[count] = MrMMS_Build_URL_Join(sc[i], instr[j], mode[k], level[l], optdesc[m], $
@@ -218,11 +217,11 @@ VERSION=version
 		;Append the directory name
 		fname[count] = url_base + '/' + fname[count]
 		
-		;Number of files
+		;Number OF files
 		count += 1
-	endfor ;Loop over m
+	ENDFOR ;Loop over m
 	
 	;Return a scalar
-	if count eq 1 then fname = fname[0]
-	return, fname
-end
+	IF count EQ 1 THEN fname = fname[0]
+	RETURN, fname
+END

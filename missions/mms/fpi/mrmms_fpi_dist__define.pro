@@ -771,7 +771,8 @@ end
 ;+
 ;   Load the distribution from source.
 ;-
-pro MrMMS_FPI_Dist::Load_FAC, type_fac
+pro MrMMS_FPI_Dist::Load_FAC, type_fac, $
+FGM_INSTR=fgm_instr
 	compile_opt idl2
 	on_error, 2
 	

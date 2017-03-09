@@ -1389,17 +1389,18 @@ SPLINE=spline
 	compile_opt idl2
 	on_error, 2
 	
+	oXout = MrVar_Get(Xout)
 	if n_elements(name) eq 0 then name = 'Interpol(' + self.name + ')'
 	
 ;-------------------------------------------------------
 ; MrVariable Object ////////////////////////////////////
 ;-------------------------------------------------------
-	if IsA(Xout, 'MrVariable') then begin
+	if IsA(oXout, 'MrVariable') then begin
 		;Get the time variables
-		oT    = self.oTime
-		if obj_isa(Xout, 'MrTimeVar') $
+		oT = self.oTime
+		if obj_isa(oXout, 'MrTimeVar') $
 			then oTout = Xout $
-			else oTout = MrVar_Get(Xout['DEPEND_0'])
+			else oTout = MrVar_Get(oXout['DEPEND_0'])
 		
 		;Reference time
 		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
@@ -1417,7 +1418,7 @@ SPLINE=spline
 	endif else begin
 		;Convert time to
 		t     = self.oTime -> fromISO(t_type)
-		t_out = Xout
+		t_out = oXout
 	endelse
 
 ;-------------------------------------------------------

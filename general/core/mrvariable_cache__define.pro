@@ -535,8 +535,8 @@ REGEX=regex
 		
 		;Check for match
 		if tf_regex $
-			then tf_match = stregex(varname, name, /BOOLEAN) $
-			else tf_match = strmatch(varname, name)
+			then tf_match = max( stregex(varname, name, /BOOLEAN) ) $
+			else tf_match = max( strmatch(name, varname) )
 		
 		;Match?
 		if tf_match then begin

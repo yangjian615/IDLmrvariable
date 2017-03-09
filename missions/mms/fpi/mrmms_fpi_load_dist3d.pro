@@ -50,168 +50,9 @@
 ; :History:
 ;   Modification History::
 ;       2016/08/20  -   Written by Matthew Argall
+;       2017/01/04  -   Remove internally generated photoelectrons. - MRA
 ;-
 ;*****************************************************************************************
-;+
-;   Load data associated with a particular field-aligned coordinate system.
-;
-; :Params:
-;       SC:                 in, required, type=string/strarr
-;                           The MMS spacecraft identifier. Options are:
-;                               {'mms1' | 'mms2' | 'mms3' | 'mms4'}
-;       MODE:               in, required, type=string/strarr
-;                           Telemetry mode of the data. Options include: {'fast' | 'brst'}
-;       SPECIES:            in, optional, type=string, default='e'
-;                           Particle species for which the distribution function is
-;                               to be loaded. Options are: {'e' | 'i'} for electrons
-;                               and ions, respectively.
-;       FAC:                in, optional, type=string
-;                           The field-aligned coordinate system into which the instrument
-;                               look directions should be rotated.
-;
-; :Keywords:
-;       LEVEL:              in, optional, type=string/strarr, default='l2'
-;                           Data quality level. Options include:
-;                               {'sitl' | 'l1b' | 'l2'}
-;       VARNAMES:           out, optional, type=strarr
-;                           Names of all variables that have been loaded.
-;-
-pro MrMMS_FPI_Load_Dist3D_FACData, sc, mode, fac, species, cs, $
-LEVEL    = level, $
-VARNAMES = varnames
-	compile_opt idl2
-	on_error, 2
-	
-	;Load data for coordinate system
-	if fac eq 'VXB' then begin
-		;Load the data
-		MrMMS_FPI_Load_Data, sc, mode, $
-		                     LEVEL     = level, $
-		                     OPTDESC   = 'd' + species + 's-moms', $
-		                     VARFORMAT = '*bulk?_' + cs + '*', $
-		                     VARNAMES  = vec_names
-		
-	endif else if fac eq 'EXB' then begin
-		MrMMS_Load_Data, sc, 'edp', 'fast', level, $
-		                 OPTDESC   = 'dce', $
-		                 VARFORMAT = '*dce_gse*', $
-		                 VARNAMES  = vec_names
-	endif else if fac ne '' then begin
-		message, 'FAC value not recognized: "' + fac + '".'
-	endif
-	
-	;Get B-field data
-	MrMMS_FGM_Load_Data, sc, mode, $
-	                     INSTR     = instr, $
-	                     LEVEL     = level, $
-	                     VARFORMAT = '*_b_gse_*', $
-	                     VARNAMES  = varnames
-	
-	;Combine variable names
-	if n_elements(vec_names) gt 0 then varnames = [varnames, vec_names]
-end
-
-
-;+
-;   Rotate the instrument look-direction grid into field-aligned coordinates.
-;
-; :Params:
-;       SC:                 in, required, type=string/strarr
-;                           The MMS spacecraft identifier. Options are:
-;                               {'mms1' | 'mms2' | 'mms3' | 'mms4'}
-;       MODE:               in, required, type=string/strarr
-;                           Telemetry mode of the data. Options include: {'fast' | 'brst'}
-;       SPECIES:            in, optional, type=string, default='e'
-;                           Particle species for which the distribution function is
-;                               to be loaded. Options are: {'e' | 'i'} for electrons
-;                               and ions, respectively.
-;       FAC:                in, optional, type=string
-;                           The field-aligned coordinate system into which the instrument
-;                               look directions should be rotated.
-;
-; :Keywords:
-;       ORIENTATION:    in, optional, type=integer, default=3
-;                       Orientation of the sphereical grid. See
-;                           MrVar_Grid_Cart2Sphere.pro for options.
-;-
-pro MrMMS_FPI_Load_Dist3D_Rotate, sc, mode, fac, species, cs, $
-VARNAMES=varnames
-	compile_opt idl2
-	on_error, 2
-	
-;-----------------------------------------------------
-; Create Variable Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	
-	;Variable Names
-	theta_vname = sc + '_d' + species + 's_theta_'            + mode
-	phi_vname   = sc + '_d' + species + 's_phi_'              + mode
-	e_vname     = sc + '_d' + species + 's_energy_table_'     + mode
-	dist_vname  = sc + '_d' + species + 's_dist_'             + mode
-	
-	;New variable names
-	phi_fac_vname   = sc + '_d' + species + 's_phi_fac_'   + mode
-	theta_fac_vname = sc + '_d' + species + 's_theta_fac_' + mode
-	dist_fac_vname  = sc + '_d' + species + 's_dist_fac_'  + mode
-
-;-----------------------------------------------------
-; Interpolate Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Get the variables
-	oDist = MrVar_Get(dist_vname)
-	oB    = MrVar_Get(b_vname)
-	oV    = MrVar_Get(vec_vname)
-
-	;Interpolate B and V to the distribution function time tags
-	oB = oB -> Interpol(oDist)
-	oV = oV -> Interpol(oDist)
-
-;-----------------------------------------------------
-; Put time first \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Azimuth
-	oPhi    = MrVar_Get(phi_vname)
-	oPhiTS  = oPhi -> Transpose([1,0])
-	
-	;Distribution
-	oDist    = MrVar_Get(dist_vname)
-	oDistTS  = oDist -> Transpose([3,0,1,2])
-
-;-----------------------------------------------------
-; Rotate Coordinate Systems \\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-
-	;Convert from instrument coordinates to field-aligned coordinates
-	MrVar_Grid_sphere2fac, oB, oPhiTS, theta_vname, oPhi_FAC, oTheta_FAC, $
-	                       ORIENTATION = orientation, $
-	                       /SPHERE, $
-	                       TYPE        = fac, $
-	                       VEC         = oV
-
-;-----------------------------------------------------
-; Store Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Phi
-	oPhi_FAC -> Cache
-	oPhi_FAC -> SetName, phi_fac_vname
-	oPhi_FAC -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
-	
-	;Theta
-	oTheta_FAC -> Cache
-	oTheta_FAC -> SetName, theta_fac_vname
-	oTheta_FAC -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
-
-	;Distribution
-	oDistTS -> SetName, dist_fac_vname
-	MrVar_Replace, oDist, oDistTS
-	oDistTS -> SetAttrValue, 'DEPEND_1', phi_fac_vname
-	oDistTS -> SetAttrValue, 'DEPEND_2', theta_fac_vname
-
-	;Variable names
-	varnames = [phi_fac_vname, theta_fac_vname, dist_fac_vname]
-end
-
-
 ;+
 ;   Create new energy tables and set the distribution function's DEPEND_1-3 variable
 ;   attributes to be variables with physical units.
@@ -220,56 +61,311 @@ end
 ;       NAMES:          in, required, type=string
 ;                       Name of the distribution function variable.
 ;-
-pro MrMMS_FPI_Load_Dist3D_Meta, name
-	compile_opt idl2
-	on_error, 2
+PRO MrMMS_FPI_Load_Dist3D_Meta, name
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Variable name parts
+	;   - sc_instr_energy_mode[_suffix]
+	;      0   1     2     3      4+
+	;    | prefix |      |   suffix   |
+	parts  = StrSplit(name, '_', /EXTRACT)
+	prefix = StrJoin(parts[0:1], '_') + '_'
+	suffix = '_' + StrJoin(parts[3:*], '_')
+	
+	;Names of phi, theta, and new energy tables
+	dist_vname   = prefix + 'dist'             + suffix
+	phi_vname    = prefix + 'phi'              + suffix
+	theta_vname  = prefix + 'theta'            + suffix
+	e0_vname     = prefix + 'energy0'          + suffix
+	e1_vname     = prefix + 'energy1'          + suffix
+	parity_vname = prefix + 'steptable_parity' + suffix
+
+;-----------------------------------------------------
+; Energy Tables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+
+	;BRST mode
+	;   - Two energy tables alternate based on STEPTABLE_PARITY
+	;   - Energies are combined into a single array as of v3.0.0
+	IF MrVar_IsCached(e0_vname) THEN BEGIN
+		;Get the sector, pixel, and energy tables
+		oParity  = MrVar_Get( parity_vname )
+		oEnergy0 = MrVar_Get( e0_vname )
+		oEnergy1 = MrVar_Get( e1_vname )
+		oDist    = MrVar_get( dist_vname )
+	
+		;Names of new energy tables
+		eTable_vname = prefix + 'energy_table'   + suffix
+		eMean_vname  = prefix + 'energy_geomean' + suffix
+	
+		;Create new energy table
+		;   - One time-dependent energy table
+		;   - One combined (average) energy table
+		energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
+		energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_vname, /CACHE)
+		energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_vname,  /CACHE)
+	
+	;SRVY mode
+	ENDIF ELSE BEGIN
+		;There is only one energy table
+		eTable_vname = prefix + 'energy' + suffix
+	ENDELSE
+
+;-----------------------------------------------------
+; Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Set the distribution function dependencies
+	oDist = MrVar_Get(dist_vname)
+	oDist['DEPEND_1'] = MrVar_Get(phi_vname)
+	oDist['DEPEND_2'] = MrVar_Get(theta_vname)
+	oDist['DEPEND_3'] = MrVar_Get(eTable_vname)
+
+;-----------------------------------------------------
+; Adjust DELTA_(PLUS|MINUS)_VAR \\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;
+	; The DELTA_(PLUS|MINUS)_VAR for Phi are twice what they
+	; should be
+	;
+	oPhi   = oDist['DEPEND_1']
+	oTheta = oDist['DEPEND_2']
+	
+	;PHI: Check if the correction is needed
+	;   - DELTA_MINUS_VAR & DELTA_PLUS_VAR are the same variable
+	odMinus = oPhi['DELTA_MINUS_VAR']
+	IF Abs(odMinus[[0]] - 11.25/2.0) GT 1.0 THEN BEGIN
+		MrPrintF, 'LogWarn', 'Correcting FPI Dist PHI DELTA+/-.'
+		odMinus -> SetData, odMinus['DATA'] / 2.0
+	ENDIF ELSE BEGIN
+		MrPrintF, 'LogWarn', 'FPI Dist PHI DELTA+/- Fixed.'
+	ENDELSE
+
+;-----------------------------------------------------
+; Clean Up Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;
+	; The *energyspectr* variables in the FPI moments files
+	; also have and energy table as a support data variable.
+	; So that the one created here is not overwritten by
+	; moments files, it is removed from the cache and left
+	; in-tact as a variable attribute.
+	;
+	; Do not delete other energy tables or parity state. They
+	; can be useful elsewhere (e.g. calculating the photo-
+	; electron model distribution) and are not stored anywhere
+	; else (i.e. as a variable attribute).
+	;
+	MrVar_Remove, [phi_vname, theta_vname, eTable_vname]
+END
+
+
+;+
+;   Load the internal photoelectron model and correct the distribution.
+;
+; :Params:
+;       NAMES:          in, required, type=string
+;                       Name of the distribution function variable.
+;-
+PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Variable name parts
 	;   - sc_instr_energy_mode[_suffix]
 	;      0   1     2     3      4+
 	;    | prefix |      |   suffix   |
 	parts  = strsplit(name, '_', /EXTRACT)
-	prefix = strjoin(parts[0:1], '_') + '_'
-	suffix = '_' + strjoin(parts[3:*], '_')
+	sc     = parts[0]
+	instr  = parts[1]
+	mode   = parts[3]
+	suffix = N_Elements(parts) EQ 4 ? '' : StrJoin(parts[4:*], '_')
+	
+	;Source Distribution
+	f_vname      = StrJoin( [sc, instr, 'dist',                  mode], '_' ) + suffix
+	dphi_vname   = StrJoin( [sc, instr, 'startdelphi', 'count',  mode], '_' ) + suffix
+	parity_vname = StrJoin( [sc, instr, 'steptable',   'parity', mode], '_' ) + suffix
 
-	;BRST mode
-	;   - Two energy tables alternate based on STEPTABLE_PARITY
-	if stregex(parts[3], '^brst', /BOOLEAN) then begin
-		;Get the sector, pixel, and energy tables
-		oParity  = MrVar_Get( prefix + 'steptable_parity' + suffix )
-		oEnergy0 = MrVar_Get( prefix + 'energy0'          + suffix )
-		oEnergy1 = MrVar_Get( prefix + 'energy1'          + suffix )
-		oDist    = MrVar_get( prefix + 'dist'             + suffix )
-	
-		;Create new energy table
-		;   - One time-dependent energy table
-		;   - One combined (average) energy table
-		energy      = transpose( [ [oEnergy0['DATA']], [oEnergy1['DATA']] ] )
-		energy_full = MrVariable( energy[oParity['DATA'], *],                NAME=eTable_name, /CACHE)
-		energy_mean = MrVariable( reform( sqrt(energy[0,*] * energy[1,*]) ), NAME=eMean_name,  /CACHE)
-		
-		;Names of new energy tables
-		eTable_name = prefix + 'energy_table'   + suffix
-		eMean_name  = prefix + 'energy_geomean' + suffix
-	
-	;SRVY mode
-	endif else begin
-		;There is only one energy table
-		eTable_name = prefix + 'energy' + suffix
-	endelse
-	
-	;Names of phi, theta, and new energy tables
-	dist_name   = prefix + 'dist'  + suffix
-	phi_name    = prefix + 'phi'   + suffix
-	theta_name  = prefix + 'theta' + suffix
-		
-	;Set the distribution function dependencies
-	oDist  = MrVar_Get(dist_name)
-	oDist -> SetAttrValue, 'DEPEND_1', phi_name
-	oDist -> SetAttrValue, 'DEPEND_2', theta_name
-	oDist -> SetAttrValue, 'DEPEND_3', eTable_name
-end
+	;Source Photoelectron model
+	model_suffix  = '_model'
+	ph_dphi_vname = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + model_suffix
+	ph_f0_vname   = StrJoin( ['mms', instr, 'bgdist',      'p0',     mode], '_' ) + model_suffix
+	ph_f1_vname   = StrJoin( ['mms', instr, 'bgdist',      'p1',     mode], '_' ) + model_suffix
+	ph_e0_vname   = StrJoin( ['mms', instr, 'energy0',               mode], '_' ) + model_suffix
+	ph_e1_vname   = StrJoin( ['mms', instr, 'energy1',               mode], '_' ) + model_suffix
+	ph_scl_vname  = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + model_suffix
 
+	;Derived names
+	fph_vname = StrJoin([sc, instr, 'dist', 'photo', mode], '_')
+
+	;Photoelectron model
+	;   - Only exist for electrons
+	MrMMS_FPI_Load_Models, sc, mode, 'e', $
+	                       SUFFIX = model_suffix
+
+	;Create f_photo
+	ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
+	                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
+	                                parity_vname, $
+	                                /CACHE, $
+	                                NAME = fph_vname )
+	
+	;Subtract the model from the distribution
+	;   - Set all negative contributions to zero
+	oDist   = MrVar_Get(f_vname)
+	oDistTS = oDist - ofPhoto > 0
+	
+	;Replace the old variable with the new
+	oDist -> CopyAttrTo, oDistTS
+	MrVar_Replace, oDist, oDistTS
+	oDistTS -> SetName, f_vname
+END
+
+
+;+
+;   Rotate the distribution into a field-aligned coordinate system.
+;
+; :Params:
+;       NAMES:          in, required, type=string
+;                       Name of the distribution function variable.
+;-
+PRO MrMMS_FPI_Load_Dist3D_Rotate, name, par, perp, fac, $
+ORIENTATION=orientation, $
+VARNAMES=varnames
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Variable name parts
+	;   - sc_instr_energy_mode[_suffix]
+	;      0   1     2     3      4+
+	;    | prefix |      |   suffix   |
+	parts   = strsplit(name, '_', /EXTRACT)
+	sc      = parts[0]
+	instr   = parts[1]
+	mode    = parts[3]
+	species = StrMid(instr, 1, 1)
+	suffix  = N_Elements(parts) EQ 4 ? '' : StrJoin(parts[4:*], '_')
+	
+	;Source Distribution
+	f_vname = StrJoin( [sc, instr, 'dist', mode], '_' ) + suffix
+	
+	;Derived names
+	dist_fac_vname  = StrJoin( [sc, instr, 'dist',  'fac', mode], '_' ) + suffix
+	phi_fac_vname   = StrJoin( [sc, instr, 'phi',   'fac', mode], '_' ) + suffix
+	theta_fac_vname = StrJoin( [sc, instr, 'theta', 'fac', mode], '_' ) + suffix
+
+;-----------------------------------------------------
+; Rotate Coords to FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Grab the distribution
+	oDist = MrVar_Get(name)
+
+	;Convert from instrument coordinates to field-aligned coordinates
+	MrVar_Grid_sphere2fac, par, oDist['DEPEND_1'], oDist['DEPEND_2'], oPhi_FAC, oTheta_FAC, $
+	                       ORIENTATION = orientation, $
+	                       /SPHERE, $
+	                       FAC         = fac, $
+	                       VEC         = perp
+
+;-----------------------------------------------------
+; Store Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Set names
+	oPhi_FAC   -> SetName, phi_fac_vname
+	oTheta_FAC -> SetName, theta_fac_vname
+	
+	;Add to cache
+	oPhi_FAC   -> Cache
+	oTheta_FAC -> Cache
+	
+	;Set time dependence
+	IF mode EQ 'brst' THEN BEGIN
+MrPrintF, 'LogText', 'Stopping to see if DEPEND_0 was set correctly.'
+stop
+;		oPhi_FAC['DEPEND_0']   = oDist['DEPEND_0']
+;		oTheta_FAC['DEPEND_0'] = oDist['DEPEND_0']
+	ENDIF
+
+	;Distribution
+	oDist_FAC  = oDist -> Copy()
+	oDist_FAC -> SetName, dist_fac_vname
+	oDist_FAC -> Cache
+	oDist_FAC['DEPEND_1'] = oPhi_FAC
+	oDist_FAC['DEPEND_2'] = oTheta_FAC
+
+	;Variable names
+	varnames = [dist_fac_vname, phi_fac_vname, theta_fac_vname, oDist['DEPEND_3']]
+END
+
+
+;+
+;   Rotate the distribution into a field-aligned coordinate system.
+;
+; :Params:
+;       NAMES:          in, required, type=string
+;                       Name of the distribution function variable.
+;-
+PRO MrMMS_FPI_Load_Dist3D_Orient, name, par, perp, fac, $
+ORIENTATION=orientation, $
+VARNAMES=varnames
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Variable name parts
+	;   - sc_instr_energy_mode[_suffix]
+	;      0   1     2     3      4+
+	;    | prefix |      |   suffix   |
+	parts   = strsplit(name, '_', /EXTRACT)
+	sc      = parts[0]
+	instr   = parts[1]
+	mode    = parts[3]
+	species = StrMid(instr, 1, 1)
+	suffix  = N_Elements(parts) EQ 4 ? '' : StrJoin(parts[4:*], '_')
+	
+	;Source Distribution
+	f_vname     = StrJoin( [sc, instr, 'dist',  mode], '_' ) + suffix
+	phi_vname   = StrJoin( [sc, instr, 'phi',   mode], '_' ) + suffix
+	theta_vname = StrJoin( [sc, instr, 'theta', mode], '_' ) + suffix
+	
+	;Derived names
+	dist_fac_vname  = StrJoin( [sc, instr, 'dist',  'grid', mode], '_' ) + suffix
+	phi_fac_vname   = StrJoin( [sc, instr, 'phi',   'grid', mode], '_' ) + suffix
+	theta_fac_vname = StrJoin( [sc, instr, 'theta', 'grid', mode], '_' ) + suffix
+
+;-----------------------------------------------------
+; Change Orientations \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Create the cartesian grid
+	oDist = MrVar_Get(f_name)
+	MrVar_Grid_MakeCart, oDist['DEPEND_1'], oDist['DEPEND_2'], oX, oY, oZ, /DEGREES
+	
+	;Convert back to spherical grid
+	MrVar_Grid_Cart2Sphere, oX, oY, oZ, oPhiGrid, oThetaGrid, $
+	                        /DEGREES, $
+	                        ORIENTATION = orientation
+
+MrPrintF, 'LogText', 'Stopping to see if DEPEND_0 was set correctly.'
+stop
+	
+	;Save PHI
+	oPhiGrid -> SetName, phi_grid_vname
+	oPhiGrid -> Cache
+	oPhiGrid['DEPEND_0'] = oDistTS['DEPEND_0']
+	oPhiGrid['DEPEND_1'] = phi_vname
+	oPhiGrid['DEPEND_2'] = theta_vname
+	
+	;Save THETA
+	oThetaGrid -> SetName, theta_grid_vname
+	oThetaGrid -> Cache
+	oThetaGrid['DEPEND_0'] = oDist['DEPEND_0']
+	oThetaGrid['DEPEND_1'] = phi_vname
+	oThetaGrid['DEPEND_2'] = theta_vname
+	
+	;Update varnames
+	varnames = [f_vname, phi_grid_vname, theta_grid_vname]
+END
 
 
 ;+
@@ -285,20 +381,33 @@ end
 ;                           Particle species for which the distribution function is
 ;                               to be loaded. Options are: {'e' | 'i'} for electrons
 ;                               and ions, respectively.
-;       FAC:                in, optional, type=string
-;                           The field-aligned coordinate system into which the instrument
-;                               look directions should be rotated.
 ;
 ; :Keywords:
 ;       COORD_SYS:          in, optional, type=string, default='gse'
 ;                           Coordinate system of the original distribution function.
 ;                               Options are: {'dbcs' | 'gse'}.
+;       FAC:                in, optional, type=string
+;                           The field-aligned coordinate system into which the instrument
+;                               look directions should be rotated. Used only if `PAR` and
+;                               `PERP` are given. See MrVar_FAC for options.
 ;       LEVEL:              in, optional, type=string/strarr, default='l2'
 ;                           Data quality level. Options include:
 ;                               {'sitl' | 'l1b' | 'l2'}
 ;       ORIENTATION:        in, optional, type=integer, default=3
 ;                           Orientation of the sphereical grid. See
 ;                               MrVar_Grid_Cart2Sphere.pro for options.
+;       PAR:                in, optional, type=objref/string/integer
+;                           The name, number or MrVectorTS object of the vector that
+;                               defines the parallel- (z-) axis of the field-aligned
+;                               coordinate system into which the distribution is rotated.
+;       PERP:               in, optional, type=objref/string/integer
+;                           The name, number or MrVectorTS object of the vector that
+;                               defines the perpendicular axis of the field-aligned
+;                               coordinate system into which the distribution is rotated.
+;                               Used only if `PAR` is given.
+;       PHOTO_MODEL:        in, optional, type=boolean, default=0
+;                           If set, the photoelectron model that corrects this distribution
+;                               will be loaded into the cache.
 ;       TEAM_SITE:          in, optional, type=boolean, default=0
 ;                           If set, requests will be sent to the team site (password
 ;                               required, L1A and above). Automatically set if `LEVEL`
@@ -308,10 +417,14 @@ end
 ;       VARNAMES:           out, optional, type=strarr
 ;                           Names of all variables that have been loaded.
 ;-
-pro MrMMS_FPI_Load_Dist3D, sc, mode, species, fac, $
+pro MrMMS_FPI_Load_Dist3D, sc, mode, species, $
+APPLY_MODEL=apply_model, $
 COORD_SYS=coord_sys, $
+FAC=fac, $
 LEVEL=level, $
 ORIENTATION=orientation, $
+PAR=par, $
+PERP=perp, $
 SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
@@ -327,6 +440,7 @@ VARNAMES=varnames
 	
 	;Check inputs
 	cs = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
+	tf_apply_model = keyword_set(apply_model)
 	if n_elements(level)   eq 0 then level   = 'l2'
 	if n_elements(species) eq 0 then species = 'e'
 	if n_elements(suffix)  eq 0 then suffix  = ''
@@ -337,8 +451,8 @@ VARNAMES=varnames
 	
 	;Fast and Brst are organized differently
 	if mode eq 'fast' $
-		then varformat = ['*_dist_*', '*_theta_*', '*_energy_*', '*_phi_*'] $
-		else varformat = ['*dist_*', '*energy?*', '*phi*', '*theta*', '*steptable*']
+		then varformat = ['*_dist_*', '*_theta_*', '*_energy_*', '*_phi_*', '*startdelphi*'] $
+		else varformat = ['*dist_*', '*energy?*', '*phi*', '*theta*', '*startdelphi*', '*steptable*']
 
 ;-----------------------------------------------------
 ; Load the FPI \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -350,106 +464,34 @@ VARNAMES=varnames
 	                 TEAM_SITE = team_site, $
 	                 VARFORMAT = varformat, $
 	                 VARNAMES  = varnames
-	
+
 	;Associate variable attributes with DEPEND_[0-3]
 	dist_vname = sc + '_d' + species + 's_dist_' + mode
 	MrMMS_FPI_Load_Dist3D_Meta, dist_vname
 
-	;Put time first
-	oDist   = MrVar_Get(dist_vname)
-	oDistTS = oDist -> Transpose([3,0,1,2])
+;-----------------------------------------------------
+; Correct for Internal Photoelectrons \\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Correct the distribution for internally generated photoelectrons
+	IF tf_apply_model && species EQ 'e' $
+		THEN MrMMS_FPI_Load_Dist3D_ePhoto, dist_vname
 
 ;-----------------------------------------------------
 ; FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	if n_elements(fac) gt 0 then begin
-
-	;-----------------------------------------------------
-	; Rotate to FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;Load FAC data and interpolate onto FPI-DIST data
-		MrMMS_FGM_Load_FAC_Data, sc, mode, fac, dist_vname, $
-		                         SUFFIX   = suffix, $
-		                         VARNAMES = fac_vnames
-		
-		;FAC variables
-		b_vname = fac_vnames[0]
-		if n_elements(fac_vnames) gt 1 then perp_vname = fac_vnames[1]
-
-		;Convert from instrument coordinates to field-aligned coordinates
-		MrVar_Grid_sphere2fac, b_vname, oDist['DEPEND_1'], oDist['DEPEND_2'], oPhi_FAC, oTheta_FAC, $
-		                       ORIENTATION = orientation, $
-		                       /SPHERE, $
-		                       TYPE        = fac, $
-		                       VEC         = perp_vname
-	
-	;-----------------------------------------------------
-	; Store Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-	;-----------------------------------------------------
-		;Output Names
-		dist_fac_vname  = sc + '_d' + species + 's_dist_fac_'  + mode + suffix
-		phi_fac_vname   = sc + '_d' + species + 's_phi_fac_'   + mode + suffix
-		theta_fac_vname = sc + '_d' + species + 's_theta_fac_' + mode + suffix
-		
-		;Set names
-		oPhi_FAC   -> SetName, phi_fac_vname
-		oTheta_FAC -> SetName, theta_fac_vname
-		
-		;Add to variable cache
-		oPhi_FAC   -> Cache
-		oTheta_FAC -> Cache
-		
-		;Set time dependence
-		if mode eq 'brst' then begin
-			oPhi_FAC   -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
-			oTheta_FAC -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
-		endif
-	
-		;Distribution
-		oDistTS -> SetName, dist_fac_vname
-		MrVar_Replace, oDist, oDistTS
-		oDistTS -> SetAttrValue, 'DEPEND_1', phi_fac_vname
-		oDistTS -> SetAttrValue, 'DEPEND_2', theta_fac_vname
-	
-		;Variable names
-		varnames = [dist_vname, phi_fac_vname, theta_fac_vname, oDist['DEPEND_3'], fac_vnames]
+	;Rotate to FAC
+	IF N_Elements(par) GT 0 THEN BEGIN
+		MrMMS_FPI_Load_Dist3D_Rotate, dist_vname, par, perp, fac, $
+		                              ORIENTATION = orientation, $
+		                              VARNAMES    = varnames
 
 ;-----------------------------------------------------
 ; Create Grid \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	endif else begin
-		;Data variable names
-		phi_vname   = string(sc, species, level, FORMAT='(%"%s_d%ss_phi_%s")')
-		theta_vname = string(sc, species, level, FORMAT='(%"%s_d%ss_theta_%s")')
-		dist_vname  = string(sc, species, level, FORMAT='(%"%s_d%ss_dist_%s")')
-		
-		;Output variable names
-		phi_grid_vname   = string(sc, species, level, FORMAT='(%"%s_d%ss_phi_grid_%s")')
-		theta_grid_vname = string(sc, species, level, FORMAT='(%"%s_d%ss_theta_grid_%s")')
-		
-		;Create the cartesian grid
-		MrVar_Grid_Sphere2Cart, phi_vname, theta_vname, oX, oY, oZ, /DEGREES
-		
-		;Convert back to spherical grid
-		MrVar_Grid_Cart2Sphere, oX, oY, oZ, oPhiGrid, oThetaGrid, $
-		                        /DEGREES, $
-		                        ORIENTATION = orientation
-		
-		;Save PHI
-		oPhiGrid -> SetName, phi_grid_vname
-		oPhiGrid -> Cache
-		oPhiGrid -> AddAttr, 'DEPEND_0', oDistTS['DEPEND_0']
-		oPhiGrid -> AddAttr, 'DEPEND_1', phi_vname
-		oPhiGrid -> AddAttr, 'DEPEND_2', theta_vname
-		
-		;Save THETA
-		oThetaGrid -> SetName, theta_grid_vname
-		oThetaGrid -> Cache
-		oThetaGrid -> AddAttr, 'DEPEND_0', oDist['DEPEND_0']
-		oThetaGrid -> AddAttr, 'DEPEND_1', phi_vname
-		oThetaGrid -> AddAttr, 'DEPEND_2', theta_vname
-		
-		;Update varnames
-		varnames = [varnames, phi_grid_vname, theta_grid_vname]
-	endelse
-end
+	ENDIF ELSE IF N_Elements(orientation) GT 0 THEN BEGIN
+		MrMMS_FPI_Load_Dist3D_Orient, dist_vname, par, perp, fac, $
+		                              ORIENTATION = orientation, $
+		                              VARNAMES    = varnames
+	ENDIF
+END

@@ -72,6 +72,7 @@
 ;       2016/11/27  -   Written by Matthew Argall
 ;-
 function MrMMS_Plot_CurvScatter, sc, mode, species, $
+ENERGIES=energies, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	compile_opt idl2
@@ -84,11 +85,11 @@ TRANGE=trange
 		return, !Null
 	endif
 	
-	Bmirror  = [33,47]                   ;nT
-	energies = [20, 100, 200, 500]       ;eV
+	Bmirror  = [65]                   ;nT
 	tf_load = ~keyword_set(no_load)
-	if n_elements(species) eq 0 then species = 'e'
-	if n_elements(trange)  gt 0 then MrVar_SetTRange, trange
+	if n_elements(energies) eq 0 then energies = [20, 100, 200, 500]       ;eV
+	if n_elements(species)  eq 0 then species  = 'e'
+	if n_elements(trange)   gt 0 then MrVar_SetTRange, trange
 	
 	;Get the mass
 	case species of
@@ -116,6 +117,7 @@ TRANGE=trange
 	coords   = 'gse'
 
 	;Source names
+	b_vname       = sc + '_' + fgm_instr + '_b_'    + coords + '_' + fgm_mode + '_' + fgm_level
 	bvec_vname    = sc + '_' + fgm_instr + '_bvec_' + coords + '_' + fgm_mode + '_' + fgm_level
 	bmag_vname    = sc + '_' + fgm_instr + '_bmag_' + coords + '_' + fgm_mode + '_' + fgm_level
 	b1_vec_vname  = 'mms1_'  + fgm_instr + '_bvec_' + coords + '_' + fgm_mode + '_' + fgm_level
@@ -162,7 +164,7 @@ TRANGE=trange
 		oFPI = MrMMS_FPI_Dist( sc, fpi_mode, species, $
 		                       COORD_SYS = 'gse', $
 		                       LEVEL     = level )
-		oFPI -> Load_FAC, fac_type
+		oFPI -> Load_FAC, fac_type, FGM_INSTR=fgm_instr
 		
 		;4D Distribution
 		oDist = oFPI -> GetDist4D(NAME=dist4d_vname, /CACHE)
@@ -171,6 +173,19 @@ TRANGE=trange
 		oPAD  = oDist -> GetThetaSpec( /CACHE, $
 		                               E_RANGE = [150,250], $
 		                               NAME = pad_vname )
+	endif
+	
+	if ~MrVar_IsCached(bvec_vname) then begin
+		b_vname      = sc + '_' + fgm_instr + '_'     + fgm_mode + '_' + fgm_level + '_' + coords
+		bvec_vname   = sc + '_' + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
+		bmag_vname   = sc + '_' + fgm_instr + '_mag_' + fgm_mode + '_' + fgm_level + '_' + coords
+		b1_vec_vname = 'mms1_'  + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
+		b2_vec_vname = 'mms2_'  + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
+		b3_vec_vname = 'mms3_'  + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
+		b4_vec_vname = 'mms4_'  + fgm_instr + '_vec_' + fgm_mode + '_' + fgm_level + '_' + coords
+
+		if ~MrVar_IsCached(bvec_vname) $
+			then message, 'Problem with FGM variable names.'
 	endif
 
 ;-------------------------------------------
