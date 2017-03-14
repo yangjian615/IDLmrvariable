@@ -74,6 +74,9 @@
 ;                                         x' = (PARxPERP)xPAR  Perp1 direction
 ;
 ; :Keywords:
+;       AXLABELS:       out, optional, type=strarr(3)
+;                       Strings indicating how the X, Y, and Z unit vectors in the output
+;                           coordinate system were calculated.
 ;       TIME:           in, required, type=string/integer/object
 ;                       Name, index, or objref of a MrTimeVar or MrTimeSeries variable.
 ;                           `PAR` and `PERP` are interpolated to the time tags in TIME.
@@ -98,8 +101,10 @@
 ;       2016/12/09  -   Interplate V onto B if they do not have the same time tags.
 ;                           Removed TYPE keyword, added FAC parameter. - MRA
 ;       2017/01/22  -   Switched order of `PERP` and `FAC` params. Added `TIME` keyword. - MRA
+;       2017/03/09  -   'RADAZ' system now correct. Added AXLABEL keyword. - MRA
 ;-
 FUNCTION MrVar_FAC, par, perp, fac, $
+AXLABELS=axlabels, $
 TIME=time
 	Compile_Opt idl2
 	On_Error, 2
@@ -153,6 +158,9 @@ TIME=time
 		
 		;Perp-2: Bx(ExB)
 		oY_hat = oZ_hat -> Cross(oX_hat)
+		
+		;Axis labels
+		axlabels = ['ExB', 'Bx(ExB)', 'B']
 
 ;-----------------------------------------------------
 ; Velocity \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -167,6 +175,9 @@ TIME=time
 		
 		;Perp-1: (bxv)xb = exb
 		oX_hat = oY_hat -> Cross(oZ_hat)
+		
+		;Axis labels
+		axlabels = ['(BxV)xB', 'BxV', 'B']
 
 ;-----------------------------------------------------
 ; Radial/Azimuthal \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -176,11 +187,14 @@ TIME=time
 		;   - oZ_hat = oB_hat
 		
 		;Perp2: bxr (azimuth)
-		oY_hat = oZ_hat -> Cross(oPerp_hat)
-		oY_hat = oY_hat -> Normalize()
+		oX_hat = oZ_hat -> Cross(oPerp_hat)
+		oX_hat = oY_hat -> Normalize()
 		
 		;Perp1: bx(bxr) (radial)
-		oX_hat = oY_hat -> Cross(oZ_hat)
+		oY_hat = oZ_hat -> Cross(oX_hat)
+		
+		;Axis labels
+		axlabels = ['BxR', 'Bx(BxR)', 'B']
 
 ;-----------------------------------------------------
 ; X-Axis \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -195,6 +209,9 @@ TIME=time
 		
 		;Perp1: Yx(XxB)
 		oX_hat = oY_hat -> Cross(oZ_hat)
+		
+		;Axis labels
+		axlabels = ['(BxX)xB', 'BxX', 'B']
 
 ;-----------------------------------------------------
 ; Custom \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -206,6 +223,9 @@ TIME=time
 		
 		;Perp1 = Yx(PARxPERP)
 		oX_hat = oY_hat -> Cross(oPar_hat)
+		
+		;Axis labels
+		axlabels = ['(PARxPERP)xPAR', 'PARxPERP', 'PAR']
 		
 ;-----------------------------------------------------
 ; Unknown \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\

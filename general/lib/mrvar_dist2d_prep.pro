@@ -511,7 +511,7 @@ NAME=name
 	oDist = MrVar_Dist2D_Pick(oDistIn, idx)
 	
 	;Convert E to V
-	IF tf_energy THEN MrVar_Dist2D_E2V, oDist, mass
+	IF ~tf_energy THEN MrVar_Dist2D_E2V, oDist, mass
 
 	;Conver Degrees to Radians
 	MrVar_Dist2D_Deg2Rad, oDist

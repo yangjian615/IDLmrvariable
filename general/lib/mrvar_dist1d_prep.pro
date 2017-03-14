@@ -415,7 +415,7 @@ POLAR=polar
 	;   - Pick a single distribution
 	;   - Energy  --> Velocity
 	;   - Degrees --> Radians
-	oDist2D = MrVar_Dist2D_Prep(theDist, theMass, theIdx, ENERGY=~tf_polar)
+	oDist2D = MrVar_Dist2D_Prep(theDist, theMass, theIdx, ENERGY=tf_polar)
 
 	;Center angular bins
 	MrVar_Dist1D_CenterBins, oDist2D['DEPEND_1']
