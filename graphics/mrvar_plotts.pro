@@ -82,8 +82,10 @@
 ;   Modification History::
 ;       2016/08/13  -   Written by Matthew Argall
 ;       2016/10/03  -   Added the LAYOUT and NO_REFRESH keywords. - MRA
+;       2017/03/09  -   Added the CURRENT keyword. - MRA
 ;-
 function MrVar_PlotTS, variables, $
+CURRENT=current, $
 LAYOUT=layout, $
 NO_REFRESH=no_refresh, $
 XSIZE=xsize, $
@@ -124,7 +126,10 @@ YSIZE=ysize
 	
 	;Number of variables to plot
 	nVars      = n_elements(variables)
-	tf_refresh = ~keyword_set(no_refresh)
+	tf_current = keyword_set(current)
+	if n_elements(no_refresh) gt 0 $
+		then tf_refresh = ~keyword_set(no_refresh) $
+		else tf_refresh = 1B
 	
 	;Plot layout
 	if n_elements(layout) eq 0 then begin
@@ -136,7 +141,18 @@ YSIZE=ysize
 ;-------------------------------------------
 ; Create the Window ////////////////////////
 ;-------------------------------------------
-	win = MrWindow(LAYOUT=layout, XSIZE=xsize, YGAP=0.5, YSIZE=ysize, REFRESH=0)
+	;Get the window
+	if keyword_set(current) then begin
+		win        = GetMrWindows(/CURRENT)
+		tf_refresh = win -> GetRefresh()
+		win       -> Refresh, /DISABLE
+	endif else begin
+		win = MrWindow( LAYOUT  = layout, $
+		                XSIZE   = xsize, $
+		                YGAP    = 0.5, $
+		                YSIZE   = ysize, $
+		                REFRESH = 0 )
+	endelse
 
 ;-------------------------------------------
 ; Step Through Each Variable ///////////////
