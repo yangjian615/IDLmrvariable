@@ -186,9 +186,6 @@ end
 ;                           together, they will be put into a 2D array, having the same
 ;                           number of columns as there are members in the group. The
 ;                           default is to put each column in its own group.
-;    HASH:              in, optional, type=boolean, default=0
-;                       If set, `DATA` will be returned as a hash instead of a structure.
-;                           The hash keys will be the same as `COLUMN_NAMES`.
 ;    HEADER:            out, optional, type=strarr
 ;                       Set to a named variable to get the header information skipped by
 ;                           `DATA_START`
@@ -210,18 +207,16 @@ end
 ;                           `COLUMN_TYPES`, `COLUMN_LOCATIONS`, `DATA_START`,
 ;                           `COMMENT_SYMBOL`, `DELIMITER`, `GROUPS`, and `MISSING_VALUE`.
 ;    TEMPLATE:          in, out, opitonal, type=structure
-;                       An template returned by Ascii_Template(). If provided, all of the
+;                       A template returned by Ascii_Template(). If provided, all of the
 ;                           keywords related to Ascii_Template will be ignored. Upon exit,
 ;                           the template used to read the ascii file will be returned via
 ;                           this keyword.
-;    TFORMAT:           in, opitonal, type=string, default='%Y-%M-%dT%H:%m:%S%f'
+;    T_TYPE:            in, opitonal, type=string, default='%Y-%M-%dT%H:%m:%S%f'
 ;                       A MrTokens pattern describing how epoch variables can be parsed.
 ;                           If a field in `COLUMN_NAMES` is "Epoch", all groups are
 ;                           considered time-dependent on this epoch column.
-;                       An template returned by Ascii_Template(). If provided, all of the
-;                           keywords related to Ascii_Template will be ignored. Upon exit,
-;                           the template used to read the ascii file will be returned via
-;                           this keyword.
+;    T_REF:             in, opitonal, type=string
+;                       Set this equal to the time to which `T_TYPE` is referenced.
 ;    VARFORMAT:         in, optional, type=string/strarr
 ;                       Only the `COLUMN_NAMES` that match this string via StrMatch will
 ;                           be loaded into the variable cache.
@@ -232,7 +227,7 @@ end
 ;                           type of time series variable to create (e.g. MrScalarTS). The
 ;                           default is to create a MrScalarTS object for single column
 ;                           groups and MrTimeSeries objects for multiple column groups.
-;                           There must be one entry per uniq group.
+;                           There must be one entry per unique group.
 ;    VERBOSE:           in, optional, type=boolean
 ;                       Set to print runtime messages
 ;-
@@ -242,7 +237,8 @@ NHEADER=nHeader, $
 NFOOTER=nFooter, $
 SELECT=select, $
 ;MrVariable
-TFORMAT=tformat, $
+T_TYPE=t_type, $
+T_REF=t_ref, $
 TRANGE=trange, $
 VARNAMES=varnames, $
 VARFORMAT=varformat, $
@@ -308,9 +304,10 @@ VERBOSE=verbose
 ;-----------------------------------------------------
 	if nEpoch gt 0 then begin
 		;Extract the time
-		oTime = MrTimeVar( data.(iEpoch), tformat, $
-		                   NAME = varnames[iEpoch], $
-		                   /NO_CLOBBER )
+		oTime = MrTimeVar( data.(iEpoch), t_type, $
+		                   NAME  = varnames[iEpoch], $
+		                   /NO_CLOBBER, $
+		                   T_REF = t_ref )
 		varnames[iEpoch] = oTime.name
 
 		;Create MrTimeSeries variables
@@ -345,7 +342,7 @@ VERBOSE=verbose
 		
 		;Destroy the data
 		data   = !Null
-		iMatch = iMatch[nMatch-1]
+		iMatch = iMatch[0:nMatch-1]
 
 		;Trim time
 		;   - The epoch variable is not in the cache
