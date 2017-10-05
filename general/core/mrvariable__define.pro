@@ -72,6 +72,17 @@
 ;       2016/10/24  -   Added the InnerProduct and OuterProduct methods. - MRA
 ;       2016/10/28  -   DEPEND_[0-3] and DELTA_(MINUS|PLUS)_VAR attributes can
 ;                           have MrVariable objects as values. - MRA
+;       2017/03/16  -   If pointers (i.e. variable names) are given to attributes, the
+;                           pointer is followed and the object reference is stored as
+;                           the attribute value. - MRA
+;       2017/03/31  -   Testing revealed VAR->GetData() is faster than VAR['DATA'],
+;                           so the change was made in all ::_Overload methods.
+;                           _OverloadBracketsRightSide returns an object with DEPEND_# and
+;                           DELTA_(PLUS|MINUS)_VAR attributes are propertly reduced.
+;                           _OverloadBracketsLeftSide accepts MrVariable objects. - MRA
+;       2017/08/03  -   UNITS attribute is now saved as an IDLunit object. Units can
+;                           be set initially via bracket overloading, but can only be
+;                           changed via the ::SetUnits method. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -153,6 +164,11 @@
 ;                               are to be converted to an array.
 ;       TYPE:               in, optional, type=int/string, default='FLOAT'
 ;                           The type of array to be created. Used with `MAKE`.
+;       VERBOSE:            in, optional, type=byte, default=1
+;                           Level of verboseness of printed messages. Options are::
+;                               0 - Quiet
+;                               1 - Less verbose
+;                               2 - More verbose
 ;       _REF_EXTRA:         in, optional, type=any
 ;                           Any keyword accepted by IDL's Make_Array, RandomU, or RandomN
 ;                               function, or by the ToArray method, depending on the
@@ -169,6 +185,7 @@ RANDOM=random, $
 SEED=seed, $
 TO_ARRAY=to_array, $
 TYPE=type, $
+VERBOSE=verbose, $
 _REF_EXTRA=extra
 	compile_opt idl2
 
@@ -182,7 +199,8 @@ _REF_EXTRA=extra
 
 	;Defaults
 	tf_cache = keyword_set(cache)
-	if n_elements(name) eq 0 then name = 'MrVariable'
+	if n_elements(name)    eq 0 then name    = 'MrVariable'
+	if n_elements(verbose) eq 0 then verbose = 1B
 
 	;Allocate heap to pointers.
 	self.attributes       = hash()
@@ -214,7 +232,8 @@ _REF_EXTRA=extra
 	endcase
 
 	;Set properties
-	if n_elements(name) gt 0 then self -> SetName, name
+	self -> SetName, name
+	self -> SetProperty, VERBOSE=verbose
 	
 	;Cache the array
 	if tf_cache then self -> Cache, NO_CLOBBER=no_clobber
@@ -261,6 +280,11 @@ end
 ;       RIGHT:              out, required, type=long
 ;                           The argument that appears on the left side of the operator. 
 ;                               Possibly the implicit "self".
+;
+; :Keywords:
+;       ISMRVARIABLE:       out, optional, type=boolean
+;                           Returns true (1) if the non-"self" parameter is also a
+;                               MrVariable object and false (0) otherwise.
 ;
 ; :Returns:
 ;       SIDE:               Returns 'RIGHT' if "self" was provided on the right side of
@@ -331,12 +355,14 @@ function MrVariable::_OverloadAnd, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) and right['DATA']
+		result = (*self.data) and (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' AND ' + right.name
+		name = 'AND(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -355,12 +381,12 @@ function MrVariable::_OverloadAnd, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' AND ' + rname
+			name = 'AND(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' AND ' + self.name
+			name = 'AND(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -403,9 +429,11 @@ function MrVariable::_OverloadAsterisk, left, right
 ; Two MrVariable Objects //////////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Multiply
-		result = *self.data * right['DATA']
+		result = *self.data * (right -> GetData())
 
 		;Create a new name
 		name = 'Multiply(' + self.name + ',' + right.name + ')'
@@ -427,12 +455,12 @@ function MrVariable::_OverloadAsterisk, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + '*' + rname
+			name = 'Multiply(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + '*' + self.name
+			name = 'Multiply(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -475,9 +503,11 @@ function MrVariable::_OverloadCaret, left, right
 ; Two MrVariable Objects //////////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Caret
-		result = (*self.data) ^ right['DATA']
+		result = (*self.data) ^ (right -> GetData())
 		
 		;Create a new name
 		name = 'Caret(' + self.name + ',' + right.name + ')'
@@ -499,12 +529,12 @@ function MrVariable::_OverloadCaret, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + '^' + rname
+			name = 'Caret(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + '^' + self.name
+			name = 'Caret(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -618,27 +648,24 @@ end
 ;       I8:                 in, optional, type=integer/intarr(3)
 ;                           Index subscripts.
 ;-
-pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i4, i5, i6, i7, i8
-	compile_opt idl2
-	on_error, 2
+PRO MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
 
-	;Number of subscripts given
-	nSubscripts = N_ELEMENTS(isRange)
+	;Number OF subscripts given
+	nSubscripts = N_Elements(isRange)
 
 ;---------------------------------------------------------------------
 ; Attribute Name Given ///////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	if nSubscripts eq 1 && MrIsA(i1, 'STRING', /SCALAR) then begin
-		case i1 of
-			'DATA':    self -> SetData, value
-			'PTR':     Message, '"' + i1 + '" cannot be an attribute name.'
-			'POINTER': Message, '"' + i1 + '" cannot be an attribute name.'
-			else:      self -> SetAttributeValue, i1, value, /CREATE
-		endcase
+	IF nSubscripts EQ 1 && MrIsA(i1, 'STRING', /SCALAR) THEN BEGIN
+		IF i1 EQ 'DATA' $
+			THEN self -> SetData, value $
+			ELSE self -> SetAttributeValue, i1, value, /CREATE
 		
 		;Done
-		return
-	endif
+		RETURN
+	ENDIF
 
 ;---------------------------------------------------------------------
 ; Brute Force Subscripting ///////////////////////////////////////////
@@ -647,102 +674,107 @@ pro MrVariable::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i
 	; Highly optimized code for three dimensions or lower. 
 	; Handle all combinations of subscript ranges or indices.
 	;
+	
+	;Was the data given a MrVariable object?
+	tf_mrvar = IsA(value, 'MrVariable')
 
 	;<= 3D subscript range
-	if (nSubscripts le 3) then begin
+	IF (nSubscripts LE 3) THEN BEGIN
 	;---------------------------------------------------------------------
 	; 3D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		if IsA(i3) then begin 
+		IF IsA(i3) THEN BEGIN 
 			;[? ,? , min:max:interval]
-			if isRange[2] then begin 
+			IF isRange[2] THEN BEGIN 
 				;[? , min:max:interval, min:max:interval]
-				if isRange[1] then begin 
+				IF isRange[1] THEN BEGIN 
 					;[min:max:interval , min:max:interval, min:max:interval]
-					if isRange[0] then begin
-						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = value
+					IF isRange[0] THEN BEGIN
+						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = tf_mrvar ? value['DATA'] : value
 					;[index , min:max:interval, min:max:interval]
-					endif else begin
-						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = value 
-					endelse
+					ENDIF ELSE BEGIN
+						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = tf_mrvar ? value['DATA'] : value
+					ENDELSE
 				;[? , index, min:max:interval]
-				endif else begin
+				ENDIF ELSE BEGIN
 					;[min:max:interval , index, min:max:interval]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]] = value
+					IF isRange[0] THEN BEGIN 
+						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]] = tf_mrvar ? value['DATA'] : value
 					;[index , index, min:max:interval]
-					endif else begin 
-						(*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] = value 
-					endelse 
-				endelse
+					ENDIF ELSE BEGIN 
+						(*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] = tf_mrvar ? value['DATA'] : value
+					ENDELSE 
+				ENDELSE
+			
 			;[? , ?, index]
-			endif else begin
+			ENDIF ELSE BEGIN
 				;[? , min:max:interval, index]
-				if isRange[1] then begin
+				IF isRange[1] THEN BEGIN
 					;[min:max:interval, min:max:interval, index]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] = value 
+					IF isRange[0] THEN BEGIN 
+						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] = tf_mrvar ? value['DATA'] : value
 					;[index, min:max:interval, index]
-					endif else begin 
-						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3] = value 
-					endelse 
+					ENDIF ELSE BEGIN 
+						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3] = tf_mrvar ? value['DATA'] : value
+					ENDELSE 
 				;[?, index, index]
-				endif else begin
+				ENDIF ELSE BEGIN
 					;[min:max:interval, index, index]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3] = value 
+					IF isRange[0] THEN BEGIN 
+						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3] = tf_mrvar ? value['DATA'] : value
 					;[index, index, index]
-					endif else begin 
-						(*self.data)[i1,i2,i3] = value 
-					endelse 
-				endelse 
-			endelse 
+					ENDIF ELSE BEGIN 
+						(*self.data)[i1,i2,i3] = tf_mrvar ? value['DATA'] : value
+					ENDELSE 
+				ENDELSE 
+			ENDELSE 
+	
 	;---------------------------------------------------------------------
 	; 2D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		endif else if IsA(i2) then begin
+		ENDIF ELSE IF IsA(i2) THEN BEGIN
 			;[?, min:max:interval]
-			if isRange[1] then begin
+			IF isRange[1] THEN BEGIN
 				;[min:max:interval, min:max:interval]
-				if isRange[0] then begin
-					(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]] = value
+				IF isRange[0] THEN BEGIN
+					(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]] = tf_mrvar ? value['DATA'] : value
 				;[index, min:max:interval]
-				endif else begin
-					(*self.data)[i1,i2[0]:i2[1]:i2[2]] = value
-				endelse
+				ENDIF ELSE BEGIN
+					(*self.data)[i1,i2[0]:i2[1]:i2[2]] = tf_mrvar ? value['DATA'] : value
+				ENDELSE
 			;[?, index]
-			endif else begin
+			ENDIF ELSE BEGIN
 				;[min:max:interval, index]
-				if isRange[0] then begin
-					(*self.data)[i1[0]:i1[1]:i1[2],i2] = value
+				IF isRange[0] THEN BEGIN
+					(*self.data)[i1[0]:i1[1]:i1[2],i2] = tf_mrvar ? value['DATA'] : value
 				;[index, index]
-				endif else begin
-					(*self.data)[i1,i2] = value
-				endelse
-			endelse
+				ENDIF ELSE BEGIN
+					(*self.data)[i1,i2] = tf_mrvar ? value['DATA'] : value
+				ENDELSE
+			ENDELSE
+	
 	;---------------------------------------------------------------------
 	; 1D Subscripts //////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		endif else begin
+		ENDIF ELSE BEGIN
 			;min:max:interval
-			if isRange[0] then begin
-				(*self.data)[i1[0]:i1[1]:i1[2]] = value 
+			IF isRange[0] THEN BEGIN
+				(*self.data)[i1[0]:i1[1]:i1[2]] = tf_mrvar ? value['DATA'] : value
 			;Index
-			endif else begin
-				(*self.data)[i1] = value 
-			endelse
-		endelse
-
-		return
-	endif
+			ENDIF ELSE BEGIN
+				(*self.data)[i1] = tf_mrvar ? value['DATA'] : value
+			ENDELSE
+		ENDELSE
 
 ;---------------------------------------------------------------------
-; Brute Force Code for 4D or Higher Arrays. //////////////////////////
+; >= 4D Subscripts ///////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	;Works for any number of dimensions.
-	indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8);, /IDL_METHOD)
-	(*self.data)[indices] = value
-end 
+	ENDIF ELSE BEGIN
+		;Works FOR any number of dimensions.
+		indices = MrReformIndices( Size(*self.data, /DIMENSIONS), isRange, i1, i2, i3, i4, i5, i6, i7, i8)
+		(*self.data)[indices] = tf_mrvar ? value['DATA'] : value
+	ENDELSE
+END 
 
 
 ;+
@@ -788,125 +820,1083 @@ end
 ;       RESULT:             in, required, type=numeric array
 ;                           The subarray accessed by the input parameters.
 ;-
-function MrVariable::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6, i7, i8
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrVariable::_OverloadBracketsRightSide_IDLVar, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
 
 	;Number of subscripts given
-	nSubscripts = n_elements(isRange)
+	nSubscripts = N_Elements(isRange)
 
 	;String operations.
-	if IsA(i1, /SCALAR, 'STRING') then begin
-		case i1 of
-			'DATA':    return, *self.data
-			'POINTER': return,  self.data
-			'PTR':     return,  self.data
-			else:      return,  self -> GetAttrValue(i1)
-		endcase
+;	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+;		case i1 of
+;			'DATA':    RETURN, *self.data
+;			'POINTER': RETURN,  self.data
+;			'PTR':     RETURN,  self.data
+;			ELSE:      RETURN,  self -> GetAttrValue(i1)
+;		endcase
 
 	;Scalar operations
 	;   - 0   returns the self object
 	;   - [0] returns the first data element
-	;   - All other cases return data
-	endif else if nSubscripts eq 1 && isRange[0] eq 0 && IsA(i1, /SCALAR) && i1 eq 0 then begin
-		return, self
-	endif
+	;   - All other cases RETURN data
+;	ENDIF ELSE IF nSubscripts eq 1 && isRange[0] eq 0 && IsA(i1, /SCALAR) && i1 eq 0 THEN BEGIN
+;		RETURN, self
+;	ENDIF
 
 ;---------------------------------------------------------------------
 ;Optimized Subscripting for <= 3D ////////////////////////////////////
 ;---------------------------------------------------------------------
-	if (nSubscripts le 3) then begin
+	IF (nSubscripts le 3) THEN BEGIN
 	;---------------------------------------------------------------------
 	;3D Subscripts ///////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		if IsA(i3) then begin 
+		IF IsA(i3) THEN BEGIN 
 			;Subscript range given: [min:max:interval]?
-			if isRange[2] then begin 
+			IF isRange[2] THEN BEGIN 
 				;Subscript range for dimensions 2 and 3?
-				if isRange[1] then begin 
+				IF isRange[1] THEN BEGIN 
 					;Range: [1,2,3], Index: --
-					if isRange[0] then begin
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]]
+					IF isRange[0] THEN BEGIN
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]]
 					;Range: [2,3], Index: 1
-					endif else begin
-						return, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] 
-					endelse
+					ENDIF ELSE BEGIN
+						RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] 
+					ENDELSE
 				;Index value for dimension 2?
-				endif else begin
+				ENDIF ELSE BEGIN
 					;Range: [3,1], Index: 2
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]]
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]]
 					;Range: 3, Index: [2,1]
-					endif else begin 
-						return, (*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] 
-					endelse 
-				endelse
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] 
+					ENDELSE 
+				ENDELSE
 			;Index for dimension 3?
-			endif else begin
+			ENDIF ELSE BEGIN
 				;Range for dimension 2?
-				if isRange[1] then begin
+				IF isRange[1] THEN BEGIN
 					;Range: [2,1]
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] 
-					endif else begin 
-						return, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3] 
-					endelse 
-				endif else begin 
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3] 
-					endif else begin 
-						return, (*self.data)[i1,i2,i3] 
-					endelse 
-				endelse 
-			endelse 
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] 
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3] 
+					ENDELSE 
+				ENDIF ELSE BEGIN 
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3] 
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2,i3] 
+					ENDELSE 
+				ENDELSE 
+			ENDELSE 
 	;---------------------------------------------------------------------
 	;2D Subscripts ///////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		endif else if IsA(i2) then begin
-			if isRange[1] then begin
+		ENDIF ELSE IF IsA(i2) THEN BEGIN
+			IF isRange[1] THEN BEGIN
 				;[Range, Range]
-				if isRange[0] then begin
-					return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]]
+				IF isRange[0] THEN BEGIN
+					RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]]
 				;[Index, Range]
-				endif else begin
-					return, (*self.data)[i1,i2[0]:i2[1]:i2[2]]
-				endelse
-			endif else begin
+				ENDIF ELSE BEGIN
+					RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2]]
+				ENDELSE
+			ENDIF ELSE BEGIN
 				;[Range, Index]
-				if isRange[0] then begin
-					return, (*self.data)[i1[0]:i1[1]:i1[2],i2]
+				IF isRange[0] THEN BEGIN
+					RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2]
 				;[Index, Index]
-				endif else begin
-					return, (*self.data)[i1,i2]
-				endelse
-			endelse
+				ENDIF ELSE BEGIN
+					RETURN, (*self.data)[i1,i2]
+				ENDELSE
+			ENDELSE
 	;---------------------------------------------------------------------
 	;1D Subscripts ///////////////////////////////////////////////////////
 	;---------------------------------------------------------------------
-		endif else begin
+		ENDIF ELSE BEGIN
 			;Range?
-			if isRange[0] then begin
-				return, (*self.data)[i1[0]:i1[1]:i1[2]] 
+			IF isRange[0] THEN BEGIN
+				RETURN, (*self.data)[i1[0]:i1[1]:i1[2]] 
 			;Index
 			;   - Compensate for passing in [0] instead of 0 for the first element.
-			;   - i.e. return a scalar instead of a 1-element array
-			endif else begin
-				if n_elements(i1) eq 1 && i1 eq 0 $
-					then return, (*self.data)[0] $
-					else return, (*self.data)[i1]
-			endelse
-		endelse
-	endif
+			;   - i.e. RETURN a scalar instead of a 1-element array
+			ENDIF ELSE BEGIN
+				IF N_Elements(i1) eq 1 && i1 eq 0 $
+					THEN RETURN, (*self.data)[0] $
+					ELSE RETURN, (*self.data)[i1]
+			ENDELSE
+		ENDELSE
+	ENDIF
 
 ;---------------------------------------------------------------------
 ; Brute Force Code for 4D or Higher Arrays. //////////////////////////
 ;---------------------------------------------------------------------
 	;Works for any number of dimensions.
-	dims = size(*self.data, /DIMENSIONS)
+	dims = Size(*self.data, /DIMENSIONS)
 	indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8, DIMENSIONS=dimensions);, /IDL_METHOD)
 
-	return, reform((*self.data)[indices], dimensions, /OVERWRITE)
-end
+	RETURN, Reform((*self.data)[indices], dimensions, /OVERWRITE)
+END
+
+
+;+
+;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence
+;       oTSvar    = oTSvar[0]
+;       t0        = oTSvar[[0]]
+;       data      = oTSvar['DATA' [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]
+;       pData     = oTSvar['POINTER']
+;       pData     = oTSvar['PTR']
+;       attrValue = oTSvar[AttrName]
+;       oVar      = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
+;
+; :Params:
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I3:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I4:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I5:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I6:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I7:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I8:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;
+; :Returns:
+;       RESULT:             out, required, type=MrVariable objref
+;                           The subarray accessed by the input parameters.
+;-
+FUNCTION MrVariable::_OverloadBracketsRightSide_Complete, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Number of subscripts given
+	nSubs = N_Elements(isRange)
+
+	;String operations.
+	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+		CASE i1 OF
+			'DATA': BEGIN
+				;Extract the subset of data
+				CASE nSubs OF
+					1: RETURN, *self.data
+					2: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1], i2)
+					3: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:2], i2, i3)
+					4: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:3], i2, i3, i4)
+					5: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:4], i2, i3, i4, i5)
+					6: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:5], i2, i3, i4, i5, i6)
+					7: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:6], i2, i3, i4, i5, i6, i7)
+					8: RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:7], i2, i3, i4, i5, i6, i7, i8)
+					ELSE: Message, 'Incorrect number of subscripts given (' + String(nSubs, FORMAT='(i0)') + ').'
+				ENDCASE
+			ENDCASE
+			'POINTER': RETURN, self.data
+			'PTR':     RETURN, self.data
+			ELSE:      RETURN, self -> GetAttrValue(i1)
+		ENDCASE
+
+	;Scalar operations
+	;   - 0   returns the self object
+	;   - [0] returns the first data element
+	;   - All other cases RETURN data
+	ENDIF ELSE IF nSubs EQ 1 && isRange[0] EQ 0 && IsA(i1, /SCALAR) && i1 EQ 0 THEN BEGIN
+		RETURN, self
+	ENDIF
+
+;---------------------------------------------------------------------
+;Optimized Subscripting for <= 3D ////////////////////////////////////
+;---------------------------------------------------------------------
+	IF (nSubs LE 3) THEN BEGIN
+	;---------------------------------------------------------------------
+	;3D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		IF IsA(i3) THEN BEGIN 
+			;Subscript range given: [min:max:interval]?
+			IF isRange[2] THEN BEGIN 
+				;Subscript range for dimensions 2 and 3?
+				IF isRange[1] THEN BEGIN 
+					;Range: [1,2,3], Index: --
+					IF isRange[0] THEN BEGIN
+						data = (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]]
+					;Range: [2,3], Index: 1
+					ENDIF ELSE BEGIN
+						data = (*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] 
+					ENDELSE
+				;Index value for dimension 2?
+				ENDIF ELSE BEGIN
+					;Range: [3,1], Index: 2
+					IF isRange[0] THEN BEGIN 
+						data = (*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]]
+					;Range: 3, Index: [2,1]
+					ENDIF ELSE BEGIN 
+						data = (*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] 
+					ENDELSE 
+				ENDELSE
+			;Index for dimension 3?
+			ENDIF ELSE BEGIN
+				;Range for dimension 2?
+				IF isRange[1] THEN BEGIN
+					;Range: [2,1]
+					IF isRange[0] THEN BEGIN 
+						data = (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] 
+					ENDIF ELSE BEGIN 
+						data = (*self.data)[i1,i2[0]:i2[1]:i2[2],i3] 
+					ENDELSE 
+				ENDIF ELSE BEGIN 
+					IF isRange[0] THEN BEGIN 
+						data = (*self.data)[i1[0]:i1[1]:i1[2],i2,i3] 
+					ENDIF ELSE BEGIN 
+						data = (*self.data)[i1,i2,i3] 
+					ENDELSE 
+				ENDELSE 
+			ENDELSE 
+	;---------------------------------------------------------------------
+	;2D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		ENDIF ELSE IF IsA(i2) THEN BEGIN
+			IF isRange[1] THEN BEGIN
+				;[Range, Range]
+				IF isRange[0] THEN BEGIN
+					data = (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]]
+				;[Index, Range]
+				ENDIF ELSE BEGIN
+					data = (*self.data)[i1,i2[0]:i2[1]:i2[2]]
+				ENDELSE
+			ENDIF ELSE BEGIN
+				;[Range, Index]
+				IF isRange[0] THEN BEGIN
+					data = (*self.data)[i1[0]:i1[1]:i1[2],i2]
+				;[Index, Index]
+				ENDIF ELSE BEGIN
+					data = (*self.data)[i1,i2]
+				ENDELSE
+			ENDELSE
+	;---------------------------------------------------------------------
+	;1D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		ENDIF ELSE BEGIN
+			;Range?
+			IF isRange[0] THEN BEGIN
+				data = (*self.data)[i1[0]:i1[1]:i1[2]] 
+			;Index
+			;   - Compensate for passing in [0] instead OF 0 FOR the first element.
+			;   - i.e. RETURN a scalar instead OF a 1-element array
+			ENDIF ELSE BEGIN
+				IF N_Elements(i1) EQ 1 && i1 EQ 0 $
+					THEN data = (*self.data)[0] $
+					ELSE data = (*self.data)[i1]
+			ENDELSE
+		ENDELSE
+		
+;---------------------------------------------------------------------
+; Brute Force Code FOR >= 4D /////////////////////////////////////////
+;---------------------------------------------------------------------
+	ENDIF ELSE BEGIN
+		dims    = Size(*self.data, /DIMENSIONS)
+		indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8, DIMENSIONS=dimensions)
+		data    = Reform((*self.data)[indices], dimensions, /OVERWRITE)
+	ENDELSE
+	
+;-------------------------------------------
+; Create Output Array //////////////////////
+;-------------------------------------------
+	;Create the variable
+	vOut = MrVariable( data, $
+	                   NAME='OverloadBRS(' + self.name + ')', $
+	                   /NO_COPY )
+	
+	;Copy all attributes
+	self -> CopyAttrTo, vOut
+
+;-------------------------------------------
+; DEPEND_# /////////////////////////////////
+;-------------------------------------------
+	;
+	; Rules:
+	;   - NSUBS must be equal to # dependent variables, otherwise subscripting is indeterminate
+	;   - Dimensions of implicit array are ordered [DEPEND_0, DEPEND_1, ..., DEPEND_N]
+	;   - DEPEND_[1-N] may have record variance, in which case they are 2D
+	;   - If a bulk process currently acting on the implicit, and then it may already
+	;     have affected the (cached) DEPEND_[1-N] variable. If DEPEND_[1-N] is cached,
+	;     allow it to have the same dimensions as the output variable.
+	;
+	
+	;
+	; TODO:
+	;   Ideally, this should be done with all poitner variables:
+	;   https://spdf.gsfc.nasa.gov/istp_guide/vattributes.html
+	;       FORM_PTR
+	;       LABL_PTR_[1-3]
+	;       SCAL_PTR
+	;       UNITS_PTR
+	;
+	
+	;Size of implicit & sub- array
+	;   - Original size, not the size of the subarray
+	inDims   = Size(*self.data, /DIMENSIONS)
+	outDims  = Size(vOut, /DIMENSIONS)
+	nInDims  = Size(*self.data, /N_DIMENSIONS)
+	nOutDims = Size(vOut, /N_DIMENSIONS)
+	
+	;Number of dependent variables
+	;   - IDL allows up to 8 dimensions
+	nDeps = ~self -> HasAttr('DEPEND_0')   ? 0 $
+	        : ~self -> HasAttr('DEPEND_1') ? 1 $
+	        : ~self -> HasAttr('DEPEND_2') ? 2 $
+	        : ~self -> HasAttr('DEPEND_3') ? 3 $
+	        : ~self -> HasAttr('DEPEND_4') ? 4 $
+	        : ~self -> HasAttr('DEPEND_5') ? 5 $
+	        : ~self -> HasAttr('DEPEND_6') ? 6 $
+	        : ~self -> HasAttr('DEPEND_7') ? 7 $
+	        : 8
+	
+	;RETURN if nSubs LE nDeps
+	;   - There does not have to be a DEPEND_# for each subscript
+	;   - There DOES     have to be a subscript for each DEPEND_#
+	IF nSubs LT nDeps THEN BEGIN
+		strNSubs = String(nSubs, FORMAT='(i1)')
+		strNDeps = String(nDeps, FORMAT='(i1)')
+		IF nDeps GT 0 THEN MrPrintF, 'LogWarn', '# subscripts (' + strNSubs + ') LT # dependent variables (' + strNDeps + ').'
+		RETURN, vOut
+	ENDIF
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeps-1 DO BEGIN
+		depend = 'DEPEND_' + String(i, FORMAT='(i0)')
+		IF ~self -> HasAttr(depend) THEN CONTINUE
+		
+		;Get the dependent variable and its dimensions
+		oDep     = self[depend]
+		nDepDims = Size(oDep, /N_DIMENSIONS)
+		depDims  = Size(oDep, /DIMENSIONS)
+		
+		;RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [N, M]
+		;   - DEPEND_2 = [N, L]
+		;   - DEPEND_3 = [N, P]
+		IF depend NE 'DEPEND_0' && nDepDims EQ 2 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			IF Array_Equal(depDims, inDims[[0,i]]) THEN BEGIN
+				CASE i OF
+					1: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i2 )
+					2: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i3 )
+					3: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i4 )
+					4: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i5 )
+					5: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i6 )
+					6: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i7 )
+					7: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i8 )
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && Array_Equal(depDims, outDims[[0,i]]) THEN BEGIN
+				oDepend = oDep
+			
+			;UNKNOWN DIMENSION SIZES
+			;   - Warning with Expected Dimensions
+			ENDIF ELSE BEGIN
+				strDims = '[' + StrJoin(String(inDims[[0,i]], FORMAT='(i0)'), ', ') + ']'
+			ENDELSE
+			
+		;NO RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [M]
+		;   - DEPEND_2 = [L]
+		;   - DEPEND_3 = [P]
+		ENDIF ELSE IF nDepDims EQ 1 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			;   - Prevent scalar 0 from returning object by including "[]"
+			IF depDims EQ inDims[i] THEN BEGIN
+				CASE i OF
+					0: oDepend = oDep -> _OverloadBracketsRightSide( isRange[0], [i1] )
+					1: oDepend = oDep -> _OverloadBracketsRightSide( isRange[1], [i2] )
+					2: oDepend = oDep -> _OverloadBracketsRightSide( isRange[2], [i3] )
+					3: oDepend = oDep -> _OverloadBracketsRightSide( isRange[3], [i4] )
+					4: oDepend = oDep -> _OverloadBracketsRightSide( isRange[4], [i5] )
+					5: oDepend = oDep -> _OverloadBracketsRightSide( isRange[5], [i6] )
+					6: oDepend = oDep -> _OverloadBracketsRightSide( isRange[6], [i7] )
+					7: oDepend = oDep -> _OverloadBracketsRightSide( isRange[7], [i8] )
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && depDims EQ outDims[i] THEN BEGIN
+				oDepend = oDep
+			
+			;UNKNOWN DIMENSION SIZES
+			;   - Warning with Expected Dimensions
+			ENDIF ELSE BEGIN
+				strDims = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+			ENDELSE
+		
+		;UNKNOWN DIMENSION SIZES
+		;   - Warning with Expected Dimensions
+		ENDIF ELSE BEGIN
+			strDims = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+		ENDELSE
+		
+		;Set the DEPEND_# attribute
+		IF Obj_Valid(oDepend) THEN BEGIN
+			vOut[depend] = oDepend
+		
+		;Issue warning
+		ENDIF ELSE BEGIN
+			;Dimensions
+			strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+			strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+			strDepDims = '[' + StrJoin(String(depDims,   FORMAT='(i0)'), ', ') + ']'
+		
+			;Warning information
+			MrPrintF, 'LogWarn', 'Cannot extract ' + depend + ' data for variable "' + self.name + '".'
+			MrPrintF, 'LogWarn', '    ' + depend + ' dims:  ' + strDepDims + '.'
+			MrPrintF, 'LogWarn', '    Data dims:      ' + strInDims
+			MrPrintF, 'LogWarn', '    Subarray dims:  ' + strOutDims
+			MrPrintF, 'LogWarn', '    Expected dims:  ' + strDims
+		ENDELSE
+		
+		;Invalidate the DEPEND_# variable
+		oDepend = 0B
+	ENDFOR
+
+;-------------------------------------------
+; DELTA_(PLUS|MINUS)_VAR ///////////////////
+;-------------------------------------------
+	deltas  = ['DELTA_MINUS_VAR', 'DELTA_PLUS_VAR']
+	nDeltas = N_Elements(deltas)
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeltas-1 DO BEGIN
+		IF ~self -> HasAttr(deltas[i]) THEN CONTINUE
+		
+		;Get the dependent variable and its dimensions
+		oDel       = self[deltas[i]]
+		nDelDims = Size(oDel, /N_DIMENSIONS)
+		delDims  = Size(oDel, /DIMENSIONS)
+		
+		;SAME
+		;   - Both record varying
+		;   - Both non-record varying
+		IF nDelDims EQ nInDims && Array_Equal(delDims, inDims) THEN BEGIN
+			CASE nDelDims OF
+				1: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0],   i1)
+				2: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:1], i1, i2)
+				3: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:2], i1, i2, i3)
+				4: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:3], i1, i2, i3, i4)
+				5: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:4], i1, i2, i3, i4, i5)
+				6: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:5], i1, i2, i3, i4, i5, i6)
+				7: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:6], i1, i2, i3, i4, i5, i6, i7)
+				8: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:7], i1, i2, i3, i4, i5, i6, i7, i8)
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		;DIFFERENT
+		;   - Parent is record varying
+		;   - DELTA is non-record varying
+		ENDIF ELSE IF nDelDims EQ nInDims-1 && Array_Equal(delDims, inDims[1:*]) THEN BEGIN
+			CASE nDelDims OF
+				1: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1],   i2)
+				2: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:2], i2, i3)
+				3: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:3], i2, i3, i4)
+				4: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:4], i2, i3, i4, i5)
+				5: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:5], i2, i3, i4, i5, i6)
+				6: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:6], i2, i3, i4, i5, i6, i7)
+				7: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:7], i2, i3, i4, i5, i6, i7, i8)
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		;INCOMPATIBLE
+		ENDIF ELSE BEGIN
+			;Dimensions
+			strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+			strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+			strDims    = '[' + StrJoin(String(inDims[0], FORMAT='(i0)'), ', ') + ']'
+			strDelDims = '[' + StrJoin(String(delDims,   FORMAT='(i0)'), ', ') + ']'
+		
+			;Warning information
+			MrPrintF, 'LogWarn', 'Cannot extract ' + deltas[i] + ' data for variable "' + self.name + '".'
+			MrPrintF, 'LogWarn', '    ' + deltas[i] + ' dims:  ' + strDelDims + '.'
+			MrPrintF, 'LogWarn', '    Data dims:             ' + strInDims
+			MrPrintF, 'LogWarn', '    Subarray dims:         ' + strOutDims
+			
+			;Invalidate the DEPEND_# variable
+			oDelta = 0B
+		ENDELSE
+		
+		;Create a variable
+		IF Obj_Valid(oDelta) THEN vOut[deltas[i]] = oDelta
+	ENDFOR
+	
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
+
+	RETURN, vOut
+END
+
+
+;+
+;   Apply square-bracket array indexing to variable attributes. Relevant attributes are:
+;       DEPEND_[0-7]
+;       DELTA_(PLUS|MINUS)_VAR
+;
+; :Params:
+;       OUTDIMS:            in, required, type=integer/intarr
+;                           The sizes of each dimensions of the subarray after array
+;                               indexing has been applied.
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I3:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I4:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I5:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I6:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I7:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I8:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;
+; :Returns:
+;       ATTRS:              out, required, type=hash
+;                           Attribute names and values after indexing.
+;-
+FUNCTION MrVariable::_OverloadBracketsRightSide_Attrs, outDims, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Output variable
+	attrs = Hash()
+	
+	;Number of subscripts given
+	nSubs = N_Elements(isRange)
+	
+	;Size of implicit & sub- array
+	;   - Original size, not the size of the subarray
+	inDims   = Size(*self.data, /DIMENSIONS)
+	nInDims  = Size(*self.data, /N_DIMENSIONS)
+	nOutDims = Size(outDims,    /N_DIMENSIONS)
+
+;-------------------------------------------
+; DEPEND_# /////////////////////////////////
+;-------------------------------------------
+	;
+	; Rules:
+	;   - NSUBS must be equal to # dependent variables, otherwise subscripting is indeterminate
+	;   - Dimensions of implicit array are ordered [DEPEND_0, DEPEND_1, ..., DEPEND_N]
+	;   - DEPEND_[1-N] may have record variance, in which case they are 2D
+	;   - If a bulk process currently acting on the implicit, and then it may already
+	;     have affected the (cached) DEPEND_[1-N] variable. If DEPEND_[1-N] is cached,
+	;     allow it to have the same dimensions as the output variable.
+	;
+	
+	;
+	; TODO:
+	;   Ideally, this should be done with all poitner variables:
+	;   https://spdf.gsfc.nasa.gov/istp_guide/vattributes.html
+	;       FORM_PTR
+	;       LABL_PTR_[1-3]
+	;       SCAL_PTR
+	;       UNITS_PTR
+	;
+	
+	;Number of dependent variables
+	;   - IDL allows up to 8 dimensions
+	nDeps = ~self -> HasAttr('DEPEND_0')   ? 0 $
+	        : ~self -> HasAttr('DEPEND_1') ? 1 $
+	        : ~self -> HasAttr('DEPEND_2') ? 2 $
+	        : ~self -> HasAttr('DEPEND_3') ? 3 $
+	        : ~self -> HasAttr('DEPEND_4') ? 4 $
+	        : ~self -> HasAttr('DEPEND_5') ? 5 $
+	        : ~self -> HasAttr('DEPEND_6') ? 6 $
+	        : ~self -> HasAttr('DEPEND_7') ? 7 $
+	        : 8
+	
+	;RETURN if nSubs LE nDeps
+	;   - There does not have to be a DEPEND_# for each subscript
+	;   - There DOES     have to be a subscript for each DEPEND_#
+	;   - Issure warning from program that called ::_OverloadBracketsRightSide
+	IF nSubs LT nDeps THEN BEGIN
+		strNSubs = String(nSubs, FORMAT='(i1)')
+		strNDeps = String(nDeps, FORMAT='(i1)')
+		IF nDeps GT 0 THEN MrPrintF, LEVEL=6, 'LogWarn', '# subscripts (' + strNSubs + ') LT # dependent variables (' + strNDeps + ').'
+		RETURN, attrs
+	ENDIF
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeps-1 DO BEGIN
+		depend = 'DEPEND_' + String(i, FORMAT='(i0)')
+		IF ~self -> HasAttr(depend) THEN CONTINUE
+
+		;Get the dependent variable and its dimensions
+		oDep     = self[depend]
+		nDepDims = Size(oDep, /N_DIMENSIONS)
+		depDims  = Size(oDep, /DIMENSIONS)
+		
+		;RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [N, M]
+		;   - DEPEND_2 = [N, L]
+		;   - DEPEND_3 = [N, P]
+		IF depend NE 'DEPEND_0' && nDepDims EQ 2 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			IF Array_Equal(depDims, inDims[[0,i]]) THEN BEGIN
+				CASE i OF
+					1: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i2 )
+					2: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i3 )
+					3: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i4 )
+					4: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i5 )
+					5: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i6 )
+					6: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i7 )
+					7: oDepend = oDep -> _OverloadBracketsRightSide( isRange[[0,i]], i1, i8 )
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && Array_Equal(depDims, outDims[[0,i]]) THEN BEGIN
+				oDepend = oDep
+			
+			;UNKNOWN DIMENSION SIZES
+			;   - Warning with Expected Dimensions
+			ENDIF ELSE BEGIN
+				strDims = '[' + StrJoin(String(inDims[[0,i]], FORMAT='(i0)'), ', ') + ']'
+			ENDELSE
+			
+		;NO RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [M]
+		;   - DEPEND_2 = [L]
+		;   - DEPEND_3 = [P]
+		ENDIF ELSE IF nDepDims EQ 1 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			;   - Prevent scalar 0 from returning object by including "[]"
+			IF depDims EQ inDims[i] THEN BEGIN
+				CASE i OF
+					0: oDepend = oDep -> _OverloadBracketsRightSide( isRange[0], [i1] )
+					1: oDepend = oDep -> _OverloadBracketsRightSide( isRange[1], [i2] )
+					2: oDepend = oDep -> _OverloadBracketsRightSide( isRange[2], [i3] )
+					3: oDepend = oDep -> _OverloadBracketsRightSide( isRange[3], [i4] )
+					4: oDepend = oDep -> _OverloadBracketsRightSide( isRange[4], [i5] )
+					5: oDepend = oDep -> _OverloadBracketsRightSide( isRange[5], [i6] )
+					6: oDepend = oDep -> _OverloadBracketsRightSide( isRange[6], [i7] )
+					7: oDepend = oDep -> _OverloadBracketsRightSide( isRange[7], [i8] )
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && depDims EQ outDims[i] THEN BEGIN
+				oDepend = oDep
+			
+			;UNKNOWN DIMENSION SIZES
+			;   - Warning with Expected Dimensions
+			ENDIF ELSE BEGIN
+				strDims = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+			ENDELSE
+		
+		;UNKNOWN DIMENSION SIZES
+		;   - Warning with Expected Dimensions
+		ENDIF ELSE BEGIN
+			strDims = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+		ENDELSE
+		
+		;Set the DEPEND_# attribute
+		IF Obj_Valid(oDepend) THEN BEGIN
+			attrs[depend] = oDepend
+		
+		;Issue warning
+		ENDIF ELSE BEGIN
+			IF self.verbose EQ 1 THEN BEGIN
+				MrPrintF, 'LogWarn', LEVEL=6, 'Cannot exract ' + depend + ' data for variable "' + self.name + '".'
+			ENDIF ELSE IF self.verbose EQ 2 THEN BEGIN
+				;Dimensions
+				strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+				strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+				strDepDims = '[' + StrJoin(String(depDims,   FORMAT='(i0)'), ', ') + ']'
+		
+				;Warning information
+				;   - Display warning from caller of ::_OverloadBracketsRightSide
+				MrPrintF, 'LogWarn', LEVEL=6, 'Cannot extract ' + depend + ' data for variable "' + self.name + '".'
+				MrPrintF, 'LogWarn', LEVEL=6, '    ' + depend + ' dims:  ' + strDepDims + '.'
+				MrPrintF, 'LogWarn', LEVEL=6, '    Data dims:      ' + strInDims
+				MrPrintF, 'LogWarn', LEVEL=6, '    Subarray dims:  ' + strOutDims
+				MrPrintF, 'LogWarn', LEVEL=6, '    Expected dims:  ' + strDims
+			ENDIF
+		ENDELSE
+		
+		;Invalidate the DEPEND_# variable
+		oDepend = 0B
+	ENDFOR
+
+;-------------------------------------------
+; DELTA_(PLUS|MINUS)_VAR ///////////////////
+;-------------------------------------------
+	deltas  = ['DELTA_MINUS_VAR', 'DELTA_PLUS_VAR']
+	nDeltas = N_Elements(deltas)
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeltas-1 DO BEGIN
+		IF ~self -> HasAttr(deltas[i]) THEN CONTINUE
+		
+		;Get the dependent variable and its dimensions
+		oDel       = self[deltas[i]]
+		nDelDims = Size(oDel, /N_DIMENSIONS)
+		delDims  = Size(oDel, /DIMENSIONS)
+		
+		;SAME
+		;   - Both record varying
+		;   - Both non-record varying
+		IF nDelDims EQ nInDims && Array_Equal(delDims, inDims) THEN BEGIN
+			CASE nDelDims OF
+				1: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0],   i1)
+				2: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:1], i1, i2)
+				3: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:2], i1, i2, i3)
+				4: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:3], i1, i2, i3, i4)
+				5: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:4], i1, i2, i3, i4, i5)
+				6: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:5], i1, i2, i3, i4, i5, i6)
+				7: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:6], i1, i2, i3, i4, i5, i6, i7)
+				8: oDelta = oDel -> _OverloadBracketsRightSide(isRange[0:7], i1, i2, i3, i4, i5, i6, i7, i8)
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		;DIFFERENT
+		;   - Parent is record varying
+		;   - DELTA is non-record varying
+		ENDIF ELSE IF nDelDims EQ nInDims-1 && Array_Equal(delDims, inDims[1:*]) THEN BEGIN
+			CASE nDelDims OF
+				1: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1],   i2)
+				2: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:2], i2, i3)
+				3: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:3], i2, i3, i4)
+				4: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:4], i2, i3, i4, i5)
+				5: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:5], i2, i3, i4, i5, i6)
+				6: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:6], i2, i3, i4, i5, i6, i7)
+				7: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:7], i2, i3, i4, i5, i6, i7, i8)
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		;INCOMPATIBLE
+		ENDIF ELSE BEGIN
+			IF self.verbose EQ 1 THEN BEGIN
+				MrPrintF, 'LogWarn', LEVEL=6, 'Cannot extract ' + deltas[i] + ' data for variable "' + self.name + '".'
+			ENDIF ELSE IF self.verbose EQ 2 THEN BEGIN
+				;Dimensions
+				strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+				strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+				strDims    = '[' + StrJoin(String(inDims[0], FORMAT='(i0)'), ', ') + ']'
+				strDelDims = '[' + StrJoin(String(delDims,   FORMAT='(i0)'), ', ') + ']'
+		
+				;Warning information
+				;   - Display warning from caller of ::_OverloadBracketsRightSide
+				MrPrintF, 'LogWarn', LEVEL=6, 'Cannot extract ' + deltas[i] + ' data for variable "' + self.name + '".'
+				MrPrintF, 'LogWarn', LEVEL=6, '    ' + deltas[i] + ' dims:  ' + strDelDims + '.'
+				MrPrintF, 'LogWarn', LEVEL=6, '    Data dims:             ' + strInDims
+				MrPrintF, 'LogWarn', LEVEL=6, '    Subarray dims:         ' + strOutDims
+			ENDIF
+			
+			;Invalidate the DEPEND_# variable
+			oDelta = 0B
+		ENDELSE
+		
+		;Create a variable
+		IF Obj_Valid(oDelta) THEN attrs[deltas[i]] = oDelta
+	ENDFOR
+
+;-------------------------------------------
+; Finished! ////////////////////////////////
+;-------------------------------------------
+	RETURN, attrs
+END
+
+
+;+
+;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence
+;       data = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
+;
+; :Params:
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I3:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I4:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I5:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I6:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I7:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I8:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;
+; :Returns:
+;       DATA:               out, required, type=numeric array
+;                           The subarray accessed by the input parameters.
+;-
+FUNCTION MrVariable::_OverloadBracketsRightSide_Data, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Number of subscripts given
+	nSubscripts = N_Elements(isRange)
+	
+;---------------------------------------------------------------------
+;Optimized Subscripting for <= 3D ////////////////////////////////////
+;---------------------------------------------------------------------
+	IF (nSubscripts le 3) THEN BEGIN
+	;---------------------------------------------------------------------
+	;3D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		IF IsA(i3) THEN BEGIN 
+			;Subscript range given: [min:max:interval]?
+			IF isRange[2] THEN BEGIN 
+				;Subscript range for dimensions 2 and 3?
+				IF isRange[1] THEN BEGIN 
+					;Range: [1,2,3], Index: --
+					IF isRange[0] THEN BEGIN
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]]
+					;Range: [2,3], Index: 1
+					ENDIF ELSE BEGIN
+						RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] 
+					ENDELSE
+				;Index value for dimension 2?
+				ENDIF ELSE BEGIN
+					;Range: [3,1], Index: 2
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]]
+					;Range: 3, Index: [2,1]
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] 
+					ENDELSE 
+				ENDELSE
+			;Index for dimension 3?
+			ENDIF ELSE BEGIN
+				;Range for dimension 2?
+				IF isRange[1] THEN BEGIN
+					;Range: [2,1]
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] 
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3] 
+					ENDELSE 
+				ENDIF ELSE BEGIN 
+					IF isRange[0] THEN BEGIN 
+						RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3] 
+					ENDIF ELSE BEGIN 
+						RETURN, (*self.data)[i1,i2,i3] 
+					ENDELSE 
+				ENDELSE 
+			ENDELSE 
+	;---------------------------------------------------------------------
+	;2D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		ENDIF ELSE IF IsA(i2) THEN BEGIN
+			IF isRange[1] THEN BEGIN
+				;[Range, Range]
+				IF isRange[0] THEN BEGIN
+					RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]]
+				;[Index, Range]
+				ENDIF ELSE BEGIN
+					RETURN, (*self.data)[i1,i2[0]:i2[1]:i2[2]]
+				ENDELSE
+			ENDIF ELSE BEGIN
+				;[Range, Index]
+				IF isRange[0] THEN BEGIN
+					RETURN, (*self.data)[i1[0]:i1[1]:i1[2],i2]
+				;[Index, Index]
+				ENDIF ELSE BEGIN
+					RETURN, (*self.data)[i1,i2]
+				ENDELSE
+			ENDELSE
+	;---------------------------------------------------------------------
+	;1D Subscripts ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		ENDIF ELSE BEGIN
+			;Range?
+			IF isRange[0] THEN BEGIN
+				RETURN, (*self.data)[i1[0]:i1[1]:i1[2]] 
+			;Index
+			;   - Compensate for passing in [0] instead of 0 for the first element.
+			;   - i.e. RETURN a scalar instead of a 1-element array
+			ENDIF ELSE BEGIN
+				IF N_Elements(i1) eq 1 && i1 eq 0 $
+					THEN RETURN, (*self.data)[0] $
+					ELSE RETURN, (*self.data)[i1]
+			ENDELSE
+		ENDELSE
+	ENDIF
+
+;---------------------------------------------------------------------
+; Brute Force Code for 4D or Higher Arrays. //////////////////////////
+;---------------------------------------------------------------------
+	;Works for any number of dimensions.
+	dims = Size(*self.data, /DIMENSIONS)
+	indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8, DIMENSIONS=dimensions);, /IDL_METHOD)
+
+	RETURN, Reform((*self.data)[indices], dimensions, /OVERWRITE)
+END
+
+
+;+
+;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence
+;       oVar      = oVar[0]
+;       d0        = oVar[[0]]
+;       data      = oVar['DATA' [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]
+;       pData     = oVar['POINTER']
+;       pData     = oVar['PTR']
+;       attrValue = oVar[AttrName]
+;       oVar      = oVar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
+;
+; :Params:
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I3:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I4:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I5:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I6:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I7:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I8:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;
+; :Returns:
+;       RESULT:             out, required, type=MrVariable objref
+;                           The subarray accessed by the input parameters.
+;-
+FUNCTION MrVariable::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Number of subscripts given
+	nSubs = N_Elements(isRange)
+
+	;String operations.
+	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+		CASE i1 OF
+			'DATA': BEGIN
+				IF nSubs EQ 1 $
+					THEN RETURN, *self.data $
+					ELSE RETURN, self -> _OverloadBracketsRightSide_Data(isRange[1:*], i2, i3, i4, i5, i6, i7, i8)
+			ENDCASE
+			'POINTER': RETURN, self.data
+			'PTR':     RETURN, self.data
+			ELSE:      RETURN, self -> GetAttrValue(i1)
+		ENDCASE
+
+	;Scalar operations
+	;   - 0   returns the self object
+	;   - [0] returns the first data element
+	;   - All other cases RETURN data
+	ENDIF ELSE IF nSubs EQ 1 && isRange[0] EQ 0 && IsA(i1, /SCALAR) && i1 EQ 0 THEN BEGIN
+		RETURN, self
+	ENDIF
+
+;---------------------------------------------------------------------
+; Extract the Subarray ///////////////////////////////////////////////
+;---------------------------------------------------------------------
+	;Data
+	data = self -> _OverloadBracketsRightSide_Data(isRange, i1, i2, i3, i4, i5, i6, i7, i8)
+
+	;Attributes
+	outDims = Size(data, /DIMENSIONS)
+	attrs   = self -> _OverloadBracketsRightSide_Attrs(outDims, isRange, i1, i2, i3, i4, i5, i6, i7, i8)
+	
+;---------------------------------------------------------------------
+; Create Output //////////////////////////////////////////////////////
+;---------------------------------------------------------------------
+	vOut = MrVariable( data, $
+	                   NAME='OverloadBRS(' + self.name + ')', $
+	                   /NO_COPY )
+	
+	;Copy all attributes
+	self -> CopyAttrTo, vOut
+	
+	;Update attributes
+	IF attrs -> Count() GT 0 THEN vOut -> SetAttrValue, attrs, /OVERWRITE
+	
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
+
+	RETURN, vOut
+END
+
+
 
 
 ;+
@@ -936,12 +1926,14 @@ function MrVariable::_OverloadEQ, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) eq right['DATA']
+		result = (*self.data) eq (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' EQ ' + right.name
+		name = 'EQ(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -960,12 +1952,12 @@ function MrVariable::_OverloadEQ, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' EQ ' + rname
+			name = 'EQ(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' EQ ' + self.name
+			name = 'EQ(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1042,12 +2034,14 @@ function MrVariable::_OverloadGE, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) ge right['DATA']
+		result = (*self.data) ge (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' GE ' + right.name
+		name = 'GE(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1066,12 +2060,12 @@ function MrVariable::_OverloadGE, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' GE ' + rname
+			name = 'GE(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' GE ' + self.name
+			name = 'GE(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1111,12 +2105,14 @@ function MrVariable::_OverloadGT, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) gt right['DATA']
+		result = (*self.data) gt (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' GT ' + right.name
+		name = 'GT(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1135,12 +2131,12 @@ function MrVariable::_OverloadGT, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' GT ' + rname
+			name = 'GT(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' GT ' + self.name
+			name = 'GT(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1180,12 +2176,14 @@ function MrVariable::_OverloadGreaterThan, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) > right['DATA']
+		;Pick greater value
+		result = (*self.data) > (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' > ' + right.name
+		name = 'GreaterThan(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1204,12 +2202,12 @@ function MrVariable::_OverloadGreaterThan, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' > ' + rname
+			name = 'GreaterThan(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' > ' + self.name
+			name = 'GreaterThan(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1326,12 +2324,14 @@ function MrVariable::_OverloadLessThan, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
+		;Pick lesser value
 		result = (*self.data) < right['DATA']
 		
 		;Create a new name
-		name = self.name + ' < ' + right.name
+		name = 'LessThan(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1350,12 +2350,12 @@ function MrVariable::_OverloadLessThan, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' < ' + rname
+			name = 'LessThan(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' < ' + self.name
+			name = 'LessThan(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1395,12 +2395,14 @@ function MrVariable::_OverloadLE, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) le right['DATA']
+		;Compare
+		result = (*self.data) le (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' LE ' + right.name
+		name = 'LE(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1419,12 +2421,12 @@ function MrVariable::_OverloadLE, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' LE ' + rname
+			name = 'LE(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' LE ' + self.name
+			name = 'LE(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1463,12 +2465,14 @@ function MrVariable::_OverloadLT, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) lt right['DATA']
+		;Compare
+		result = (*self.data) lt (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' LT ' + right.name
+		name = 'LT(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1487,12 +2491,12 @@ function MrVariable::_OverloadLT, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' LT ' + rname
+			name = 'LT(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' LT ' + self.name
+			name = 'LT(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1535,12 +2539,14 @@ function MrVariable::_OverloadMinus, left, right
 ; Two MrVariable Objects //////////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Subtract
-		result = (*self.data) - right['DATA']
+		result = (*self.data) - (right -> GetData())
 		
 		;Create a new name
-		name = self.name + '-' + right.name
+		name = 'Minus(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression //////////////////////////////
@@ -1558,12 +2564,12 @@ function MrVariable::_OverloadMinus, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + '-' + rname
+			name = 'Minus(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + '-' + self.name
+			name = 'Minus(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1616,12 +2622,14 @@ function MrVariable::_OverloadMOD, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) mod right['DATA']
+		;Modulus
+		result = (*self.data) mod (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' MOD ' + right.name
+		name = 'MOD(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1640,12 +2648,12 @@ function MrVariable::_OverloadMOD, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' MOD ' + rname
+			name = 'MOD(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' MOD ' + self.name
+			name = 'MOD(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1688,12 +2696,14 @@ function MrVariable::_OverloadPlus, left, right
 ; Two MrVariable Objects //////////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) + right['DATA']
+		result = (*self.data) + (right -> GetData())
 		
 		;Create a new name
-		name = self.name + '+' + right.name
+		name = 'Plus(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression //////////////////////////////
@@ -1712,12 +2722,12 @@ function MrVariable::_OverloadPlus, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + '+' + rname
+			name = 'Plus(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + '+' + self.name
+			name = 'Plus(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1756,12 +2766,14 @@ function MrVariable::_OverloadNE, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) ne right['DATA']
+		;Not Equal
+		result = (*self.data) ne (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' NE ' + right.name
+		name = 'NE(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1780,12 +2792,12 @@ function MrVariable::_OverloadNE, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' NE ' + rname
+			name = 'NE(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' NE ' + self.name
+			name = 'NE(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1805,12 +2817,12 @@ end
 ; :Returns:
 ;       RESULT:             The logical NOT of the implicit array.
 ;-
-function MrVariable::_OverloadNOT, left, right
+function MrVariable::_OverloadNOT
 	compile_opt idl2
 	on_error, 2
 
 	;Negate the array, making positive values negative, and vice versa
-	return, self -> New(not (*self.data), NAME='NOT '+self.name)
+	return, self -> New(not (*self.data), NAME='NOT('+self.name+')')
 end
 
 
@@ -1842,12 +2854,14 @@ function MrVariable::_OverloadOR, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
-		;Add
-		result = (*self.data) or right['DATA']
+		;Or
+		result = (*self.data) or (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' OR ' + right.name
+		name = 'OR(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1866,12 +2880,12 @@ function MrVariable::_OverloadOR, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' OR ' + rname
+			name = 'OR(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' OR ' + self.name
+			name = 'OR(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1913,12 +2927,14 @@ function MrVariable::_OverloadPound, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) # right['DATA']
+		result = (*self.data) # (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' # ' + right.name
+		name = 'Pound(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -1937,12 +2953,12 @@ function MrVariable::_OverloadPound, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' # ' + rname
+			name = 'Pound(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' # ' + self.name
+			name = 'Pound(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -1984,12 +3000,14 @@ function MrVariable::_OverloadPoundPound, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) ## right['DATA']
+		result = (*self.data) ## (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' ## ' + right.name
+		name = 'PoundPound(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -2008,12 +3026,12 @@ function MrVariable::_OverloadPoundPound, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' ## ' + rname
+			name = 'PoundPound(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' ## ' + self.name
+			name = 'PoundPound(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -2051,15 +3069,20 @@ function MrVariable::_OverloadSize
 
 	;NOTE:
 	;   There is a bug that incorrectly reports the number of dimesions of an
-	;   undefined variable (returns 1 instead of 0). This will be fixed in
+	;   undefined variable (returns 1 instead of 0). This was fixed in
 	;   version 8.3.1.
 	;
 	;   https://groups.google.com/forum/#!topic/comp.lang.idl-pvwave/-f8Cxlp5cxQ
 	;
+	;   A related bug incorrectly reports the number of elements of a scalar
+	;   variable (returns 0 instead of 1).
+	;
 
 	;Return the dimensions of the array. The Size and N_Elements functions
 	;will know what to do with them.
-	return, size(*self.data, /DIMENSIONS)
+	return, n_elements(*self.data)          eq 0 ? 0L : $
+	        size(*self.data, /n_dimensions) eq 0 ? 1L : $
+	        size(*self.data, /dimensions) 
 end
 
 
@@ -2094,12 +3117,14 @@ function MrVariable::_OverloadSlash, left, right
 ; Two MrVariable Objects //////////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Divide
-		result = (*self.data) / right['DATA']
+		result = (*self.data) / (right -> GetData())
 		
 		;Create a new name
-		name = self.name + '/' + right.name
+		name = 'Divide(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression //////////////////////////////
@@ -2118,12 +3143,12 @@ function MrVariable::_OverloadSlash, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + '/' + rname
+			name = 'Divide(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + '/' + self.name
+			name = 'Divide(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -2142,7 +3167,7 @@ end
 ; :Returns:
 ;       RESULT:             The logical not of the implicit array.
 ;-
-function MrVariable::_OverloadTilde, left, right
+function MrVariable::_OverloadTilde
 	compile_opt idl2
 	on_error, 2
 
@@ -2179,12 +3204,14 @@ function MrVariable::_OverloadXOR, left, right
 ; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
 	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
 	if IsMrVariable then begin
 		;Add
-		result = (*self.data) xor right['DATA']
+		result = (*self.data) xor (right -> GetData())
 		
 		;Create a new name
-		name = self.name + ' XOR ' + right.name
+		name = 'XOR(' + self.name + ',' + right.name + ')'
 
 ;-------------------------------------------------------
 ; MrVariable with Expression ///////////////////////////
@@ -2203,12 +3230,12 @@ function MrVariable::_OverloadXOR, left, right
 			if n_elements(right) eq 1 $
 				then rname = strtrim(right[0], 2) $
 				else rname = size(right, /TNAME) + '[' + strjoin(strtrim(size(right, /DIMENSIONS), 2), ',') + ']'
-			name = self.name + ' XOR ' + rname
+			name = 'XOR(' + self.name + ',' + rname + ')'
 		endif else begin
 			if n_elements(left) eq 1 $
 				then lname = strtrim(left[0], 2) $
 				else lname = size(left, /TNAME) + '[' + strjoin(strtrim(size(left, /DIMENSIONS), 2), ',') + ']'
-			name = lname + ' XOR ' + self.name
+			name = 'XOR(' + lname + ',' + self.name + ')'
 		endelse
 	endelse
 
@@ -2249,6 +3276,44 @@ OVERWRITE=overwrite
 	self -> SetAttrValue, attrName, attrValue, $
 	                      /CREATE, $
 	                      OVERWRITE=tf_overwrite
+end
+
+
+;+
+;   Get the number of attributes
+;
+; :Returns:
+;       COUNT:          out, required, type=integer
+;                       The number of attributes.
+;-
+FUNCTION MrVariable::AttrCount
+	Compile_Opt idl2
+	On_Error, 2
+	
+	RETURN, self.attributes -> Count()
+END
+
+
+;+
+;   Get the names of all attributes
+;
+; :Keywords:
+;       COUNT:          out, optional, type=integer
+;                       Named variable to recieve the number of attribute names.
+;-
+function MrVariable::AttrNames, $
+COUNT=count
+	compile_opt idl2
+	on_error, 2
+	
+	;Hash returns a list that we want to convert to a string array
+	names = self.attributes -> Keys()
+	names = names -> ToArray()
+	
+	;Return the count as well?
+	if arg_present(count) then count = self.attributes -> Count()
+	
+	return, names
 end
 
 
@@ -2298,7 +3363,7 @@ TYPE_CODE=type_code
 		 6: tf_valid = 0B ;COMPLEX
 		 7: tf_valid = 1B ;STRING
 		 8: tf_valid = 0B ;STRUCT
-		 9: tf_valid = 0B ;DCOMPLEX
+		 9: tf_valid = 1B ;DCOMPLEX -- Epoch16
 		10: tf_valid = 0B ;POINTER
 		11: tf_valid = 0B ;OBJREF
 		12: tf_valid = 1B ;UINT
@@ -2309,29 +3374,6 @@ TYPE_CODE=type_code
 	endcase
 	
 	return, tf_valid
-end
-
-
-;+
-;   Get the names of all attributes
-;
-; :Keywords:
-;       COUNT:          out, optional, type=integer
-;                       Named variable to recieve the number of attribute names.
-;-
-function MrVariable::AttrNames, $
-COUNT=count
-	compile_opt idl2
-	on_error, 2
-	
-	;Hash returns a list that we want to convert to a string array
-	names = self.attributes -> Keys()
-	names = names -> ToArray()
-	
-	;Return the count as well?
-	if arg_present(count) then count = self.attributes -> Count()
-	
-	return, names
 end
 
 
@@ -2766,16 +3808,83 @@ end
 
 
 ;+
+;   Calculate the cross-covariance with another variable as a function of lag.
+;
+; :Params:
+;       VAR:            in, required, type=int/string/objref
+;                       The name, number, or reference of a MrVariable object.
+;       LAG:            in, required, type=intarr
+;                       A scalar or n-element integer vector in the interval
+;                           [-(n-2), (n-2)], specifying the signed distances between
+;                           indexed elements of the implicit array.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the ouput variable is added to the variable cache.
+;       COVARIANCE:     in, optional, type=boolean, default=0
+;                       If set, the sample covariance will be computed.
+;       DOUBLE:         in, optional, type=string
+;                       If set, computations are done in double precision.
+;       NAME:           in, optional, type=string, default='C_Correlate('+self.name+','+var.name+')'
+;                       Name given to the output variable.
+;
+; :Returns:
+;       OCCOR:          out, required, type=objref
+;                       MrVariable object with the lagged cross-correlation.
+;-
+FUNCTION MrVariable::C_Correlate, var, lag, $
+CACHE=cache, $
+COVARIANCE=covariance, $
+DOUBLE=double, $
+NAME=name
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Get the variable
+	oVar = MrVar_Get(var)
+	
+	;Defaults
+	tf_covariance = Keyword_Set(covariance)
+	IF N_Elements(name) EQ 0 THEN name = (tf_covariance ? 'Covariance(' : 'C_Correlate(') + self.name + ',' + oVar.name + ')'
+	
+	;Cross-correlation
+	result = C_Correlate( *self.data, oVar['DATA'], lag, $
+	                      COVARIANCE = covariance, $
+	                      DOUBLE     = double )
+	
+	;Dependent variable
+	oDep0 = MrVariable( lag, $
+	                    NAME = name + '_lag' )
+	
+	;Cross-Correlation
+	oCCor = MrVariable( result, $
+	                    CACHE = cache, $
+	                    NAME  = name, $
+	                    /NO_COPY )
+	
+	;Attributes
+	oDep0['TITLE']    = 'Lag'
+	oCCor['DEPEND_0'] = oDep0
+	oCCor['TITLE']    = tf_covariance $
+	                        ? 'Covariance' $
+	                        : 'Cross-Correlation'
+	
+	;Done!
+	RETURN, oCCor
+END
+
+
+;+
 ;   The prupose of this method is to erase the data from the array. Alternatively, try
 ;       myArray.array = !Null
 ;       myArray[*] = !Null
 ;-
-pro MrVariable::Clear
-	compile_opt idl2
-	on_error, 2
+PRO MrVariable::Clear
+	Compile_Opt idl2
+	On_Error, 2
 
 	*self.data = !Null
-end
+END
 
 
 ;+
@@ -2889,6 +3998,337 @@ end
 
 
 ;+
+;   Write data to a CDF file.
+;
+;   NOTE:
+;       Requires the MrCDF library.
+;       https://github.com/argallmr/IDLcdf
+;
+; :Params:
+;       THECDF:         in, optional, type=long/string/objref
+;                       The name or CDF ID of the CDF file to which data is written,
+;                           or the MrCDF_File object containing the file information.
+;
+; :Keywords:
+;       CREATE:         in, optional, type=boolean
+;                       If set and the variable does not exist in the file, it is created.
+;                           The default is to check the file for a variable with the same
+;                           name and set the keyword accordingly. If set a variable by the
+;                           same name already exists in `THECDF`, an error will occur.
+;       CDF_TYPE:       in, optional, type=string
+;                       The CDF datatype of the variable. The default determined automatically
+;                           from the IDL datatype.
+;       TEST:           in, optional, type=boolean, default=0
+;                       If set, check if the variable already exists in the file. If it
+;                           does, return without doing anything. If not, set `CREATE`=1.
+;                           This is useful for, e.g., variables pointed to be the DEPEND_#
+;                           variables attribute, which can be shared among several other
+;                           variables. Prevents writing multiple times.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrCDF_File::WriteVar is also accepted here.
+;-
+PRO MrVariable::ExportToCDF, theCDF, $
+CREATE=create, $
+CDF_TYPE=cdf_type, $
+TEST=test, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		RETURN
+	END
+	
+	;Get a MrCDF_File object
+	CASE 1 OF
+		MrIsA(theCDF, 'MrCDF_File'): oCDF = theCDF
+		MrIsA(theCDF, 'STRING'):     oCDF = MrCDF_File(theCDF)
+		MrIsA(theCDF, /NUMBER):      oCDF = MrCDF_File(theCDF)
+		ELSE: Message, 'Invalid value for THECDF.'
+	ENDCASE
+
+	;Defaults
+	IF Keyword_Set(test) THEN BEGIN
+		IF oCDF -> HasVar(self.name) $
+			THEN RETURN $
+			ELSE tf_create = 1B
+	ENDIF
+	tf_create = N_Elements(create) EQ 0 ? ~oCDF -> HasVar(self.name) : Keyword_Set(create)
+	IF self -> HasAttr('CDF_TYPE') THEN cdf_type = self['CDF_TYPE']
+	
+	;Write the data to the file
+	;   - Variable dimensions are [NRECS, DEP1, DEP2, DEP3]
+	;   - CDF dimensions are [DEP3, DEP2, DEP1, NRECS]
+	oCDF -> WriteVar, self.name, (N_Elements(self) EQ 1 ? self['DATA'] : Transpose(self['DATA']) ), $
+	                  CREATE        = tf_create, $
+	                  CDF_TYPE      = cdf_type, $
+	                  _STRICT_EXTRA = extra
+
+;-------------------------------------------
+; Variable Attributes //////////////////////
+;-------------------------------------------
+	self -> ExportToCDF_Attrs, oCDF
+	
+;-------------------------------------------
+; Clean Up /////////////////////////////////
+;-------------------------------------------
+	;If the CDF object was created internally, destroy it to close the file.
+	IF Size(theCDF, /TNAME) NE 'OBJREF' THEN Obj_Destroy, oCDF
+END
+
+
+;+
+;   Write variable attributes to a CDF file.
+;
+;   NOTE:
+;       Requires the MrCDF library.
+;       https://github.com/argallmr/IDLcdf
+;
+; :Private:
+;
+; :Params:
+;       OCDF:           in, optional, type=objref
+;                       The MrCDF_File object containing the file information.
+;-
+PRO MrVariable::ExportToCDF_Attrs, oCDF
+	Compile_Opt idl2
+	On_Error, 2
+
+;-------------------------------------------
+; Attributes ///////////////////////////////
+;-------------------------------------------
+	
+	;CDF Attributes
+	;   - Includes graphics keywords that serve as substitutes for CDF attributes
+	cdfAttrNames = [ 'CATDESC',         'DEPEND_0',   'DEPEND_1',  'DEPEND_2',   'DEPEND_3', 'DISPLAY_TYPE', $
+	                 'FIELDNAME',       'FILLVAL',    'FORMAT',    'FMT_PTR',    'LABLAXIS', 'LABL_PTR_1', $
+	                 'LABL_PTR_2',      'LABL_PTR_3', 'UNITS',     'UNIT_PTR',   'VALIDMIN', 'VALIDMAX', $
+	                 'VARTYPE',         'SCALETYPE',  'SCAL_PTR',  'VAR_NOTES',  'AVG_TYPE', 'DELTA_PLUS_VAR', $
+	                 'DELTA_MINUS_VAR', 'DICT_KEY',   'MONOTON',   'SCALEMIN',   'SCALEMAX', 'V_PARENT', $
+	                 'DERIVN',          'sig_digits', 'SI_conv',   'PLOT_TITLE', 'TITLE',    'AXIS_RANGE', $
+	                 'LOG',             'MIN_VALUE',  'MAX_VALUE', 'LABEL' ]
+	
+	;Variable attributes
+	attrNames = self -> GetAttrNames(COUNT=nAttrs)
+	IF nAttrs EQ 0 THEN RETURN
+
+	;Find which variable attributes are NOT CDF attributes
+	!Null = MrIsMember(cdfAttrNames, attrNames, COMPLEMENT=iVarAttrs, NCOMPLEMENT=nVarAttrs)
+
+;-------------------------------------------
+; Attributes with IDL Alternatives /////////
+;-------------------------------------------
+	;
+	; Set the /CREATE flag in case the attribute does not yet exist in the file.
+	;
+	
+	;CATDESC
+	;   - Substitutes: PLOT_TITLE, TITLE
+	IF self -> HasAttr('CATDESC') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'CATDESC', self['CATDESC'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('PLOT_TITLE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'CATDESC', self['PLOT_TITLE'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('TITLE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'CATDESC', self['TITLE'], /CREATE
+	ENDIF
+	
+	;FIELDNAM
+	;   - Substitutes: TITLE
+	IF self -> HasAttr('FIELDNAM') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'FIELDNAM', self['FIELDNAM'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('TITLE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'FIELDNAM', self['TITLE'], /CREATE
+	ENDIF
+	
+	;LABLAXIS
+	;   - Substitutes: LABEL (scalar)
+	IF self -> HasAttr('LABLAXIS') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'LABLAXIS', self['LABLAXIS'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('LABEL') THEN BEGIN
+		IF MrIsA(self['LABEL'], /SCALAR) THEN BEGIN
+			oCDF -> WriteVarAttr, self.name, 'LABLAXIS', self['LABEL'], /CREATE
+		ENDIF
+	ENDIF
+	
+	;LABL_PTR_1
+	;   - Substitutes: LABEL (array)
+	;   - CDF_AttPut accepts scalar values only
+	;   - TODO: Allow LABL_PTR_# attribute to be a MrVariable. This will allow
+	;           multiple variables with the same labels to share the same LABL_PTR_#
+	;           CDF variable.
+	IF self -> HasAttr('LABL_PTR_1') && IsA(self['LABL_PTR_1'], 'OBJREF') THEN BEGIN
+		;Write to file
+		oCDF -> WriteVarAttr, self.name, 'LABL_PTR_1', (self['LABL_PTR_1']).name, /CREATE
+		self['LABL_PTR_1'] -> ExportToCDF, oCDF, /TEST
+		
+	ENDIF ELSE BEGIN
+		attrName = self -> HasAttr('LABL_PTR_1') ? 'LABL_PTR_1' : $
+		           self -> HasAttr('LABEL')      ? 'LABEL'      : $
+		           ''
+		
+		;Array of values
+		IF attrName NE '' THEN BEGIN
+			;Create a variable
+			labl_ptr_vname = self.name + '_labl_ptr_1'
+			oLabel         = MrVariable( self[attrName], NAME=labl_ptr_vname, /NO_COPY )
+			
+			;Add attributes
+			oLabel['CATDESC']  = 'Labels for ' + self.name
+			oLabel['FIELDNAM'] = 'Labels'
+			oLabel['VARTYPE']  = 'metadata'
+			
+			;Write to file
+			oCDF   -> WriteVarAttr, self.name, 'LABL_PTR_1', labl_ptr_vname, /CREATE
+			oLabel -> ExportToCDF,  oCDF
+		ENDIF
+	ENDELSE
+	
+	;SCALEMAX
+	;   - Substitutes: AXIS_RANGE
+	IF self -> HasAttr('SCALEMAX') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALEMAX', self['SCALEMAX'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('AXIS_RANGE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALEMAX', (self['AXIS_RANGE'])[1], /CREATE
+	ENDIF
+	
+	;SCALEMIN
+	;   - Substitutes: AXIS_RANGE
+	IF self -> HasAttr('SCALEMIN') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALEMIN', self['SCALEMIN'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('AXIS_RANGE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALEMIN', (self['AXIS_RANGE'])[0], /CREATE
+	ENDIF
+	
+	;SCALETYP
+	;   - Substitutes: LOG
+	IF self -> HasAttr('SCALETYP') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALETYP', self['SCALETYP'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('SCALETYP') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'SCALETYP', (self['LOG'] EQ 1B ? 'log' : 'linear'), /CREATE
+	ENDIF
+	
+	;VALIDMAX
+	;   - Substitutes: MAX_VALUE
+	IF self -> HasAttr('VALIDMAX') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'VALIDMAX', self['VALIDMAX'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('MAX_VALUE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'VALIDMAX', self['MAX_VALUE'], /CREATE
+	ENDIF
+	
+	;VALIDMIN
+	;   - Substitutes: MIN_VALUE
+	IF self -> HasAttr('VALIDMIN') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'VALIDMIN', self['VALIDMIN'], /CREATE
+	ENDIF ELSE IF self -> HasAttr('MIN_VALUE') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'VALIDMIN', self['MIN_VALUE'], /CREATE
+	ENDIF
+
+;-------------------------------------------
+; Other CDF Attributes /////////////////////
+;-------------------------------------------
+	;Missing:
+	;   FMT_PTR
+	;   UNIT_PTR
+	;   SCAL_PTR
+	
+	;DEPEND_0
+	IF self -> HasAttr('DEPEND_0') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DEPEND_0', (self['DEPEND_0']).name, /CREATE
+		self['DEPEND_0'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;DEPEND_1
+	IF self -> HasAttr('DEPEND_1') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DEPEND_1', (self['DEPEND_1']).name, /CREATE
+		self['DEPEND_1'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;DEPEND_2
+	IF self -> HasAttr('DEPEND_2') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DEPEND_2', (self['DEPEND_2']).name, /CREATE
+		self['DEPEND_2'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;DEPEND_3
+	IF self -> HasAttr('DEPEND_3') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DEPEND_3', (self['DEPEND_3']).name, /CREATE
+		self['DEPEND_3'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;DELTA_PLUS_VAR
+	IF self -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DELTA_PLUS_VAR', (self['DELTA_PLUS_VAR']).name, /CREATE
+		self['DELTA_PLUS_VAR'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;DELTA_MINUS_VAR
+	IF self -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
+		oCDF -> WriteVarAttr, self.name, 'DELTA_MINUS_VAR', (self['DELTA_MINUS_VAR']).name, /CREATE
+		self['DELTA_MINUS_VAR'] -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;LABL_PTR_2
+	IF self -> HasAttr('LABL_PTR_2') THEN BEGIN
+		;Create the variable
+		labl_ptr_vname = self.name + '_labl_ptr_2'
+		oLabel         = MrVariable( self['LABL_PTR_2'], NAME=labl_ptr_vname )
+		
+		;Add attributes
+		oLabel['CATDESC']  = 'Labels for ' + self.name
+		oLabel['FIELDNAM'] = 'Labels'
+		oLabel['VARTYPE']  = 'metadata'
+		
+		;Write to file
+		oCDF   -> WriteVarAttr, self.name, 'LABL_PTR_2', labl_ptr_vname, /CREATE
+		oLabel -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;LABL_PTR_3
+	IF self -> HasAttr('LABL_PTR_3') THEN BEGIN
+		;Create the variable
+		labl_ptr_vname = self.name + '_labl_ptr_3'
+		oLabel         = MrVariable( self['LABL_PTR_3'], NAME=labl_ptr_vname )
+		
+		;Add attributes
+		oLabel['CATDESC']  = 'Labels for ' + self.name
+		oLabel['FIELDNAM'] = 'Labels'
+		oLabel['VARTYPE']  = 'metadata'
+		
+		;Write to file
+		oCDF   -> WriteVarAttr, self.name, 'LABL_PTR_3', labl_ptr_vname, /CREATE
+		oLabel -> ExportToCDF, oCDF, /TEST
+	ENDIF
+	
+	;Non-pointers
+	IF self -> HasAttr('DELTA_MINUS')  THEN oCDF -> WriteVarAttr, self.name, 'DELTA_MINUS',  self['DELTA_MINUS'],  /CREATE
+	IF self -> HasAttr('DELTA_PLUS')   THEN oCDF -> WriteVarAttr, self.name, 'DELTA_PLUS',   self['DELTA_PLUS'],   /CREATE
+	IF self -> HasAttr('DISPLAY_TYPE') THEN oCDF -> WriteVarAttr, self.name, 'DISPLAY_TYPE', self['DISPLAY_TYPE'], /CREATE
+	IF self -> HasAttr('FILLVAL')      THEN oCDF -> WriteVarAttr, self.name, 'FILLVAL',      self['FILLVAL'],      /CREATE
+	IF self -> HasAttr('FORMAT')       THEN oCDF -> WriteVarAttr, self.name, 'FORMAT',       self['FORMAT'],       /CREATE
+	IF self -> HasAttr('UNITS')        THEN oCDF -> WriteVarAttr, self.name, 'UNITS',        self['UNITS'],        /CREATE
+	IF self -> HasAttr('VARTYPE')      THEN oCDF -> WriteVarAttr, self.name, 'VARTYPE',      self['VARTYPE'],      /CREATE
+	IF self -> HasAttr('VAR_NOTES')    THEN oCDF -> WriteVarAttr, self.name, 'VAR_NOTES',    self['VAR_NOTES'],    /CREATE
+	IF self -> HasAttr('AVG_TYPE')     THEN oCDF -> WriteVarAttr, self.name, 'AVG_TYPE',     self['AVG_TYPE'],     /CREATE
+	IF self -> HasAttr('DICT_KEY')     THEN oCDF -> WriteVarAttr, self.name, 'DICT_KEY',     self['DICT_KEY'],     /CREATE
+	IF self -> HasAttr('MONOTON')      THEN oCDF -> WriteVarAttr, self.name, 'MONOTON',      self['MONOTON'],      /CREATE
+	IF self -> HasAttr('V_PARENT')     THEN oCDF -> WriteVarAttr, self.name, 'V_PARENT',     self['V_PARENT'],     /CREATE
+	IF self -> HasAttr('DERIVN')       THEN oCDF -> WriteVarAttr, self.name, 'DERIVN',       self['DERIVN'],       /CREATE
+	IF self -> HasAttr('sig_digits')   THEN oCDF -> WriteVarAttr, self.name, 'sig_digits',   self['sig_digits'],   /CREATE
+	IF self -> HasAttr('SI_conv')      THEN oCDF -> WriteVarAttr, self.name, 'SI_conv',      self['SI_conv'],      /CREATE
+
+;-------------------------------------------
+; Variable Attributes //////////////////////
+;-------------------------------------------
+	FOR i = 0, nVarAttrs - 1 DO BEGIN
+		attrName = attrNames[iVarAttrs[i]]
+		oCDF -> WriteVarAttr, self.name, attrName, self[attrName], /CREATE
+	ENDFOR
+END
+
+
+;+
 ;   Get attribute names.
 ;
 ; :Keywords:
@@ -2938,7 +4378,6 @@ NULL=null
 	
 	;If it exists
 	if tf_exists then begin
-		;Return the value
 		value = self.attributes[attrName]
 		
 	;Otherwise
@@ -2962,10 +4401,6 @@ end
 ;       help, theArray
 ;           THEARRAY        FLOAT     = Array[11, 91, 6]
 ;
-; :Params:
-;       DATA:              out, optional, type=any
-;                           Array to be stored internally.
-;
 ; :Keywords:
 ;       DESTROY:            in, optional, type=boolean, default=0
 ;                           If set, the object will be destroyed after returning the array.
@@ -2973,6 +4408,10 @@ end
 ;                           If set, the array will be removed frome the object and return.
 ;                               This prevents two copies of the array from being in
 ;                               memory.
+;
+; :Returns:
+;       DATA:               out, optional, type=any
+;                           The variable's data.
 ;-
 function MrVariable::GetData, $
 DESTROY=destroy, $
@@ -3017,6 +4456,431 @@ end
 
 
 ;+
+;   Extract a subarray.
+;
+; :Parmas:
+;       BOUNDS:             in, optional, type=string, default='*'
+;                           The array bounds of the data to be returned.
+;
+; :Keywords:
+;       CACHE:              in, optional, type=boolean, default=0
+;                           The array bounds of the data to be returned.
+;       NAME:               in, optional, type=string, default=self.name + '_subarray'
+;                           Name to be given to the output subarray.
+;
+; :Returns:
+;       VOUT:               out, required, type=object
+;                           A MrVariable object reference containing the subarray.
+;-
+FUNCTION MrVariable::GetSubArray, bounds, $
+DATA=data, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Defaults
+	tf_data = Keyword_Set(data)
+	IF N_Elements(bounds) EQ 0 THEN bounds = ''
+	IF N_Elements(name)   EQ 0 THEN name = 'SubArray(' + self.name + ',' + bounds + ')'
+	
+	;Return the array as is
+	IF bounds EQ '' THEN BEGIN
+		IF tf_data $
+			THEN RETURN, *self.data $
+			ELSE RETURN, self -> Copy(name, CACHE=cache)
+	ENDIF
+	
+;-------------------------------------------
+; Array Bounds /////////////////////////////
+;-------------------------------------------
+	
+	;Dimensions of the implicit array
+	inDims  = Size( *self.data, /DIMENSIONS)
+	nInDims = Size( *self.data, /N_DIMENSIONS)
+	
+	;Get the array indices
+	inds = MrArray_Bounds( inDims, bounds, /DIMENSIONS )
+	
+	;Number of dimensions in the output array
+	;   - Indices are [nDimensions, 3]
+	nOutDims = Size(inds, /DIMENSIONS)
+	nOutDims = nOutDims[0]
+	
+;-------------------------------------------
+; Extract Data /////////////////////////////
+;-------------------------------------------
+	CASE nOutDims OF
+		1: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2] ]
+		2: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2] ]
+		3: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2] ]
+		4: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2], $
+		                        inds[3,0]:inds[3,1]:inds[3,2] ]
+		5: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2], $
+		                        inds[3,0]:inds[3,1]:inds[3,2], $
+		                        inds[4,0]:inds[4,1]:inds[4,2] ]
+		6: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2], $
+		                        inds[3,0]:inds[3,1]:inds[3,2], $
+		                        inds[4,0]:inds[4,1]:inds[4,2], $
+		                        inds[5,0]:inds[5,1]:inds[5,2] ]
+		7: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2], $
+		                        inds[3,0]:inds[3,1]:inds[3,2], $
+		                        inds[4,0]:inds[4,1]:inds[4,2], $
+		                        inds[5,0]:inds[5,1]:inds[5,2], $
+		                        inds[6,0]:inds[6,1]:inds[6,2] ]
+		8: data = (*self.data)[ inds[0,0]:inds[0,1]:inds[0,2], $
+		                        inds[1,0]:inds[1,1]:inds[1,2], $
+		                        inds[2,0]:inds[2,1]:inds[2,2], $
+		                        inds[3,0]:inds[3,1]:inds[3,2], $
+		                        inds[4,0]:inds[4,1]:inds[4,2], $
+		                        inds[5,0]:inds[5,1]:inds[5,2], $
+		                        inds[6,0]:inds[6,1]:inds[6,2], $
+		                        inds[7,0]:inds[7,1]:inds[7,2] ]
+		ELSE: Message, 'An IDL array cannot have more than 8 dimensions.'
+	ENDCASE
+	
+	;Return just the data
+	IF tf_data THEN RETURN, data
+	
+;-------------------------------------------
+; Create Output Array //////////////////////
+;-------------------------------------------
+	;Create the variable
+	vOut = MrVariable(data, NAME=name, /NO_COPY)
+	
+	;Copy all attributes
+	self -> CopyAttrTo, vOut
+
+;-------------------------------------------
+; DEPEND_# /////////////////////////////////
+;-------------------------------------------
+	;
+	; Rules:
+	;   - NSUBS must be equal to # dependent variables, otherwise subscripting is indeterminate
+	;   - Dimensions of implicit array are ordered [DEPEND_0, DEPEND_1, ..., DEPEND_N]
+	;   - DEPEND_[1-N] may have record variance, in which case they are 2D
+	;   - If a bulk process currently acting on the implicit, and then it may already
+	;     have affected the (cached) DEPEND_[1-N] variable. If DEPEND_[1-N] is cached,
+	;     allow it to have the same dimensions as the output variable.
+	;
+	
+	;
+	; TODO:
+	;   Ideally, this should be done with all poitner variables:
+	;   https://spdf.gsfc.nasa.gov/istp_guide/vattributes.html
+	;       FORM_PTR
+	;       LABL_PTR_[1-3]
+	;       SCAL_PTR
+	;       UNITS_PTR
+	;
+	
+	;Size of implicit & sub- array
+	;   - Original size, not the size of the subarray
+	outDims  = Size(vOut, /DIMENSIONS)
+	nOutDims = Size(vOut, /N_DIMENSIONS)
+	
+	;Number of dependent variables
+	;   - IDL allows up to 8 dimensions
+	nDeps = ~self -> HasAttr('DEPEND_0')   ? 0 $
+	        : ~self -> HasAttr('DEPEND_1') ? 1 $
+	        : ~self -> HasAttr('DEPEND_2') ? 2 $
+	        : ~self -> HasAttr('DEPEND_3') ? 3 $
+	        : ~self -> HasAttr('DEPEND_4') ? 4 $
+	        : ~self -> HasAttr('DEPEND_5') ? 5 $
+	        : ~self -> HasAttr('DEPEND_6') ? 6 $
+	        : ~self -> HasAttr('DEPEND_7') ? 7 $
+	        : 8
+	
+	;RETURN if nSubs LE nDeps
+	;   - There does not have to be a DEPEND_# for each subscript
+	;   - There DOES     have to be a subscript for each DEPEND_#
+	IF nOutDims LT nDeps THEN BEGIN
+		strNSubs = String(nSubs, FORMAT='(i1)')
+		strNDeps = String(nDeps, FORMAT='(i1)')
+		IF nDeps GT 0 THEN MrPrintF, 'LogWarn', '# subscripts (' + strNSubs + ') LT # dependent variables (' + strNDeps + ').'
+		RETURN, vOut
+	ENDIF
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeps-1 DO BEGIN
+		depend = 'DEPEND_' + String(i, FORMAT='(i0)')
+		IF ~self -> HasAttr(depend) THEN CONTINUE
+		
+		;Get the dependent variable and its dimensions
+		oDep     = self[depend]
+		nDepDims = Size(oDep, /N_DIMENSIONS)
+		depDims  = Size(oDep, /DIMENSIONS)
+		
+		;RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [N, M]
+		;   - DEPEND_2 = [N, L]
+		;   - DEPEND_3 = [N, P]
+		IF depend NE 'DEPEND_0' && nDepDims EQ 2 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			IF Array_Equal(depDims, inDims[[0,i]]) THEN BEGIN
+				CASE i OF
+					1: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[1,0]:inds[1,1]:inds[1,2]]
+					2: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[2,0]:inds[2,1]:inds[2,2]]
+					3: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[3,0]:inds[3,1]:inds[3,2]]
+					4: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[4,0]:inds[4,1]:inds[4,2]]
+					5: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[5,0]:inds[5,1]:inds[5,2]]
+					6: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[6,0]:inds[6,1]:inds[6,2]]
+					7: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2], inds[7,0]:inds[7,1]:inds[7,2]]
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && Array_Equal(depDims, outDims[[0,i]]) THEN BEGIN
+				oDepend = oDep
+			
+			;Incorrect dimension sizes
+			ENDIF ELSE BEGIN
+				;Dimensions
+				strInDims  = '[' + StrJoin(String(inDims,        FORMAT='(i0)'), ', ') + ']'
+				strOutDims = '[' + StrJoin(String(outDims,       FORMAT='(i0)'), ', ') + ']'
+				strDims    = '[' + StrJoin(String(inDims[[0,i]], FORMAT='(i0)'), ', ') + ']'
+				strDepDims = '[' + StrJoin(String(depDims,       FORMAT='(i0)'), ', ') + ']'
+			
+				;Warning information
+				MrPrintF, 'LogWarn', 'Cannot extract ' + depend + ' data for variable "' + self.name + '".'
+				MrPrintF, 'LogWarn', '    ' + depend + ' dims:  ' + strDepDims + '.'
+				MrPrintF, 'LogWarn', '    Data dims:      ' + strInDims
+				MrPrintF, 'LogWarn', '    Subarray dims:  ' + strOutDims
+				MrPrintF, 'LogWarn', '    Expected dims:  ' + strDims
+				
+				;Invalidate the DEPEND_# variable
+				oDepend = 0B
+			ENDELSE
+			
+		;NO RECORD VARIANCE
+		;   - Data     = [N, M, L, P]
+		;   - DEPEND_0 = [N]
+		;   - DEPEND_1 = [M]
+		;   - DEPEND_2 = [L]
+		;   - DEPEND_3 = [P]
+		ENDIF ELSE IF nDepDims EQ 1 THEN BEGIN
+			;Apply to DEPEND_#
+			;   - Dimensions of implicit and DEPEND_# arrays match
+			;   - Prevent scalar 0 from returning object by including "[]"
+			IF depDims EQ inDims[i] THEN BEGIN
+				CASE i OF
+					0: oDepend = oDep[inds[0,0]:inds[0,1]:inds[0,2]]
+					1: oDepend = oDep[inds[1,0]:inds[1,1]:inds[1,2]]
+					2: oDepend = oDep[inds[2,0]:inds[2,1]:inds[2,2]]
+					3: oDepend = oDep[inds[3,0]:inds[3,1]:inds[3,2]]
+					4: oDepend = oDep[inds[4,0]:inds[4,1]:inds[4,2]]
+					5: oDepend = oDep[inds[5,0]:inds[5,1]:inds[5,2]]
+					6: oDepend = oDep[inds[6,0]:inds[6,1]:inds[6,2]]
+					7: oDepend = oDep[inds[7,0]:inds[7,1]:inds[7,2]]
+					ELSE: Message, 'Invalid number of dependent variables.'
+				ENDCASE
+			
+			;Pre-Applied
+			;   - It is possible that whatever is happening to the implicit variable
+			;     is happening in bulk (e.g. MrVar_TLimit).
+			;   - If DEPEND_# is in the cache, allow it to have the same dimensions
+			;     as the output variable
+			ENDIF ELSE IF MrVar_IsCached(oDep) && depDims EQ outDims[i] THEN BEGIN
+				oDepend = oDep
+			
+			;Incorrect dimension sizes
+			ENDIF ELSE BEGIN
+				;Dimensions
+				strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+				strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+				strDims    = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+				strDepDims = '[' + StrJoin(String(depDims,   FORMAT='(i0)'), ', ') + ']'
+			
+				;Warning information
+				MrPrintF, 'LogWarn', 'Cannot extract ' + depend + ' data for variable "' + self.name + '".'
+				MrPrintF, 'LogWarn', '    ' + depend + ' dims:  ' + strDepDims + '.'
+				MrPrintF, 'LogWarn', '    Data dims:      ' + strInDims
+				MrPrintF, 'LogWarn', '    Subarray dims:  ' + strOutDims
+				MrPrintF, 'LogWarn', '    Expected dims:  ' + strDims
+				
+				;Invalidate the DEPEND_# variable
+				oDepend = 0B
+			ENDELSE
+		
+		;Unknown dimension sizes
+		ENDIF ELSE BEGIN
+			;Dimensions
+			strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+			strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+			strDims    = '[' + StrJoin(String(inDims[i], FORMAT='(i0)'), ', ') + ']'
+			strDepDims = '[' + StrJoin(String(depDims,   FORMAT='(i0)'), ', ') + ']'
+		
+			;Warning information
+			MrPrintF, 'LogWarn', 'Cannot extract ' + depend + ' data for variable "' + self.name + '".'
+			MrPrintF, 'LogWarn', '    ' + depend + ' dims:  ' + strDepDims + '.'
+			MrPrintF, 'LogWarn', '    Data dims:      ' + strInDims
+			MrPrintF, 'LogWarn', '    Subarray dims:  ' + strOutDims
+			MrPrintF, 'LogWarn', '    Expected dims:  ' + strDims
+			
+			;Invalidate the DEPEND_# variable
+			oDepend = 0B
+		ENDELSE
+		
+		;Create a variable
+		IF Obj_Valid(oDepend) GT 0 THEN vOut[depend] = oDepend
+	ENDFOR
+
+;-------------------------------------------
+; DELTA_(PLUS|MINUS)_VAR ///////////////////
+;-------------------------------------------
+	deltas  = ['DELTA_MINUS_VAR', 'DELTA_PLUS_VAR']
+	nDeltas = N_Elements(deltas)
+	
+	;Step through each dependent variable
+	FOR i = 0, nDeltas-1 DO BEGIN
+		IF ~self -> HasAttr(deltas[i]) THEN CONTINUE
+		
+		;Get the dependent variable and its dimensions
+		oDel       = self[deltas[i]]
+		nDelDims = Size(oDel, /N_DIMENSIONS)
+		delDims  = Size(oDel, /DIMENSIONS)
+		
+		;SAME
+		;   - Both record varying
+		;   - Both non-record varying
+		IF nDelDims EQ nInDims && Array_Equal(delDims, inDims) THEN BEGIN
+			CASE nDelDims OF
+				1: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2] ]
+				2: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2] ]
+				3: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2] ]
+				4: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2] ]
+				5: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2] ]
+				6: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2] ]
+				7: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2], $
+				                  inds[6,0]:inds[6,1]:inds[6,2] ]
+				8: oDelta = oDel[ inds[0,0]:inds[0,1]:inds[0,2], $
+				                  inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2], $
+				                  inds[6,0]:inds[6,1]:inds[6,2], $
+				                  inds[7,0]:inds[7,1]:inds[7,2] ]
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		;DIFFERENT
+		;   - Parent is record varying
+		;   - DELTA is non-record varying
+		ENDIF ELSE IF nDelDims EQ nInDims-1 && Array_Equal(delDims, inDims[1:*]) THEN BEGIN
+		
+			CASE nDelDims OF
+				1: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2] ]
+				2: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2] ]
+				3: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2] ]
+				4: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2] ]
+				5: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2] ]
+				6: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2], $
+				                  inds[6,0]:inds[6,1]:inds[6,2] ]
+				7: oDelta = oDel[ inds[1,0]:inds[1,1]:inds[1,2], $
+				                  inds[2,0]:inds[2,1]:inds[2,2], $
+				                  inds[3,0]:inds[3,1]:inds[3,2], $
+				                  inds[4,0]:inds[4,1]:inds[4,2], $
+				                  inds[5,0]:inds[5,1]:inds[5,2], $
+				                  inds[6,0]:inds[6,1]:inds[6,2], $
+				                  inds[7,0]:inds[7,1]:inds[7,2] ]
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+			
+			CASE nDelDims OF
+				1: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1],   i2)
+				2: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:2], i2, i3)
+				3: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:3], i2, i3, i4)
+				4: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:4], i2, i3, i4, i5)
+				5: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:5], i2, i3, i4, i5, i6)
+				6: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:6], i2, i3, i4, i5, i6, i7)
+				7: oDelta = oDel -> _OverloadBracketsRightSide(isRange[1:7], i2, i3, i4, i5, i6, i7, i8)
+				ELSE: Message, 'Incorrect number of dimensions (' + String(nDelDims, FORMAT='(i0)') + ').'
+			ENDCASE
+		
+		ENDIF ELSE BEGIN
+			;Dimensions
+			strInDims  = '[' + StrJoin(String(inDims,    FORMAT='(i0)'), ', ') + ']'
+			strOutDims = '[' + StrJoin(String(outDims,   FORMAT='(i0)'), ', ') + ']'
+			strDims    = '[' + StrJoin(String(inDims[0], FORMAT='(i0)'), ', ') + ']'
+			strDelDims = '[' + StrJoin(String(delDims,   FORMAT='(i0)'), ', ') + ']'
+		
+			;Warning information
+			MrPrintF, 'LogWarn', 'Cannot extract ' + deltas[i] + ' data for variable "' + self.name + '".'
+			MrPrintF, 'LogWarn', '    ' + deltas[i] + ' dims:  ' + strDelDims + '.'
+			MrPrintF, 'LogWarn', '    Data dims:             ' + strInDims
+			MrPrintF, 'LogWarn', '    Subarray dims:         ' + strOutDims
+			
+			;Invalidate the DEPEND_# variable
+			oDelta = 0B
+		ENDELSE
+		
+		;Create a variable
+		IF Obj_Valid(oDelta) GT 0 THEN vOut[deltas[i]] = oDelta
+	ENDFOR
+	
+;-------------------------------------------
+; Finish ///////////////////////////////////
+;-------------------------------------------
+	
+	;Return the array
+	RETURN, vOut
+END
+
+
+;+
 ;   Get class properties.
 ;
 ; :Keywords:
@@ -3034,6 +4898,11 @@ end
 ;                           Type-name of `ARRAY`.
 ;       TYPE:               out, optional, type=int
 ;                           Type-code of `ARRAY`.
+;       VERBOSE:            out, optional, type=byte
+;                           Level of verboseness of printed messages. Values are::
+;                               0 - Quiet
+;                               1 - Less verbose
+;                               2 - More verbose
 ;-
 pro MrVariable::GetProperty, $
 DIMENSIONS=dimensions, $
@@ -3043,7 +4912,8 @@ MINIMUM=minimum, $
 MAXIMUM=maximum, $
 NAME=name, $
 TNAME=tname, $
-TYPE=type
+TYPE=type, $
+VERBOSE=verbose
 	compile_opt idl2
 	on_error, 2
 
@@ -3055,6 +4925,7 @@ TYPE=type
 	if arg_present(type)         then type         = size(*self.data, /TYPE)
 	if arg_present(maximum)      then maximum      = max(*self.data)
 	if arg_present(minimum)      then minimum      = min(*self.data)
+	IF Arg_Present(verbose)      THEN verbose      = self.verbose
 end
 
 
@@ -3135,9 +5006,17 @@ pro MrVariable::Help
 		;OBJECT
 		;   - SetAttributeValue allows only MrVariable objects.
 		if tname eq 'OBJREF' then begin
-			dims = value.dimensions
-			dims = 'Dims=[' + strjoin( strtrim(dims, 2), ',' ) + ']'
-			str_value = dims + ' ' + value.name + ' <' + obj_class(value) + '>'
+			if obj_valid(value) then begin
+				dims = value.dimensions
+				dims = 'Dims=[' + strjoin( strtrim(dims, 2), ',' ) + ']'
+				str_value = dims + ' ' + value.name + ' <' + obj_class(value) + '>'
+			endif else begin
+				str_value = '<InvalidObject>'
+			endelse
+		
+		;UNDEFINED
+		endif else if tname eq 'UNDEFINED' then begin
+			str_value = IsA(value, /NULL) ? '!Null' : '<undefined>'
 		
 		;SCALAR
 		endif else if nValues eq 1 then begin
@@ -4042,29 +5921,61 @@ OVERWRITE=overwrite
 	if ~IsA(attrName, 'STRING', /SCALAR) $
 		then message, 'ATTRNAME must be a scalar string.'
 	
+	;Forbidden attributes
+	;   - These are special inputs to ::_OverloadBracketsRightSide
+	IF MrIsMember(['DATA', 'PTR', 'POINTER'], attrName) $
+		THEN Message, '"' + attrName + '" cannot be an attribute name.'
+	
 	;Keywords
 	tf_has = self -> HasAttr(attrName)
 	if tf_has  && ~tf_overwrite then message, 'Cannot set attribute value. Attr already exists: "' + attrName + '".'
 	if ~tf_has && ~tf_create    then message, 'Cannot set attribute value. Attr does not exist: "' + attrName + '".'
 
 ;-------------------------------------------------------
-; Check Attribute Value ////////////////////////////////
+; Allow Object References for Pointer Attributes ///////
 ;-------------------------------------------------------
-	
-	;Check if the value is valid
-	if self -> AttrValue_IsValid(attrValue) eq 0 then begin
-		;Attributes that can contain MrVariable objects
-		attrVars = ['DEPEND_0', 'DEPEND_1', 'DEPEND_2', 'DEPEND_3', $
-		            'DELTA_MINUS_VAR', 'DELTA_PLUS_VAR']
+	;Attributes that point to other variables
+	ptrAttrs = [ 'DEPEND_0', 'DEPEND_1', 'DEPEND_2', 'DEPEND_3', $
+	             'LABL_PTR_1', 'LABL_PTR_2', 'LABL_PTR_3', $
+	             'DELTA_MINUS_VAR', 'DELTA_PLUS_VAR' ]
 
-		;Exceptions
-		if MrIsMember(attrVars, attrName) then begin
+	;Valid value
+	if self -> AttrValue_IsValid(attrValue) then begin
+		
+		;UNITS
+		if attrName eq 'UNITS' then begin
+			self -> SetUnits, attrValue
+			return
+			
+		;POINTER
+		endif else if MrIsMember(ptrAttrs, attrName) then begin
+			;Get the variable it points to
+			;   - This ensures that the variable with name AttrValue is in the cache
+			;   - Save the variable, not its name (i.e. circumvent the pointer)
+			if MrIsA(attrValue, /SCALAR, 'STRING') then begin
+				theValue = MrVar_Get(attrValue, COUNT=count)
+				if count eq 0 then theValue = attrValue
+			endif else begin
+				theValue = attrValue
+			endelse
+		
+		;VALUE
+		endif else begin
+			theValue = attrValue
+		endelse
+	
+	;Invalid value
+	endif else begin
+		
+		;POINTER
+		if MrIsMember(ptrAttrs, attrName) then begin
 			
 			;Allow objects, but only if they are of class MrVariable
 			if size(attrValue, /TNAME) eq 'OBJREF' then begin
-				if ~obj_isa(attrValue, 'MrVariable') $
-					then message, string( obj_class(attrValue), attrName, $
-					              FORMAT='(%"Invalid object class (%s) for attribute %s. Must be MrVariable.')
+				if obj_isa(attrValue, 'MrVariable') $
+					then theValue = attrValue $
+					else message, string( obj_class(attrValue), attrName, $
+					              FORMAT='(%"Invalid object class (%s) for attribute %s. Must be MrVariable.")')
 			
 			;Other datatypes not allowed
 			endif else begin
@@ -4072,12 +5983,12 @@ OVERWRITE=overwrite
 				                FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")')
 			endelse
 		
-		;Otherwise, throw an error
+		;VALUE
 		endif else begin
 			message, string(size(attrValue, /TNAME), attrName, $
 			                FORMAT='(%"Invalid attribute datatype (%s) for attribute %s")')
 		endelse
-	endif
+	endelse
 
 ;-------------------------------------------------------
 ; Set Attribute Value //////////////////////////////////
@@ -4085,7 +5996,7 @@ OVERWRITE=overwrite
 	
 	;Set attribute value
 	;   - Will simultaneously create the attribute
-	self.attributes[attrName] = attrValue
+	self.attributes[attrName] = theValue
 end
 
 
@@ -4210,10 +6121,25 @@ end
 
 ;+
 ;   Set class properties.
+;
+; :Keywords:
+;       VERBOSE:            in, optional, type=byte
+;                           Level of verboseness of printed messages. Options are::
+;                               0 - Quiet
+;                               1 - Less verbose
+;                               2 - More verbose
 ;-
-pro MrVariable::SetProperty
-	;Nothing to set
-end
+PRO MrVariable::SetProperty, $
+VERBOSE=verbose
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;VERBOSE
+	IF N_Elements(verbose) GT 0 THEN BEGIN
+		IF verbose LT 0 || verbose GT 2 THEN Message, 'VERBOSE must be between 0 and 2.'
+		self.verbose = verbose
+	ENDIF
+END
 
 
 ;+
@@ -4238,6 +6164,58 @@ pro MrVariable::SetType, type
 	;Fix the array type
 	*self.data = fix(*self.data, TYPE=typeCode)
 end
+
+
+;+
+;   Convert to the specified units. Any conversion coefficient will be factored
+;   into the implicit data array. If units are not recognized by the IDLUnit object,
+;   the input units will replace the current units without conversion.
+;
+; :Params:
+;       UNITS:              in, required, type=string/objref
+;                           The name of the physical units to which the implicit array is
+;                               to be converted, or and IDLunit object containing the new
+;                               units and scaling coefficient.
+;-
+PRO MrVariable::SetUnits, units
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Get old units
+	IF self.attributes -> HasKey('UNITS') $
+		THEN oldUnits = self.attributes['UNITS'] $
+		ELSE oldUnits = ''
+	
+	;Unit Name
+	newErr = 0
+	IF Size(units, /TNAME) EQ 'STRING' THEN BEGIN
+		newUnits = units
+	
+	;Unit Object
+	ENDIF ELSE IF IsA(units, 'IDLUnit') THEN BEGIN
+		IF units.quantity NE 1.0 THEN  MrPrintF, 'LogWarn', 'New units cannot have quantity. Ignoring.'
+		newUnits = units.unit
+	
+	;Invalid
+	ENDIF ELSE BEGIN
+		Message, 'UNITS must be a string or IDLUnit object.'
+	ENDELSE
+	
+	;Try to convert units properly with the IDL unit object
+	;   - If units are not recognized, error will occur
+	;   - If NEWUNITS has a scale factor an error will occur
+	Catch, the_error
+	IF oldUnits NE '' && the_error EQ 0 THEN BEGIN
+		outUnits = IDLunit(oldUnits + '->' + newUnits)
+		IF outUnits.quantity NE 1 THEN *self.data *= outUnits.quantity
+		self.attributes['UNITS'] = outUnits.unit
+	
+	;If conversion fails, change units value
+	ENDIF ELSE BEGIN
+		Catch, /CANCEL
+		self.attributes['UNITS'] = newUnits
+	ENDELSE
+END
 
 
 ;+
@@ -4705,6 +6683,9 @@ end
 ;
 ; :Fields:
 ;       DATA:       Data to be accessed via bracket overloading.
+;       NAME:       Name of the variable object.
+;       VERBOSE:    Level of verboseness for warnings, information, debugging.
+;       ATTRIBUTES: Hash of variable attributes and their values.
 ;-
 pro MrVariable__DEFINE
 	compile_opt idl2
@@ -4713,6 +6694,7 @@ pro MrVariable__DEFINE
 	          inherits IDL_Object, $
 	          data:             Ptr_New(), $
 	          name:             '', $
+	          verbose:          0B, $
 	          
 	          attributes:       obj_new(), $
 	          

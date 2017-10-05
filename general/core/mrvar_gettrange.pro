@@ -74,6 +74,7 @@
 ;   Modification History::
 ;       2016-05-27  -   Written by Matthew Argall
 ;       2016-06-23  -   Check if the time range object has been created. - MRA
+;       2017-07-26  -   Issue warning, not error, if time range has not been defined. - MRA
 ;-
 function MrVar_GetTRange, type, $
 TOKEN_FMT=token_fmt
@@ -83,8 +84,12 @@ TOKEN_FMT=token_fmt
 	;Enable common block
 	@mrvar_common
 	
-	if ~obj_valid(MrVarTRange) then message, 'No time range established. Set with MrVar_SetTRange.'
+	if ~obj_valid(MrVarTRange) then begin
+		MrPrintF, 'LogWarn', 'No time range established. Set with MrVar_SetTRange.'
+		trange = ['', '']
+	endif else begin
+		trange = MrVarTRange -> GetData(type, TOKEN_FMT=token_fmt)
+	endelse
 	
-	;Set the time range
-	return, MrVarTRange -> GetData(type, TOKEN_FMT=token_fmt)
+	return, trange
 end

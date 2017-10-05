@@ -51,6 +51,10 @@
 ;                               'ISO-8601'        - ISO-8601 formatted string
 ;                               'CUSTOM'          - Custom time string format
 ;
+; :Keywords:
+;       RESET:              in, optional, type=boolean, default=0
+;                           If set, the global time range will be reset to the Null state.
+;
 ; :Author:
 ;   Matthew Argall::
 ;       University of New Hampshire
@@ -65,8 +69,10 @@
 ; :History:
 ;   Modification History::
 ;       2016-05-27  -   Written by Matthew Argall
+;       2017-07-27  -   Added the RESET keyword.
 ;-
-pro MrVar_SetTRange, trange, type
+pro MrVar_SetTRange, trange, type, $
+RESET=reset
 	compile_opt idl2
 	on_error, 2
 
@@ -76,9 +82,14 @@ pro MrVar_SetTRange, trange, type
 	;Create a time object to manage global time range
 	if ~obj_valid(MrVarTRange) then MrVarTRange = MrTimeVar()
 	
-	;Must include start and end times
-	if n_elements(trange) ne 2 then message, 'TRANGE must have 2 elements.'
+	;Reset time range?
+	if keyword_set(reset) || array_equal(trange, '') then begin
+		MrVarTRange[0:1] = ''
 	
-	;Set the time range
-	MrVarTRange -> SetData, trange, type
+	;Set new time range
+	endif else begin
+		;Must include start and end times
+		if n_elements(trange) ne 2 then message, 'TRANGE must have 2 elements.'
+		MrVarTRange -> SetData, trange, type
+	endelse
 end
