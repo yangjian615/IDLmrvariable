@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Freq_Cyclotron
+;       MrVar_DR_eCyclotron
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -33,16 +33,25 @@
 ;
 ; PURPOSE:
 ;+
-;   Compute the cyclotron frequency.
+;   Compute the index of refraction of an electron cyclotron wave using the dispersion
+;   relation:
 ;
-;       f = 1/(2*!pi) * q * |B| / m
+;       n^2 = (ck/w)^2 = 1 - wpe / (w * (w + wce))
+;
+;   References:
+;       Kennel, C. F., and H. E. Petschek (1966), Limit on stably trapped particle fluxes,
+;           J. Geophys. Res., 71(1), 1–28, doi:10.1029/JZ071i001p00001.
 ;
 ; :Categories:
 ;   MrVariable
 ;
 ; :Params:
+;       F:              in, required, type=float
+;                       The observed wave frequency.
 ;       BMAG:           in, required, type=string/integer/objref
-;                       Name, number, or MrTimeSeries object of the magnetic field magnitude (nT).
+;                       Name, number, or MrScalarTS object of the magnetic field magnitude.
+;       N:              in, required, type=string/integer/objref
+;                       Name, number, or MrScalarTS object of the plasma density.
 ;       MASS:           in, required, type=string/float
 ;                       Mass (kg) of particle species. If a string, any mass recognized by
 ;                           MrConstants is acceptable.
@@ -71,70 +80,73 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016/12/08  -   Written by Matthew Argall
-;       2017/02/23  -   CACHE keyword was not being checked. Fixed. - MRA
-;       2017/05/11  -   Check BMAG for units or SI conversion. - MRA
+;       2016/06/21  -   Written by Matthew Argall
 ;-
-function MrVar_Freq_Cyclotron, Bmag, mass, $
+FUNCTION MrVar_DR_eCyclotron, f, Bmag, N, mass, $
 CACHE=cache, $
 NAME=name, $
-NO_CLOBBER=no_clobber
-	compile_opt idl2
-	on_error, 2
+NO_CLOBBER=no_clobber, $
+WAVE_NUMBER=oK
+	Compile_Opt idl2
+	On_Error, 2
 	
+	IF N_Elements(name) EQ 0 THEN name = 'index_of_refraction'
+	k_vname = 'wave_number'
 	
-	;Constants
-	q   = MrConstants('q')
-	m   = Size(mass, /TNAME) EQ 'STRING' ? MrConstants(mass) : mass
-	if n_elements(name) eq 0 then name = 'Cyclotron_Frequency'
+	;Check that Bmag and N have the same time tags
+	oB = MrVar_Get(Bmag)
+	oN = MrVar_Get(N)
+	IF ~oN -> IsTimeIdentical(oB) $
+		THEN oN = oN -> Interpol(oB)
 	
-;-----------------------------------------------------
-; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Get the variables
-	oBmag = MrVar_Get(Bmag)
-	IF ~Obj_IsA(oBmag, 'MrScalarTS') THEN Message, 'BMAG must be a MrScalarTS variable.'
+	;Calculate frequencies
+	oFc = MrVar_Freq_Cyclotron(oB, mass)
+	oFp = MrVar_Freq_Plasma(oN, mass)
 	
-	;B UNITS
-	IF oBmag -> HasAttr('SI_CONVERSION') THEN BEGIN
-		b_si = StrSplit(oBmag['SI_CONVERSION'], '>', /EXTRACT)
-		b_si = b_si[0] EQ '' ? 1.0 : Float(b_si[0])
-	ENDIF ELSE IF oBmag -> HasAttr('UNITS') THEN BEGIN
-		CASE StrLowCase(oBmag['UNITS']) OF
-			'nt': b_si = 1e-9
-			't':  b_si = 1.0
-			ELSE: BEGIN
-				MrPrintF, 'LogWarn', 'Unrecognized unis for BMAG: "' + oBmag['UNITS'] + '". Assuming nT.'
-				b_si = 1e-9
-			ENDCASE
-		ENDCASE
-	ENDIF ELSE BEGIN
-		MrPrintF, 'LogWarn', 'BMAG has no SI_CONVERSION or UNITS attribute. Assuming nT.'
-		b_si = 1e-9
-	ENDELSE
-	
-;-----------------------------------------------------
-; Cyclotron Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-
-	;Cyclotron frequency
-	fc = (b_si*q/(m*2*!pi)) * oBmag ;Hz
-	
-;-----------------------------------------------------
-; Finish Up \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	
-	;Name & cache
-	fc -> SetName, name
-	if Keyword_Set(cache) then fc -> Cache, NO_CLOBBER=no_clobber
+	;Calculate index of refraction
+	oIdx = 1.0 - oFp^2 / ( f * (f - oFc) )
+	oIdx  = MrScalarTS( oB['TIMEVAR'], Sqrt(oIdx['DATA']), $
+	                    CACHE      = cache, $
+	                    NAME       = name, $
+	                    NO_CLOBBER = no_clobber )
 	
 	;Attributes
-	fc['CATDESC']       = 'Cyclotron frequency: f = q * |B| / m.'
-	fc['PLOT_TITLE']    = 'Cyclotron frequency'
-	fc['TITLE']         = 'fc!C(Hz)'
-	fc['UNITS']         = 'Hz'
-	fc['SI_CONVERSION'] = '>'
+	oIdx['CATDESC']       = 'Index of refraction for an electron cyclotron wave.'
+	oIdx['FIELDNAM']      = 'n'
+	oIdx['FILLVAL']       = !values.f_nan
+	oIdx['FORMAT']        = 'E11.4'
+	oIdx['SCALETYP']      = 'linear'
+	oIdx['SI_CONVERSION'] = '>'
+	oIdx['UNITS']         = ' '
+	oIdx['VAR_NOTES']     = 'The index of refraction is computed using the dispersion relation of ' + $
+	                        'electron whistler waves given by equation 2.16 and neglecting ' + $
+	                        'the ion term of: ' + $
+	                        'Kennel, C. F., and H. E. Petschek (1966), Limit on stably ' + $
+	                        'trapped particle fluxes, J. Geophys. Res., 71(1), 1–28, ' + $
+	                        'doi:10.1029/JZ071i001p00001.'
 	
-	;Cleanup variables
-	return, fc
-end
+	;Calculate the wave number
+	IF Arg_Present(oK) THEN BEGIN
+		oK  = 1e3 * oIdx * 2.0*!pi*f / MrConstants('c')
+		oK -> SetName, k_vname
+		IF Keyword_Set(cache) THEN oK -> Cache, NO_CLOBBER=no_clobber
+		
+		;Attributes
+		oK['CATDESC']       = 'Wave number for an electron cyclotron wave.'
+		oK['FIELDNAM']      = 'k'
+		oK['FILLVAL']       = !values.f_nan
+		oK['FORMAT']        = 'E11.4'
+		oK['SCALETYP']      = 'linear'
+		oK['SI_CONVERSION'] = '1e-3>1/m^3'
+		oK['UNITS']         = 'km'
+		oK['VAR_NOTES']     = 'The wave number is computed using the dispersion relation of ' + $
+		                      'electron whistler waves given by equation 2.16 and neglecting ' + $
+		                      'the ion term of: ' + $
+		                      'Kennel, C. F., and H. E. Petschek (1966), Limit on stably ' + $
+		                      'trapped particle fluxes, J. Geophys. Res., 71(1), 1–28, ' + $
+		                      'doi:10.1029/JZ071i001p00001.'
+	ENDIF
+		
+	;Done
+	RETURN, oIdx
+END

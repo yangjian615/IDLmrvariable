@@ -203,12 +203,12 @@ THETAE=ThetaE
 			                              SPECIES   = species )
 		endif
 	
-		if tf_paEn   then ThetaE[i,*,*]   = MrDist_PAEn(   oneDist, onePhi, oneTheta, GYRO_RANGE=gyro_range, NPA_BINS=npa_bins, NE_BINS=nEnergy_bins)
+		if tf_paEn   then ThetaE[i,*,*]   = MrDist_PAEn(   oneDist, onePhi, oneTheta, PHI_RANGE=gyro_range, NTHETA_BINS=npa_bins, NE_BINS=nEnergy_bins)
 		if tf_gyroEn then PhiE[i,*,*]     = MrDist_GyroEn( oneDist, onePhi, oneTheta, PA_RANGE=pa_range)
 		if tf_gyroPA then PhiTheta[i,*,*] = MrDist_GyroPA( oneDist, onePhi, oneTheta)
 		if tf_gyro   then gpd[i,*]        = MrDist_Gyro(   oneDist, onePhi, oneTheta, energy, PA_RANGE=pa_range, E_RANGE=e_range)
-		if tf_pa     then pad[i,*]        = MrDist_PA(     oneDist, onePhi, oneTheta, energy, GYRO_RANGE=gyro_range, E_RANGE=e_range, MASS=mass, NBINS=nPA_Bins)
-		if tf_en     then enSpec[i,*]     = MrDist_En(     oneDist, onePhi, oneTheta, GYRO_RANGE=gyro_range, PA_RANGE=pa_range)
+		if tf_pa     then pad[i,*]        = MrDist_PA(     oneDist, onePhi, oneTheta, energy, PHI_RANGE=gyro_range, E_RANGE=e_range, MASS=mass, NBINS=nPA_Bins)
+		if tf_en     then enSpec[i,*]     = MrDist_En(     oneDist, onePhi, oneTheta, PHI_RANGE=gyro_range, PA_RANGE=pa_range)
 	endfor
 
 ;-----------------------------------------------------

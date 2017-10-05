@@ -72,31 +72,54 @@
 ; :History:
 ;   Modification History::
 ;       2016/12/08  -   Written by Matthew Argall
+;       2017/05/11  -   Make use of the SI_CONVERSION and UNITS attributes. - MRA
 ;-
-function MrVar_Freq_Plasma, N, mass, $
+FUNCTION MrVar_Freq_Plasma, N, mass, $
 CACHE=cache, $
 NAME=name, $
 NO_CLOBBER=no_clobber
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	
 	;Constants
 	q        = MrConstants('q', /DOUBLE)
 	epsilon0 = MrConstants('epsilon_0', /DOUBLE)
 	m        = Size(mass, /TNAME) EQ 'STRING' ? MrConstants(mass) : mass
-	IF N_Elements(name) EQ 0 THEN name = 'Cyclotron_Frequency'
+	IF N_Elements(name) EQ 0 THEN name = 'Plasma_Frequency'
+	
+;-----------------------------------------------------
+; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Get the variables
+	oN = MrVar_Get(N)
+	IF ~Obj_IsA(oN, 'MrScalarTS') THEN Message, 'N must be a MrScalarTS variable.'
+	
+	;N UNITS
+	IF oN -> HasAttr('SI_CONVERSION') THEN BEGIN
+		n_si = StrSplit(oN['SI_CONVERSION'], '>', /EXTRACT)
+		n_si = n_si[0] EQ '' ? 1.0 : Float(n_si[0])
+	ENDIF ELSE IF oN -> HasAttr('UNITS') THEN BEGIN
+		CASE StrLowCase(oN['UNITS']) OF
+			'cm^-3': n_si = 1e6
+			'm^-3':  n_si = 1.0
+			ELSE: BEGIN
+				MrPrintF, 'LogWarn', 'Unrecognized unis for N: "' + oN['UNITS'] + '". Assuming cm^-3.'
+				n_si = 1e6
+			ENDCASE
+		ENDCASE
+	ENDIF ELSE BEGIN
+		MrPrintF, 'LogWarn', 'N has no SI_CONVERSION or UNITS attribute. Assuming cm^-3.'
+		n_si = 1e6
+	ENDELSE
 	
 ;-----------------------------------------------------
 ; Plasma Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	;Get the variables
-	oN = MrVar_Get(N)
-
 	;compute the plasma beta
 	;units: sqrt(1e6 * m^-3) * sqrt(q/(m*epsilon_0)) --> 1e3*rad/s => Multiply result by 1e3
-	omega_p = Sqrt(oN['DATA']) * Sqrt(q^2 / (m * epsilon0))
-	f_p     = Float(Temporary(omega_p)) * 1e3 / (2*!pi)
+	omega_p = Sqrt(oN['DATA']) * Sqrt(n_si * q^2 / (m * epsilon0))
+	f_p     = Float(Temporary(omega_p)) / (2*!pi)
 	
 
 	f_p = MrScalarTS( oN['TIMEVAR'], f_p, $
@@ -109,11 +132,12 @@ NO_CLOBBER=no_clobber
 ;-----------------------------------------------------
 	
 	;Attributes
-	f_p['CATDESC']    = 'Plasma frequency: fp = sqrt(q * N / (m * epsilon0)) .'
-	f_p['PLOT_TITLE'] = 'Plasma frequency'
-	f_p['TITLE']      = 'fp!C(Hz)'
-	f_p['UNITS']      = 'Hz'
+	f_p['CATDESC']       = 'Plasma frequency: fp = sqrt(q * N / (m * epsilon0)) .'
+	f_p['PLOT_TITLE']    = 'Plasma frequency'
+	f_p['TITLE']         = 'fp!C(Hz)'
+	f_p['UNITS']         = 'Hz'
+	f_p['SI_CONVERSION'] = '>'
 	
 	;Cleanup variables
-	return, f_p
-end
+	RETURN, f_p
+END

@@ -149,16 +149,16 @@ WINDOW=win
 	coeff = 1.0 / (4.0 * MrConstants('mu_0') * 1.0e6)
 
 	;Sx = 1/(4u) * [(Ey*Bz - Ez*By) + (EyBz* - EzBy*)]
-	Sx = Conj(E_fft[*,*,1])*B_fft[*,*,2] - Conj(E_fft[*,*,2])*B_fft[*,*,1] + $
-	     E_fft[*,*,1]*Conj(B_fft[*,*,2]) - E_fft[*,*,2]*Conj(B_fft[*,*,1])
+	Sx = Conj(E_fft['DATA',*,*,1])*B_fft['DATA',*,*,2] - Conj(E_fft['DATA',*,*,2])*B_fft['DATA',*,*,1] + $
+	     E_fft['DATA',*,*,1]*Conj(B_fft['DATA',*,*,2]) - E_fft['DATA',*,*,2]*Conj(B_fft['DATA',*,*,1])
 	
 	;Sy = 1/(4u) * [(Ez*Bx - Ex*Bz) + (EzBx* - ExBz*)]
-	Sy = Conj(E_fft[*,*,2])*B_fft[*,*,0] - Conj(E_fft[*,*,0])*B_fft[*,*,2] + $
-	     E_fft[*,*,2]*Conj(B_fft[*,*,0]) - E_fft[*,*,0]*Conj(B_fft[*,*,2])
+	Sy = Conj(E_fft['DATA',*,*,2])*B_fft['DATA',*,*,0] - Conj(E_fft['DATA',*,*,0])*B_fft['DATA',*,*,2] + $
+	     E_fft['DATA',*,*,2]*Conj(B_fft['DATA',*,*,0]) - E_fft['DATA',*,*,0]*Conj(B_fft['DATA',*,*,2])
 
 	;Sz = 1/(4u) * [(Ex*By - Ey*Bx) + (ExBy* - EyBx*)]
-	Sz = Conj(E_fft[*,*,0])*B_fft[*,*,1] - Conj(E_fft[*,*,1])*B_fft[*,*,0] + $
-	     E_fft[*,*,0]*Conj(B_fft[*,*,1]) - E_fft[*,*,1]*Conj(B_fft[*,*,0])
+	Sz = Conj(E_fft['DATA',*,*,0])*B_fft['DATA',*,*,1] - Conj(E_fft['DATA',*,*,1])*B_fft['DATA',*,*,0] + $
+	     E_fft['DATA',*,*,0]*Conj(B_fft['DATA',*,*,1]) - E_fft['DATA',*,*,1]*Conj(B_fft['DATA',*,*,0])
 
 	;MuLTiply by the coefficient
 	Sx *= coeff
@@ -220,19 +220,21 @@ WINDOW=win
 ;-----------------------------------------------------
 ; Variables \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	;Component labels
+	comps = tf_sphere ? ['r', 'phi', 'theta'] : ['x', 'y', 'z']
 
 	;Create variables.
 	oSx = MrTimeSeries( B_fft['TIMEVAR'], Real_Part(Temporary(Sx)), $
 	                    CACHE      = cache, $
-	                    NAME       = name + '_x', $
+	                    NAME       = name + '_' + comps[0], $
 	                    NO_CLOBBER = no_clobber  )
 	oSy = MrTimeSeries( B_fft['TIMEVAR'], Real_Part(Temporary(Sy)), $
 	                    CACHE      = cache, $
-	                    NAME       = name + '_y', $
+	                    NAME       = name + '_' + comps[1], $
 	                    NO_CLOBBER = no_clobber  )
 	oSz = MrTimeSeries( B_fft['TIMEVAR'], Real_Part(Temporary(Sz)), $
 	                    CACHE      = cache, $
-	                    NAME       = name + '_z', $
+	                    NAME       = name + '_' + comps[2], $
 	                    NO_CLOBBER = no_clobber )
 
 ;-----------------------------------------------------
@@ -278,14 +280,17 @@ WINDOW=win
 		oSx['RGB_TABLE'] = 13
 		oSx['TITLE']     = '|S|!C$\mu$W/m$\up2$/Hz'
 		
-		oSy['AXIS_RANGE'] = [-180.0, 180.0]
-		oSy['TITLE']      = 'S$\phi$!C(Deg)'
-		oSy['UNITS']      = 'degrees'
+		oSy['AXIS_RANGE']   = [-180.0, 180.0]
+		oSy['TICKINTERVAL'] = 180
+		oSy['MINOR']        = 3
+		oSy['TITLE']        = 'S$\phi$!C(Deg)'
+		oSy['UNITS']        = 'degrees'
 		
-		oSz['AXIS_RANGE'] = [0.0, 180.0]
-		oSz['RGB_TABLE']  = 13
-		oSz['TITLE']      = 'S$\theta$!C(Deg)'
-		oSz['UNITS']      = 'degrees'
+		oSz['AXIS_RANGE']   = [0.0, 180.0]
+		oSz['TICKINTERVAL'] = 90.0
+		oSz['RGB_TABLE']    = 13
+		oSz['TITLE']        = 'S$\theta$!C(Deg)'
+		oSz['UNITS']        = 'degrees'
 		
 		;Angles do not mean anything without power
 		IF N_Elements(s_min) EQ 0 THEN BEGIN

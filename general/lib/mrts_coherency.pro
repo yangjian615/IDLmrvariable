@@ -1,10 +1,10 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Freq_Cyclotron
+;       MrTS_Coherency
 ;
 ;*****************************************************************************************
-;   Copyright (c) 2016, Matthew Argall                                                   ;
+;   Copyright (c) 2017, Matthew Argall                                                   ;
 ;   All rights reserved.                                                                 ;
 ;                                                                                        ;
 ;   Redistribution and use in source and binary forms, with or without modification,     ;
@@ -33,19 +33,13 @@
 ;
 ; PURPOSE:
 ;+
-;   Compute the cyclotron frequency.
-;
-;       f = 1/(2*!pi) * q * |B| / m
-;
-; :Categories:
-;   MrVariable
+;   Compute the coherency between two time series signals.
 ;
 ; :Params:
-;       BMAG:           in, required, type=string/integer/objref
-;                       Name, number, or MrTimeSeries object of the magnetic field magnitude (nT).
-;       MASS:           in, required, type=string/float
-;                       Mass (kg) of particle species. If a string, any mass recognized by
-;                           MrConstants is acceptable.
+;       VAR1:           in, required, type=string/integer/objref
+;                       Name, number, or MrTimeSeries variable.
+;       VAR2:           in, required, type=string/integer/objref
+;                       Name, number, or MrTimeSeries variable.
 ;
 ; :Keywords:
 ;       CACHE:          in, optional, type=boolean, default=0
@@ -58,8 +52,8 @@
 ;                           represents a unique number.
 ;
 ; :Returns:
-;       FC:             out, required, type=objref
-;                       Cyclotron frequency (Hz) of the same variable class as `BMAG`.
+;       OV_AVG:         out, required, type=objref
+;                       A MrTimeSeries objref containing the coherence.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -71,70 +65,44 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016/12/08  -   Written by Matthew Argall
-;       2017/02/23  -   CACHE keyword was not being checked. Fixed. - MRA
-;       2017/05/11  -   Check BMAG for units or SI conversion. - MRA
+;       2017/08/04  -   Written by Matthew Argall
 ;-
-function MrVar_Freq_Cyclotron, Bmag, mass, $
+FUNCTION MrTS_Coherency, var1, var2, nfft, nshift, $
 CACHE=cache, $
 NAME=name, $
-NO_CLOBBER=no_clobber
-	compile_opt idl2
-	on_error, 2
+NO_CLOBBER=no_clobber, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	On_Error, 2
 	
-	
-	;Constants
-	q   = MrConstants('q')
-	m   = Size(mass, /TNAME) EQ 'STRING' ? MrConstants(mass) : mass
-	if n_elements(name) eq 0 then name = 'Cyclotron_Frequency'
-	
-;-----------------------------------------------------
-; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
 	;Get the variables
-	oBmag = MrVar_Get(Bmag)
-	IF ~Obj_IsA(oBmag, 'MrScalarTS') THEN Message, 'BMAG must be a MrScalarTS variable.'
+	oV1 = MrVar_Get(var1)
+	oV2 = MrVar_Get(var2)
+	IF ~Obj_IsA(oV1, 'MrTimeSeries') THEN Message, 'VAR1 must be a MrTimeSeries object.'
+	IF ~Obj_IsA(oV2, 'MrTimeSeries') THEN Message, 'VAR2 must be a MrTimeSeries object.'
 	
-	;B UNITS
-	IF oBmag -> HasAttr('SI_CONVERSION') THEN BEGIN
-		b_si = StrSplit(oBmag['SI_CONVERSION'], '>', /EXTRACT)
-		b_si = b_si[0] EQ '' ? 1.0 : Float(b_si[0])
-	ENDIF ELSE IF oBmag -> HasAttr('UNITS') THEN BEGIN
-		CASE StrLowCase(oBmag['UNITS']) OF
-			'nt': b_si = 1e-9
-			't':  b_si = 1.0
-			ELSE: BEGIN
-				MrPrintF, 'LogWarn', 'Unrecognized unis for BMAG: "' + oBmag['UNITS'] + '". Assuming nT.'
-				b_si = 1e-9
-			ENDCASE
-		ENDCASE
-	ENDIF ELSE BEGIN
-		MrPrintF, 'LogWarn', 'BMAG has no SI_CONVERSION or UNITS attribute. Assuming nT.'
-		b_si = 1e-9
-	ENDELSE
+	;Defaults
+	IF N_Elements(name) EQ 0 THEN name = 'Coherency(' + oV1.name + ',' + oV2.name + ')'
 	
-;-----------------------------------------------------
-; Cyclotron Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-
-	;Cyclotron frequency
-	fc = (b_si*q/(m*2*!pi)) * oBmag ;Hz
+	;Cross-spectrum
+	oCSD = MrTS_CSD(oV1, oV2, nfft, nshift, _STRICT_EXTRA=extra)
 	
-;-----------------------------------------------------
-; Finish Up \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
+	;Individual PSDs
+	oPSD1 = oV1 -> PSD(nfft, nshift, _STRICT_EXTRA=extra)
+	oPSD2 = oV2 -> PSD(nfft, nshift, _STRICT_EXTRA=extra)
 	
-	;Name & cache
-	fc -> SetName, name
-	if Keyword_Set(cache) then fc -> Cache, NO_CLOBBER=no_clobber
+	;Coherence
+	oCoh = Abs(oCSD['DATA'])^2 / (oPSD1 * oPSD2)
+	oCoh -> SetData, Sqrt(oCoh['DATA'])
 	
 	;Attributes
-	fc['CATDESC']       = 'Cyclotron frequency: f = q * |B| / m.'
-	fc['PLOT_TITLE']    = 'Cyclotron frequency'
-	fc['TITLE']         = 'fc!C(Hz)'
-	fc['UNITS']         = 'Hz'
-	fc['SI_CONVERSION'] = '>'
+	oPSD1 -> CopyAttrTo, oCoh
+	oCoh['TITLE']      = 'Coherency'
+	oCoh['AXIS_RANGE'] = [0,1]
+	oCoh['LOG']        = 0B
 	
 	;Cleanup variables
-	return, fc
-end
+	oCoh -> SetName, name
+	IF Keyword_Set(cache) THEN oCoh -> Cache, NO_CLOBBER=no_clobber
+	RETURN, oCoh
+END

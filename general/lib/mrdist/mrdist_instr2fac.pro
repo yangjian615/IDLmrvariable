@@ -97,8 +97,7 @@ TYPE=type
 	                    DIMENSION  = dimension
 
 	;Field-Aligned Coordinate System
-	T_fac = MrDist_FAC(b, vec, $
-	                   TYPE      = type, $
+	T_fac = MrDist_FAC(b, vec, type, $
 	                   DIMENSION = dimension)
 
 	;Rotate the cartesian grid to field-aligned coordinates

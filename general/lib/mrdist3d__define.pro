@@ -990,6 +990,17 @@ THETA_RANGE=theta_range
 	ENDIF ELSE BEGIN
 		VM   = v^2
 	ENDELSE
+	
+	;If the particle velocity is below the spacecraft potential
+	;set its value to NaN to prevent Floating illegal operands.
+	IF tf_Vsc THEN BEGIN
+		iNaN = Where(v LT vsc, nNaN)
+		IF nNaN GT 0 THEN BEGIN
+			tf_nan  = 1B
+			v[iNaN] = !values.f_nan
+			VM[iNaN] = !values.f_nan
+		ENDIF
+	ENDIF
 
 ;-----------------------------------------------------
 ; Density \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -1112,74 +1123,74 @@ THETA_RANGE=theta_range
 		;
 		
 		;Pxx
-		fxx1_temp = Total( f * Cos(phi)^2, 1 ) * dPhi
-		fxx2_temp = Total( f * Cos(phi),   1 ) * dPhi * 2.0 * bulkv[0]
-		fxx3_temp = Total( f,              1 ) * dPhi       * bulkv[0]^2
+		fxx1_temp = Total( f * Cos(phi)^2, 1, NAN=tf_nan ) * dPhi
+		fxx2_temp = Total( f * Cos(phi),   1, NAN=tf_nan ) * dPhi * 2.0 * bulkv[0]
+		fxx3_temp = Total( f,              1, NAN=tf_nan ) * dPhi       * bulkv[0]^2
 		
 		;Pxy
-		fxy1_temp = Total( f * Sin(phi) * Cos(phi), 1 ) * dPhi
-		fxy2_temp = Total( f * Cos(phi),            1 ) * dPhi * bulkv[1]
-		fxy3_temp = Total( f * Sin(phi),            1 ) * dPhi * bulkv[0]
-		fxy4_temp = Total( f,                       1 ) * dPhi * bulkv[0] * bulkv[1]
+		fxy1_temp = Total( f * Sin(phi) * Cos(phi), 1, NAN=tf_nan ) * dPhi
+		fxy2_temp = Total( f * Cos(phi),            1, NAN=tf_nan ) * dPhi * bulkv[1]
+		fxy3_temp = Total( f * Sin(phi),            1, NAN=tf_nan ) * dPhi * bulkv[0]
+		fxy4_temp = Total( f,                       1, NAN=tf_nan ) * dPhi * bulkv[0] * bulkv[1]
 		
 		;Pxz
-		fxz1_temp = Total( f * Cos(phi), 1 ) * dPhi
-		fxz2_temp = Total( f * Cos(phi), 1 ) * dPhi * bulkv[2]
-		fxz3_temp = Total( f,            1 ) * dPhi * bulkv[0]
-		fxz4_temp = Total( f,            1 ) * dPhi * bulkv[0] * bulkv[2]
+		fxz1_temp = Total( f * Cos(phi), 1, NAN=tf_nan ) * dPhi
+		fxz2_temp = Total( f * Cos(phi), 1, NAN=tf_nan ) * dPhi * bulkv[2]
+		fxz3_temp = Total( f,            1, NAN=tf_nan ) * dPhi * bulkv[0]
+		fxz4_temp = Total( f,            1, NAN=tf_nan ) * dPhi * bulkv[0] * bulkv[2]
 		
 		;Pyy
-		fyy1_temp = Total( f * Sin(phi)^2, 1 ) * dPhi
-		fyy2_temp = Total( f * Sin(phi),   1 ) * dPhi * 2.0 * bulkv[1]
-		fyy3_temp = Total( f,              1 ) * dPhi       * bulkv[1]^2
+		fyy1_temp = Total( f * Sin(phi)^2, 1, NAN=tf_nan ) * dPhi
+		fyy2_temp = Total( f * Sin(phi),   1, NAN=tf_nan ) * dPhi * 2.0 * bulkv[1]
+		fyy3_temp = Total( f,              1, NAN=tf_nan ) * dPhi       * bulkv[1]^2
 		
 		;Pyz
-		fyz1_temp = Total( f * Sin(phi), 1 ) * dPhi
-		fyz2_temp = Total( f * Sin(phi), 1 ) * dPhi * bulkv[2]
-		fyz3_temp = Total( f,            1 ) * dPhi * bulkv[1]
-		fyz4_temp = Total( f,            1 ) * dPhi * bulkv[1] * bulkv[2]
+		fyz1_temp = Total( f * Sin(phi), 1, NAN=tf_nan ) * dPhi
+		fyz2_temp = Total( f * Sin(phi), 1, NAN=tf_nan ) * dPhi * bulkv[2]
+		fyz3_temp = Total( f,            1, NAN=tf_nan ) * dPhi * bulkv[1]
+		fyz4_temp = Total( f,            1, NAN=tf_nan ) * dPhi * bulkv[1] * bulkv[2]
 		
 		;Pzz
-		fzz1_temp = Total( f, 1 ) * dPhi
-		fzz2_temp = Total( f, 1 ) * dPhi * 2 * bulkv[2]
-		fzz3_temp = Total( f, 1 ) * dPhi     * bulkv[2]^2
+		fzz1_temp = Total( f, 1, NAN=tf_nan ) * dPhi
+		fzz2_temp = Total( f, 1, NAN=tf_nan ) * dPhi * 2 * bulkv[2]
+		fzz3_temp = Total( f, 1, NAN=tf_nan ) * dPhi     * bulkv[2]^2
 	
 		;
 		; THETA
 		;
 		
 		;Pxx
-		fxx1_temp = Total( fxx1_temp * Sin(theta)^3, 1 ) * dTheta
-		fxx2_temp = Total( fxx2_temp * Sin(theta)^2, 1 ) * dTheta
-		fxx3_temp = Total( fxx3_temp * Sin(theta),   1 ) * dTheta
+		fxx1_temp = Total( fxx1_temp * Sin(theta)^3, 1, NAN=tf_nan ) * dTheta
+		fxx2_temp = Total( fxx2_temp * Sin(theta)^2, 1, NAN=tf_nan ) * dTheta
+		fxx3_temp = Total( fxx3_temp * Sin(theta),   1, NAN=tf_nan ) * dTheta
 		
 		;Pxy
-		fxy1_temp = Total( fxy1_temp * Sin(theta)^3,             1 ) * dTheta
-		fxy2_temp = Total( fxy2_temp * Sin(theta)^2,             1 ) * dTheta
-		fxy3_temp = Total( fxy3_temp * Sin(theta) * Cos(theta),  1 ) * dTheta
-		fxy4_temp = Total( fxy4_temp * Sin(theta),               1 ) * dTheta
+		fxy1_temp = Total( fxy1_temp * Sin(theta)^3,             1, NAN=tf_nan ) * dTheta
+		fxy2_temp = Total( fxy2_temp * Sin(theta)^2,             1, NAN=tf_nan ) * dTheta
+		fxy3_temp = Total( fxy3_temp * Sin(theta) * Cos(theta),  1, NAN=tf_nan ) * dTheta
+		fxy4_temp = Total( fxy4_temp * Sin(theta),               1, NAN=tf_nan ) * dTheta
 		
 		;Pxz
-		fxz1_temp = Total( fxz1_temp * Sin(theta)^2 * Cos(theta), 1 ) * dTheta
-		fxz2_temp = Total( fxz2_temp * Sin(theta)^2,              1 ) * dTheta
-		fxz3_temp = Total( fxz3_temp * Sin(theta)   * Cos(theta), 1 ) * dTheta
-		fxz4_temp = Total( fxz4_temp * Sin(theta),                1 ) * dTheta
+		fxz1_temp = Total( fxz1_temp * Sin(theta)^2 * Cos(theta), 1, NAN=tf_nan ) * dTheta
+		fxz2_temp = Total( fxz2_temp * Sin(theta)^2,              1, NAN=tf_nan ) * dTheta
+		fxz3_temp = Total( fxz3_temp * Sin(theta)   * Cos(theta), 1, NAN=tf_nan ) * dTheta
+		fxz4_temp = Total( fxz4_temp * Sin(theta),                1, NAN=tf_nan ) * dTheta
 		
 		;Pyy
-		fyy1_temp = Total( fyy1_temp * Sin(theta)^3, 1 ) * dTheta
-		fyy2_temp = Total( fyy2_temp * Sin(theta)^2, 1 ) * dTheta
-		fyy3_temp = Total( fyy3_temp * Sin(theta),   1 ) * dTheta
+		fyy1_temp = Total( fyy1_temp * Sin(theta)^3, 1, NAN=tf_nan ) * dTheta
+		fyy2_temp = Total( fyy2_temp * Sin(theta)^2, 1, NAN=tf_nan ) * dTheta
+		fyy3_temp = Total( fyy3_temp * Sin(theta),   1, NAN=tf_nan ) * dTheta
 		
 		;Pyz
-		fyz1_temp = Total( fyz1_temp * Sin(theta)^2 * Cos(theta), 1 ) * dTheta
-		fyz2_temp = Total( fyz2_temp * Sin(theta)^2,              1 ) * dTheta
-		fyz3_temp = Total( fyz3_temp * Sin(theta)   * Cos(theta), 1 ) * dTheta
-		fyz4_temp = Total( fyz4_temp * Sin(theta),                1 ) * dTheta
+		fyz1_temp = Total( fyz1_temp * Sin(theta)^2 * Cos(theta), 1, NAN=tf_nan ) * dTheta
+		fyz2_temp = Total( fyz2_temp * Sin(theta)^2,              1, NAN=tf_nan ) * dTheta
+		fyz3_temp = Total( fyz3_temp * Sin(theta)   * Cos(theta), 1, NAN=tf_nan ) * dTheta
+		fyz4_temp = Total( fyz4_temp * Sin(theta),                1, NAN=tf_nan ) * dTheta
 		
 		;Pzz
-		fzz1_temp = Total( fzz1_temp * Sin(theta) * Cos(theta)^2, 1 ) * dTheta
-		fzz2_temp = Total( fzz2_temp * Sin(theta) * Cos(theta),   1 ) * dTheta
-		fzz3_temp = Total( fzz3_temp * Sin(theta),                1 ) * dTheta
+		fzz1_temp = Total( fzz1_temp * Sin(theta) * Cos(theta)^2, 1, NAN=tf_nan ) * dTheta
+		fzz2_temp = Total( fzz2_temp * Sin(theta) * Cos(theta),   1, NAN=tf_nan ) * dTheta
+		fzz3_temp = Total( fzz3_temp * Sin(theta),                1, NAN=tf_nan ) * dTheta
 		
 		
 		;
@@ -1190,42 +1201,42 @@ THETA_RANGE=theta_range
 		;   - f --> s^3/cm^6 --> s^3/m^6 * 1e12
 		
 		;Pxx
-		fxx1_temp = self.mass * Total( fxx1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fxx2_temp = self.mass * Total( fxx2_temp * v * VM           * dv ) * 1e12
-		fxx3_temp = self.mass * Total( fxx3_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fxx1_temp = self.mass * Total( fxx1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fxx2_temp = self.mass * Total( fxx2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fxx3_temp = self.mass * Total( fxx3_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pxx       = Temporary(fxx1_temp) - Temporary(fxx2_temp) + Temporary(fxx3_temp)
 		
 		;Pxy
-		fxy1_temp = self.mass * Total( fxy1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fxy2_temp = self.mass * Total( fxy2_temp * v * VM           * dv ) * 1e12
-		fxy3_temp = self.mass * Total( fxy3_temp * v * VM           * dv ) * 1e12
-		fxy4_temp = self.mass * Total( fxy4_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fxy1_temp = self.mass * Total( fxy1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fxy2_temp = self.mass * Total( fxy2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fxy3_temp = self.mass * Total( fxy3_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fxy4_temp = self.mass * Total( fxy4_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pxy       = Temporary(fxy1_temp) - Temporary(fxy2_temp) - Temporary(fxy3_temp) + Temporary(fxy4_temp)
 		
 		;Pxz
-		fxz1_temp = self.mass * Total( fxz1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fxz2_temp = self.mass * Total( fxz2_temp * v * VM           * dv ) * 1e12
-		fxz3_temp = self.mass * Total( fxz3_temp * v * VM           * dv ) * 1e12
-		fxz4_temp = self.mass * Total( fxz4_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fxz1_temp = self.mass * Total( fxz1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fxz2_temp = self.mass * Total( fxz2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fxz3_temp = self.mass * Total( fxz3_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fxz4_temp = self.mass * Total( fxz4_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pxz       = Temporary(fxz1_temp) - Temporary(fxz2_temp) - Temporary(fxz3_temp) + Temporary(fxz4_temp)
 		
 		;Pyy
-		fyy1_temp = self.mass * Total( fyy1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fyy2_temp = self.mass * Total( fyy2_temp * v * VM           * dv ) * 1e12
-		fyy3_temp = self.mass * Total( fyy3_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fyy1_temp = self.mass * Total( fyy1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fyy2_temp = self.mass * Total( fyy2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fyy3_temp = self.mass * Total( fyy3_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pyy       = Temporary(fyy1_temp) - Temporary(fyy2_temp) + Temporary(fyy3_temp)
 		
 		;Pyz
-		fyz1_temp = self.mass * Total( fyz1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fyz2_temp = self.mass * Total( fyz2_temp * v * VM           * dv ) * 1e12
-		fyz3_temp = self.mass * Total( fyz3_temp * v * VM           * dv ) * 1e12
-		fyz4_temp = self.mass * Total( fyz4_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fyz1_temp = self.mass * Total( fyz1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fyz2_temp = self.mass * Total( fyz2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fyz3_temp = self.mass * Total( fyz3_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fyz4_temp = self.mass * Total( fyz4_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pyz       = Temporary(fyz1_temp) - Temporary(fyz2_temp) - Temporary(fyz3_temp) + Temporary(fyz4_temp)
 		
 		;Pzz
-		fzz1_temp = self.mass * Total( fzz1_temp * v * VM^(3.0/2.0) * dv ) * 1e12
-		fzz2_temp = self.mass * Total( fzz2_temp * v * VM           * dv ) * 1e12
-		fzz3_temp = self.mass * Total( fzz3_temp * v * Sqrt(VM)     * dv ) * 1e12
+		fzz1_temp = self.mass * Total( fzz1_temp * v * VM^(3.0/2.0) * dv, NAN=tf_nan ) * 1e12
+		fzz2_temp = self.mass * Total( fzz2_temp * v * VM           * dv, NAN=tf_nan ) * 1e12
+		fzz3_temp = self.mass * Total( fzz3_temp * v * Sqrt(VM)     * dv, NAN=tf_nan ) * 1e12
 		Pzz       = Temporary(fzz1_temp) - Temporary(fzz2_temp) + Temporary(fzz3_temp)
 		
 		; Unit check:
@@ -1659,7 +1670,6 @@ VELOCITY=velocity
 END
 
 
-
 ;+
 ;   Reduce a single 3D distribution function to 2D by averaging over polar angle.
 ;
@@ -2058,14 +2068,11 @@ WEIGHT=weight
 	;Locate data within new bins
 	;   - Keep the number of Theta bins the same
 	;   - Average all PHI values within [-DELTA, DELTA] in each theta bin
-catch, the_error
-if the_error eq 0 then begin
 	cHist  = hist_nd(coords, $
 	                 MIN             = [ phi_range[0], trange[0], erange[0]], $
 	                 MAX             = [ phi_range[1], trange[1], erange[1]], $
 	                 NBINS           = [    nPhi_bins,         1,         1], $
 	                 REVERSE_INDICES = ri)
-endif else stop
 
 ;-----------------------------------------------------
 ; Reduce to 1D \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\

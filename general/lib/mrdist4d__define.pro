@@ -195,7 +195,7 @@ END
 
 
 ;+
-;   Convert the distribution FUNCTION from one set of units to another. The conversion
+;   Convert the distribution function from one set of units to another. The conversion
 ;   factors are:
 ;                                        PARTICLE
 ;           |  PARTICLE FLUX (F)  |  ENERGY FLUX (FE)  |  PHASE SPACE DENSITY (f)  |
@@ -209,7 +209,7 @@ END
 ;
 ; :Params:
 ;       FLUX:           in, required, type=FltArr
-;                       Distribution FUNCTION FOR which to convert units
+;                       Distribution function for which to convert units
 ;       TO_UNITS:       in, required, type=string
 ;                       Convert to these units.  Options are::
 ;                           Energy:                'ENERGY'      - eV
@@ -597,18 +597,27 @@ FUNCTION MrDist4D::GetDist3D, idx
 ;-----------------------------------------------------
 ; Extract Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	;Get the independent variables
-	oPhi    = self.oDist['DEPEND_1']
-	oTheta  = self.oDist['DEPEND_2']
-	oEnergy = self.oDist['DEPEND_3']
+	;Turn off verboseness
+	;   - PHI and THETA are not standard sizes
+	;   - Subscripting oDist will quasi-fail and generate warnings
+	IF Size(self.oDist['DEPEND_1'], /N_DIMENSIONS) EQ 3 THEN BEGIN
+		self.oDist.verbose = 0B
 	
-	;Extract data for the time indicated
-	;   - PHI may have dimensions of [nPhi], [nTime, nPhi] or [nTime, nPhi, nTheta]
-	;   - Similarly for THETA
-	phi    = Obj_IsA(oPhi,    'MrTimeSeries') ? Reform(oPhi[idx,*,*])   : oPhi['DATA']
-	theta  = Obj_IsA(oTheta,  'MrTimeSeries') ? Reform(oTheta[idx,*,*]) : oTheta['DATA']
-	energy = Obj_IsA(oEnergy, 'MrTimeSeries') ? Reform(oEnergy[idx,*])  : oEnergy['DATA']
-	IF N_Elements(self.oVsc) GT 0 THEN Vsc = self.oVsc[[idx]]
+		;Get the independent variables
+		oDist   = self.oDist[idx,*,*,*]
+		oPhi    = (oDist['DEPEND_1'])[idx,*,*]
+		oTheta  = (oDist['DEPEND_2'])[idx,*,*]
+		oEnergy = oDist['DEPEND_3']
+	
+		;Turn verboseness back on
+		oDist.verbose = 1B
+	ENDIF ELSE BEGIN
+		oDist   = self.oDist[idx,*,*,*]
+		oPhi    = oDist['DEPEND_1']
+		oTheta  = oDist['DEPEND_2']
+		oEnergy = oDist['DEPEND_3']
+	ENDELSE
+	IF N_Elements(self.oVsc) GT 0 THEN Vsc = self.oVsc['DATA', idx]
 
 ;-----------------------------------------------------
 ; Phi Deltas \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -616,10 +625,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;PHI DELTA PLUS
 	IF oPhi -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
-		oDPhi_plus = MrVar_Get( oPhi['DELTA_PLUS_VAR'] )
-		IF Obj_IsA(oDPhi_plus, 'MrTimeSeries') $
-			THEN dphi_plus = Reform( oDPhi_Plus[idx,*] ) $
-			ELSE dphi_plus = oDPhi_Plus['DATA']
+		dphi_plus = Reform( ( oPhi['DELTA_PLUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oPhi -> HasAttr('DELTA_PLUS') THEN BEGIN
 		dphi_plus = oPhi['DELTA_PLUS']
@@ -627,10 +633,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;PHI DELTA MINUS
 	IF oPhi -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
-		oDPhi_minus = MrVar_Get( oPhi['DELTA_MINUS_VAR'] )
-		IF Obj_IsA(oDPhi_minus, 'MrTimeSeries') $
-			THEN dphi_minus = Reform( oDPhi_Plus[idx,*] ) $
-			ELSE dphi_minus = oDPhi_Plus['DATA']
+		dphi_minus = Reform( ( oPhi['DELTA_MINUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oPhi -> HasAttr('DELTA_MINUS') THEN BEGIN
 		dphi_minus = oPhi['DELTA_MINUS']
@@ -642,10 +645,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;DELTA PLUS
 	IF oTheta -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
-		oDTheta_plus = MrVar_Get( oTheta['DELTA_PLUS_VAR'] )
-		IF Obj_IsA(oDTheta_plus, 'MrTimeSeries') $
-			THEN dtheta_plus = Reform( oDTheta_Plus[idx,*] ) $
-			ELSE dtheta_plus = oDTheta_Plus['DATA']
+		dtheta_plus = Reform( ( oTheta['DELTA_PLUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oTheta -> HasAttr('DELTA_PLUS') THEN BEGIN
 		dtheta_plus = oTheta['DELTA_PLUS']
@@ -653,10 +653,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;DELTA MINUS
 	IF oTheta -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
-		oDTheta_minus = MrVar_Get( oTheta['DELTA_MINUS_VAR'] )
-		IF Obj_IsA(oDTheta_minus, 'MrTimeSeries') $
-			THEN dtheta_minus = Reform( oDTheta_Plus[idx,*] ) $
-			ELSE dtheta_minus = oDTheta_Plus['DATA']
+		dtheta_minus = Reform( ( oTheta['DELTA_PLUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oTheta -> HasAttr('DELTA_MINUS') THEN BEGIN
 		dtheta_minus = oTheta['DELTA_MINUS']
@@ -668,10 +665,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;DELTA PLUS
 	IF oEnergy -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
-		oDE_plus = MrVar_Get( oEnergy['DELTA_PLUS_VAR'] )
-		IF Obj_IsA(oDE_plus, 'MrTimeSeries') $
-			THEN dE_plus = Reform( oDE_Plus[idx,*] ) $
-			ELSE dE_plus = oDE_Plus['DATA']
+		dE_plus = Reform( ( oEnergy['DELTA_PLUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oEnergy -> HasAttr('DELTA_PLUS') THEN BEGIN
 		dE_plus = oEnergy['DELTA_PLUS']
@@ -679,10 +673,7 @@ FUNCTION MrDist4D::GetDist3D, idx
 	
 	;DELTA MINUS
 	IF oEnergy -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
-		oDE_minus = MrVar_Get( oEnergy['DELTA_MINUS_VAR'] )
-		IF Obj_IsA(oDE_minus, 'MrTimeSeries') $
-			THEN dE_minus = Reform( oDE_minus[idx,*] ) $
-			ELSE dE_minus = oDE_minus['DATA']
+		dE_minus = Reform( ( oEnergy['DELTA_PLUS_VAR'] )['DATA'] )
 	
 	ENDIF ELSE IF oEnergy -> HasAttr('DELTA_MINUS') THEN BEGIN
 		dE_minus = oE['DELTA_MINUS']
@@ -691,12 +682,13 @@ FUNCTION MrDist4D::GetDist3D, idx
 ;-----------------------------------------------------
 ; Create Distribution \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+
 	;Create the 3D distribution
-	dist3D = MrDist3D( Reform( self.oDist[idx,*,*,*] ), $
-	                   Temporary(phi), $
-	                   Temporary(theta), $
-	                   Temporary(energy), $
-	                   Temporary(Vsc), $
+	dist3D = MrDist3D( Reform( oDist['DATA'] ), $
+	                   Reform( oPhi['DATA'] ), $
+	                   Reform( oTheta['DATA'] ), $
+	                   Reform( oEnergy['DATA'] ), $
+	                   Temporary( Vsc ), $
 	                   /DEGREES, $
 	                   DENERGY_MINUS = dE_minus, $
 	                   DENERGY_PLUS  = dE_plus, $
@@ -895,21 +887,29 @@ _REF_EXTRA=extra
 	                 CACHE = cache, $
 	                 NAME  = self.oDist.name + '_density', $
 	                 /NO_COPY )
-	
+
 	;Attributes
 	oN['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oN['DISPLAY_TYPE']  = 'time_series'
+	oN['FIELDNAM']      = 'Density'
+	oN['FILLVAL']       = -1e31
+	oN['FORMAT']        = 'F9.4'
 	oN['LOG']           = 1B
 	oN['PLOT_TITLE']    = 'Density'
 	oN['UNITS']         = 'cm^-3'
 	oN['TITLE']         = 'N!C(cm^-3)'
+	oN['SCALETYP']      = 'log'
 	oN['SI_CONVERSION'] = '1e-6>m^-3'
+	oN['VALIDMIN']      = 0.0
+	oN['VALIDMAX']      = 1e4
+	oN['VAR_TYPE']      = 'data'
 
 ;-----------------------------------------------------
 ; Entropy \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	
-	;Energy-time spectrogram
+	;Entropy
 	oS = MrScalarTS( self.oDist['TIMEVAR'], S, $
 	                 CACHE = cache, $
 	                 NAME  = self.oDist.name + '_entropy', $
@@ -918,13 +918,19 @@ _REF_EXTRA=extra
 	;Attributes
 	oS['CATDESC']       = 'Entropy computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oS['DISPLAY_TYPE']  = 'time_series'
+	oS['FIELDNAM']      = 'Entropy'
+	oS['FILLVAL']       = -1e31
+	oS['FORMAT']        = 'E14.5'
 	oS['LOG']           = 1B
 	oS['PLOT_TITLE']    = 'Entropy'
 	oS['UNITS']         = 'J/K'
 	oS['TITLE']         = 'S!C(J/K/m^3)'
+	oS['SCALETYP']      = 'log'
 	oS['SI_CONVERSION'] = '>'
 	oS['VAR_NOTES']     = 'S = -kH, where k is Boltzman constant and H is the Boltzman ' + $
 	                      'H-function: \Integral f ln(f) d^3v'
+	oS['VAR_TYPE']      = 'data'
 
 ;-----------------------------------------------------
 ; Velocity \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -939,11 +945,17 @@ _REF_EXTRA=extra
 	;Attributes
 	oV['CATDESC']       = 'Number density computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oV['DISPLAY_TYPE']  = 'time_series'
+	oV['FIELDNAM']      = 'Velocity'
+	oV['FILLVAL']       = -1e31
+	oV['FORMAT']        = 'F14.6'
 	oV['LABEL']         = ['Vx', 'Vy', 'Vz']
 	oV['PLOT_TITLE']    = 'Velocity'
 	oV['UNITS']         = 'km/s'
 	oV['TITLE']         = 'V!C(km/s)'
+	oV['SCALETYP']      = 'linear'
 	oV['SI_CONVERSION'] = '1e3>m/s'
+	oV['VAR_TYPE']      = 'data'
 
 ;-----------------------------------------------------
 ; Pressure \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -958,14 +970,21 @@ _REF_EXTRA=extra
 	;Attributes
 	oP['CATDESC']       = 'Pressure computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oP['DISPLAY_TYPE']  = 'time_series'
+	oP['FIELDNAM']      = 'Pressure'
+	oP['FILLVAL']       = -1e31
+	oP['FORMAT']        = 'F11.5'
 	oP['LABEL']         = 'P'
-	oP['LABEL_PTR_1']   = ['x', 'y', 'z']
-	oP['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oP['LABL_PTR_1']    = ['x', 'y', 'z']
+	oP['LABL_PTR_2']    = ['x', 'y', 'z']
 	oP['PLOT_TITLE']    = 'Pressure'
 	oP['UNITS']         = 'nPa'
 	oP['PLOT_TITLE']    = 'Pressure Tensor'
 	oP['TITLE']         = 'P!C(nPa)'
+	oP['SCALETYP']      = 'linear'
 	oP['SI_CONVERSION'] = '1e-9>Pa'
+	oP['VALIDMIN']      = 0.0
+	oP['VAR_TYPE']      = 'data'
 
 ;-----------------------------------------------------
 ; Temperature \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -980,14 +999,21 @@ _REF_EXTRA=extra
 	;Attributes
 	oT['CATDESC']       = 'Temperature computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oT['DISPLAY_TYPE']  = 'time_series'
+	oT['FIELDNAM']      = 'Temperature'
+	oT['FILLVAL']       = -1e31
+	oT['FORMAT']        = 'F11.5'
 	oT['LABEL']         = 'T'
-	oT['LABEL_PTR_1']   = ['x', 'y', 'z']
-	oT['LABEL_PTR_2']   = ['x', 'y', 'z']
+	oT['LABL_PTR_1']    = ['x', 'y', 'z']
+	oT['LABL_PTR_2']    = ['x', 'y', 'z']
 	oT['PLOT_TITLE']    = 'Temperature'
 	oT['UNITS']         = 'eV'
 	oT['PLOT_TITLE']    = 'Temperature Tensor'
 	oT['TITLE']         = 'T!C(eV)'
+	oT['SCALETYP']      = 'linear'
 	oT['SI_CONVERSION'] = '>'
+	oT['VALIDMIN']      = 0.0
+	oT['VAR_TYPE']      = 'data'
 
 ;-----------------------------------------------------
 ; Heat Flux \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -1002,11 +1028,17 @@ _REF_EXTRA=extra
 	;Attributes
 	oQ['CATDESC']       = 'Heat flux computed from the 3D velocity space integral ' + $
 	                      'of the distribution function.'
+	oQ['DISPLAY_TYPE']  = 'time_series'
+	oQ['FIELDNAM']      = 'Heat Flux'
+	oQ['FILLVAL']       = -1e31
+	oQ['FORMAT']        = 'F11.5'
 	oQ['LABEL']         = ['Qx', 'Qy', 'Qz']
 	oQ['PLOT_TITLE']    = 'Heat Flux'
 	oQ['UNITS']         = 'W'
 	oQ['TITLE']         = 'Q!C(nW)'
 	oQ['SI_CONVERSION'] = '1e-9>W'
+	oQ['SCALETYP']      = 'linear'
+	oQ['VAR_TYPE']      = 'data'
 END
 
 

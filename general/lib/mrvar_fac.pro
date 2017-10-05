@@ -102,6 +102,7 @@
 ;                           Removed TYPE keyword, added FAC parameter. - MRA
 ;       2017/01/22  -   Switched order of `PERP` and `FAC` params. Added `TIME` keyword. - MRA
 ;       2017/03/09  -   'RADAZ' system now correct. Added AXLABEL keyword. - MRA
+;       2017/06/05  -   PERP parameter is ignored if FAC='CROSSX' . - MRA
 ;-
 FUNCTION MrVar_FAC, par, perp, fac, $
 AXLABELS=axlabels, $
@@ -119,11 +120,10 @@ TIME=time
 	;PERP
 	IF N_Elements(perp) EQ 0 THEN BEGIN
 		theFAC = 'CROSSX'
-	ENDIF ELSE BEGIN
+	ENDIF ELSE IF theFAC NE 'CROSSX' THEN BEGIN
 		oPerp = MrVar_Get(perp)
 		IF ~IsA(oPerp, 'MrVectorTS') THEN Message, 'PERP must be a MrVectorTS object.'
-		theFAC = N_Elements(fac) EQ 0 ? '' : StrUpCase(fac)
-	ENDELSE
+	ENDIF
 
 ;-----------------------------------------------------
 ; Base Vectors \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -222,7 +222,7 @@ TIME=time
 		oY_hat = oY_hat -> Normalize()
 		
 		;Perp1 = Yx(PARxPERP)
-		oX_hat = oY_hat -> Cross(oPar_hat)
+		oX_hat = oY_hat -> Cross(oZ_hat)
 		
 		;Axis labels
 		axlabels = ['(PARxPERP)xPAR', 'PARxPERP', 'PAR']

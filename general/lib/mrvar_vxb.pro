@@ -1,10 +1,10 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Freq_Cyclotron
+;       MrVar_VxB
 ;
 ;*****************************************************************************************
-;   Copyright (c) 2016, Matthew Argall                                                   ;
+;   Copyright (c) 2017, Matthew Argall                                                   ;
 ;   All rights reserved.                                                                 ;
 ;                                                                                        ;
 ;   Redistribution and use in source and binary forms, with or without modification,     ;
@@ -33,19 +33,17 @@
 ;
 ; PURPOSE:
 ;+
-;   Compute the cyclotron frequency.
+;   Compute the convective electric field.
 ;
-;       f = 1/(2*!pi) * q * |B| / m
-;
-; :Categories:
-;   MrVariable
+;       E = -VxB
 ;
 ; :Params:
-;       BMAG:           in, required, type=string/integer/objref
-;                       Name, number, or MrTimeSeries object of the magnetic field magnitude (nT).
-;       MASS:           in, required, type=string/float
-;                       Mass (kg) of particle species. If a string, any mass recognized by
-;                           MrConstants is acceptable.
+;       V:              in, required, type=string/integer/objref
+;                       Name, number, or MrVectorTS variable of the plasma bulk velocity.
+;       B:              in, required, type=string/integer/objref
+;                       Name, number, or MrVectorTS variable of the vector magnetic field.
+;                           If B does not have the same time tags as `V`, then it will
+;                           be interpolated to `V`.
 ;
 ; :Keywords:
 ;       CACHE:          in, optional, type=boolean, default=0
@@ -58,8 +56,8 @@
 ;                           represents a unique number.
 ;
 ; :Returns:
-;       FC:             out, required, type=objref
-;                       Cyclotron frequency (Hz) of the same variable class as `BMAG`.
+;       OE_VXB:         out, required, type=objref
+;                       Convective electric field as a MrVectorTS object.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -71,70 +69,72 @@
 ;
 ; :History:
 ;   Modification History::
-;       2016/12/08  -   Written by Matthew Argall
-;       2017/02/23  -   CACHE keyword was not being checked. Fixed. - MRA
-;       2017/05/11  -   Check BMAG for units or SI conversion. - MRA
+;       2017/05/10  -   Written by Matthew Argall
 ;-
-function MrVar_Freq_Cyclotron, Bmag, mass, $
+function MrVar_E_VxB, v, b, $
 CACHE=cache, $
 NAME=name, $
 NO_CLOBBER=no_clobber
 	compile_opt idl2
 	on_error, 2
 	
+	;Grab the variables
+	oV = MrVar_Get(v)
+	oB = MrVar_Get(b)
+	IF ~Obj_IsA(oV, 'MrVectorTS') THEN Message, 'V must be a MrVectorTS variable.'
+	IF ~Obj_IsA(oB, 'MrVectorTS') THEN Message, 'B must be a MrVectorTS variable.'
 	
-	;Constants
-	q   = MrConstants('q')
-	m   = Size(mass, /TNAME) EQ 'STRING' ? MrConstants(mass) : mass
-	if n_elements(name) eq 0 then name = 'Cyclotron_Frequency'
-	
-;-----------------------------------------------------
-; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;Get the variables
-	oBmag = MrVar_Get(Bmag)
-	IF ~Obj_IsA(oBmag, 'MrScalarTS') THEN Message, 'BMAG must be a MrScalarTS variable.'
+	;V UNITS
+	IF oV -> HasAttr('SI_CONVERSION') THEN BEGIN
+		v_si = StrSplit(oV['SI_CONVERSION'], '>', /EXTRACT)
+		v_si = Float(v_si)
+	ENDIF ELSE IF oV -> HasAttr('UNITS') THEN BEGIN
+		CASE StrLowCase(oV['UNITS']) OF
+			'km/s': v_si = 1e3
+			'm/s':  v_si = 1.0
+			ELSE: BEGIN
+				MrPrintF, 'LogWarn', 'Unrecognized unis for V: "' + oV['UNITS'] + '". Assuming km/s.'
+				v_si = 1e3
+			ENDCASE
+		ENDCASE
+	ENDIF ELSE BEGIN
+		MrPrintF, 'LogWarn', 'V has no SI_CONVERSION or UNITS attribute. Assuming km/s.'
+		v_si = 1e3
+	ENDELSE
 	
 	;B UNITS
-	IF oBmag -> HasAttr('SI_CONVERSION') THEN BEGIN
-		b_si = StrSplit(oBmag['SI_CONVERSION'], '>', /EXTRACT)
-		b_si = b_si[0] EQ '' ? 1.0 : Float(b_si[0])
-	ENDIF ELSE IF oBmag -> HasAttr('UNITS') THEN BEGIN
-		CASE StrLowCase(oBmag['UNITS']) OF
-			'nt': b_si = 1e-9
+	IF oB -> HasAttr('SI_CONVERSION') THEN BEGIN
+		b_si = StrSplit(oB['SI_CONVERSION'], '>', /EXTRACT)
+		b_si = Float(b_si)
+	ENDIF ELSE IF oB -> HasAttr('UNITS') THEN BEGIN
+		CASE StrLowCase(oB['UNITS']) OF
+			'nt': b_si = 1e-3
 			't':  b_si = 1.0
 			ELSE: BEGIN
-				MrPrintF, 'LogWarn', 'Unrecognized unis for BMAG: "' + oBmag['UNITS'] + '". Assuming nT.'
+				MrPrintF, 'LogWarn', 'Unrecognized unis for B: "' + oB['UNITS'] + '". Assuming nT.'
 				b_si = 1e-9
 			ENDCASE
 		ENDCASE
 	ENDIF ELSE BEGIN
-		MrPrintF, 'LogWarn', 'BMAG has no SI_CONVERSION or UNITS attribute. Assuming nT.'
+		MrPrintF, 'LogWarn', 'B has no SI_CONVERSION or UNITS attribute. Assuming nT.'
 		b_si = 1e-9
 	ENDELSE
 	
-;-----------------------------------------------------
-; Cyclotron Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-
-	;Cyclotron frequency
-	fc = (b_si*q/(m*2*!pi)) * oBmag ;Hz
+	;Time tags
+	IF ~oB -> TimeIsIdentical(oV) THEN oB = Interpol(oV)
 	
-;-----------------------------------------------------
-; Finish Up \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	
-	;Name & cache
-	fc -> SetName, name
-	if Keyword_Set(cache) then fc -> Cache, NO_CLOBBER=no_clobber
+	;Compute the convective electric field
+	;   - 1e3 Converts to mV/m
+	oE_VxB = -1e3 * b_si * v_si * oV -> Cross(oB)
 	
 	;Attributes
-	fc['CATDESC']       = 'Cyclotron frequency: f = q * |B| / m.'
-	fc['PLOT_TITLE']    = 'Cyclotron frequency'
-	fc['TITLE']         = 'fc!C(Hz)'
-	fc['UNITS']         = 'Hz'
-	fc['SI_CONVERSION'] = '>'
+	oE_VxB['CATDESC']       = 'Convective electric field computed as VxB.'
+	oE_VxB['LABEL']         = ['Ex', 'Ey', 'Ez']
+	oE_VxB['PLOT_TITLE']    = 'Convective Electric Field'
+	oE_VxB['TITLE']         = 'E!C(mV/m)'
+	oE_VxB['UNITS']         = 'mV/m'
+	oE_VxB['SI_CONVERSION'] = '1e-3>V/m'
 	
 	;Cleanup variables
-	return, fc
-end
+	RETURN, oE_VxB
+END
