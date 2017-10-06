@@ -1,3 +1,6 @@
 .DS_Store
 obsolete
 general/test
+owner/
+general/requests/
+missions/mms/edi/x_*
