@@ -41,17 +41,17 @@
 ;
 ;   LEGEND ITEMS
 ;       Legend items will obtain their properties from variable attributes::
-;           LABEL             LABEL | var.name
-;           FONT              FONT
-;           TEXT_COLOR        COLOR
-;           TEXT_SIZE         CHARSIZE
-;           TEXT_THICK        THICK
-;           SAMPLE_COLOR      COLOR
-;           SAMPLE_LINESTYLE  LINESTYLE
-;           SYMBOL            SYMBOL
-;           SYM_COLOR         SYM_COLOR || COLOR
-;           SYM_SIZE          SYM_SIZE
-;           SYM_THICK         SYM_THICK
+;           LABEL:             LABEL || var.name
+;           FONT:              FONT
+;           TEXT_COLOR:        COLOR
+;           TEXT_SIZE:         CHARSIZE
+;           TEXT_THICK:        THICK
+;           SAMPLE_COLOR:      COLOR
+;           SAMPLE_LINESTYLE:  LINESTYLE
+;           SYMBOL:            SYMBOL
+;           SYM_COLOR:         SYM_COLOR || COLOR
+;           SYM_SIZE:          SYM_SIZE
+;           SYM_THICK:         SYM_THICK
 ;
 ; :Params:
 ;       VAR[1-8]:   in, required, type=string/integer/objref
@@ -97,10 +97,13 @@ _REF_EXTRA=extra
 		MrPrintF, 'LogErr'
 		return, !Null
 	endif
+	
+	tf_add = keyword_set(add)
+	
 ;-------------------------------------------
 ; Add to Existing Legend //////////////////
 ;-------------------------------------------
-	if keyword_set(add) then begin
+	if tf_add then begin
 		;Heap ID of target
 		heapID = obj_valid(target, /GET_HEAP_IDENTIFIER)
 		if heapID eq 0 then message, 'TARGET must be a valid object if ADD is set.'
@@ -129,19 +132,29 @@ _REF_EXTRA=extra
 			;Next legend
 			iLegend += 1
 		endwhile
-		
-		;Cannot find
-		if ~tf_found then message, 'No legend found. Cannot add items.'
-		
+
 		;Start loop at first parameter
-		lgd    = all_lgds[iLegend-1]
-		iStart = 1
+		if tf_found then begin
+			lgd    = all_lgds[iLegend-1]
+			iStart = 1
+		
+		;Cannot find: create
+		endif else begin
+			tf_add = 0B
+		endelse
+	endif
 
 ;-------------------------------------------
 ; Create Legend ////////////////////////////
 ;-------------------------------------------
-	endif else begin
-		;Get the first varaible
+	;
+	; It is possible that TARGET does not have a legend. In this
+	; case ADD will not find a legend and one must be created.
+	; Therefore, the ADD keyword is more of a "add if possible".
+	;
+	
+	if ~tf_add then begin
+		;Get the first variable
 		theVar = MrVar_Get(var1)
 		
 		;Legend Label
@@ -179,7 +192,7 @@ _REF_EXTRA=extra
 		
 		;Start loop at second parameter
 		iStart = 2
-	endelse
+	endif
 
 ;-------------------------------------------
 ; Add More Items ///////////////////////////
@@ -188,14 +201,14 @@ _REF_EXTRA=extra
 	;Add more items individually
 	for i = iStart, n_params() do begin
 		case i of
-			1: theVar = IsA(var1, 'MrVariable') ? var1 : MrVar_Get(var1)
-			2: theVar = IsA(var2, 'MrVariable') ? var2 : MrVar_Get(var2)
-			3: theVar = IsA(var3, 'MrVariable') ? var3 : MrVar_Get(var3)
-			4: theVar = IsA(var4, 'MrVariable') ? var4 : MrVar_Get(var4)
-			5: theVar = IsA(var5, 'MrVariable') ? var5 : MrVar_Get(var5)
-			6: theVar = IsA(var6, 'MrVariable') ? var6 : MrVar_Get(var6)
-			7: theVar = IsA(var7, 'MrVariable') ? var7 : MrVar_Get(var7)
-			8: theVar = IsA(var8, 'MrVariable') ? var8 : MrVar_Get(var8)
+			1: theVar = MrVar_Get(var1)
+			2: theVar = MrVar_Get(var2)
+			3: theVar = MrVar_Get(var3)
+			4: theVar = MrVar_Get(var4)
+			5: theVar = MrVar_Get(var5)
+			6: theVar = MrVar_Get(var6)
+			7: theVar = MrVar_Get(var7)
+			8: theVar = MrVar_Get(var8)
 			else: message, 'Incorrect number of parameter.'
 		endcase
 	
@@ -215,22 +228,22 @@ _REF_EXTRA=extra
 		
 		;Add the legend item
 		lgd -> Add, TARGET           = target, $
-	                ;TEXT
-	                LABEL            = label, $
-	                FONT             = theVar -> GetAttrValue('FONT',      /NULL), $
-	                TEXT_COLOR       = theVar -> GetAttrValue('COLOR',     /NULL), $
-	                TEXT_SIZE        = theVar -> GetAttrValue('CHARSIZE',  /NULL), $
-	                TEXT_THICK       = theVar -> GetAttrValue('THICK',     /NULL), $
-	                ;LINE
-	                SAMPLE_COLOR     = sample_color, $
-	                SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE',    /NULL), $
-	                SAMPLE_WIDTH     = theVar -> GetAttrValue('SAMPLE_WIDTH', /NULL), $
-	                ;SYMBOL
-	                SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
-	                /SYM_CENTER, $
-	                SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
-	                SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
-	                SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL)
+		            ;TEXT
+		            LABEL            = label, $
+		            FONT             = theVar -> GetAttrValue('FONT',      /NULL), $
+		            TEXT_COLOR       = theVar -> GetAttrValue('COLOR',     /NULL), $
+		            TEXT_SIZE        = theVar -> GetAttrValue('CHARSIZE',  /NULL), $
+		            TEXT_THICK       = theVar -> GetAttrValue('THICK',     /NULL), $
+		            ;LINE
+		            SAMPLE_COLOR     = sample_color, $
+		            SAMPLE_LINESTYLE = theVar -> GetAttrValue('LINESTYLE',    /NULL), $
+		            SAMPLE_WIDTH     = theVar -> GetAttrValue('SAMPLE_WIDTH', /NULL), $
+		            ;SYMBOL
+		            SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
+		            /SYM_CENTER, $
+		            SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
+		            SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
+		            SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL)
 
 ;		            AUTO_TEXT_COLOR  = auto_text_color, $
 ;		            FONT             = font, $
