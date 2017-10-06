@@ -53,9 +53,9 @@
 ;
 ; :Params:
 ;       OPHI:           out, optional, type=objref
-;                       Azimuth angle of particle trajectories
-;       TRAJ:           out, optional, type=Nx2 fltarr
-;                       Polar angle of particle trajectories
+;                       Azimuth angle of particle trajectories (MrScalarTS variable).
+;       OTHETA:         out, optional, type=objref
+;                       Polar angle of particle trajectories (MrScalarTS variable).
 ;
 ; :Keywords:
 ;       TMATRIX:        in, optional, type=objref
@@ -68,50 +68,46 @@ TMATRIX=TMatrix
 	On_Error, 2
 	
 	;Grab the data
-	IF N_Elements(TMatrix) GT 0 THEN BEGIN
-		self -> Rotate, TMatrix, phi, theta
+	IF N_Elements(TMatrix) EQ 0 THEN BEGIN
+		oPhi   = self.oTraj[*,0]
+		oTheta = self.oTraj[*,1]
+	
+	;Rotate the data
 	ENDIF ELSE BEGIN
-		phi   = self.oTraj[*,0]
-		theta = self.oTraj[*,1]
-	ENDELSE
-	
-;-----------------------------------------------------
-; Set Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-;-----------------------------------------------------
-	;PHI
-	oPhi  = MrScalarTS( self.oTraj['TIMEVAR'], phi, /NO_COPY )
-	oPhi -> AddAttr, 'AXIS_RANGE', [0, 360]
-	oPhi -> AddAttr, 'PLOT_TITLE', 'Azimuthal Angle of Particle Trajectories'
-	oPhi -> AddAttr, 'TITLE',      'Phi'
-	oPhi -> AddAttr, 'UNITS',      'degrees'
+		;Rotate
+		self -> Rotate, TMatrix, phi, theta
+		
+		;PHI
+		oPhi  = MrScalarTS( self.oTraj['TIMEVAR'], phi, /NO_COPY )
+		oPhi['AXIS_RANGE'] = [0, 360]
+		oPhi['PLOT_TITLE'] = 'Azimuthal Angle of Particle Trajectories'
+		oPhi['TITLE']      = 'Phi'
+		oPhi['UNITS']      = 'degrees'
 
-	;THETA
-	oTheta  = MrScalarTS( self.oTraj['TIMEVAR'], theta, /NO_COPY )
-	oTheta -> AddAttr, 'AXIS_RANGE', [0, 180]
-	oTheta -> AddAttr, 'PLOT_TITLE', 'Polar Angle of Particle Trajectories'
-	oTheta -> AddAttr, 'TITLE',      'Theta'
-	oTheta -> AddAttr, 'UNITS',      'degrees'
-	
+		;THETA
+		oTheta  = MrScalarTS( self.oTraj['TIMEVAR'], theta, /NO_COPY )
+		oTheta['AXIS_RANGE'] = [0, 180]
+		oTheta['PLOT_TITLE'] = 'Polar Angle of Particle Trajectories'
+		oTheta['TITLE']      = 'Theta'
+		oTheta['UNITS']      = 'degrees'
+	ENDELSE
 END
 
 
 ;+
-;   The initialization method.
+;   Get object properties.
 ;
 ; :Params:
-;       COUNTS:         out, optional, type=lonarr/fltarr
+;       COUNTS:         out, optional, type=objref
 ;                       Counts or flux measurements
-;       TRAJ:           out, optional, type=Nx2 fltarr
-;                       Trajectory of incoming electrons that registar as `COUNTS`
 ;       CHANNEL:        out, optional, type=int
 ;                       Channel from which meaurments were made.
 ;       GDU:            out, optional, type=int
 ;                       GDU that took the measurement.
 ;       PA_STATE:       out, optional, type=int
 ;                       Pitch-angle state.
-;
-; :Returns:
-;       If instantiation is successful, a valid MrMMS_EDI_Channel object is returned.
+;       TRAJ:           out, optional, type=objref
+;                       Trajectory of incoming electrons that registar as `COUNTS`
 ;-
 PRO MrMMS_EDI_Channel::GetProperty, $
 COUNTS=counts, $
@@ -132,22 +128,15 @@ END
 
 
 ;+
-;   The initialization method.
+;   Rotate the look direction.
 ;
 ; :Params:
-;       COUNTS:         out, optional, type=lonarr/fltarr
-;                       Counts or flux measurements
-;       TRAJ:           out, optional, type=Nx2 fltarr
-;                       Trajectory of incoming electrons that registar as `COUNTS`
-;       CHANNEL:        out, optional, type=int
-;                       Channel from which meaurments were made.
-;       GDU:            out, optional, type=int
-;                       GDU that took the measurement.
-;       PA_STATE:       out, optional, type=int
-;                       Pitch-angle state.
-;
-; :Returns:
-;       If instantiation is successful, a valid MrMMS_EDI_Channel object is returned.
+;       T:              in, required, type=objref
+;                       A MrMatrixTS variable of the coordinate system transformation matrix
+;       PHI:            out, optional, type=fltarr
+;                       The rotated azimuthal look direction.
+;       THETA:          out, optional, type=fltarr
+;                       The rotated polar look direction.
 ;-
 PRO MrMMS_EDI_Channel::Rotate, T, phi, theta
 	Compile_Opt idl2
@@ -167,25 +156,27 @@ PRO MrMMS_EDI_Channel::Rotate, T, phi, theta
 ;-----------------------------------------------------
 ; Rotate \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	deg2rad = !dpi / 180D
+	phi     = self.oTraj['DATA',*,0] * deg2rad
+	theta   = self.oTraj['DATA',*,1] * deg2rad
 	
 	;Compute the vector components
-	deg2rad       = !dpi / 180D
 	traj_vec      = fltarr(nTime, 3)
-	traj_vec[*,0] = Sin(self.oTraj[*,1] * deg2rad) * Cos(self.oTraj[*,0] * deg2rad)
-	traj_vec[*,1] = Sin(self.oTraj[*,1] * deg2rad) * Sin(self.oTraj[*,0] * deg2rad)
-	traj_vec[*,2] = Cos(self.oTraj[*,1] * deg2rad)
+	traj_vec[*,0] = Sin(theta) * Cos(phi)
+	traj_vec[*,1] = Sin(theta) * Sin(phi)
+	traj_vec[*,2] = Cos(theta)
 	
 	;Rotate vector components
 	traj_fac      = FltArr(nTime, 3)
-	traj_fac[*,0] = oT[*,0,0] * traj_vec[*,0] + oT[*,1,0] * traj_vec[*,1] + oT[*,2,0] * traj_vec[*,2]
-	traj_fac[*,1] = oT[*,0,1] * traj_vec[*,0] + oT[*,1,1] * traj_vec[*,1] + oT[*,2,1] * traj_vec[*,2]
-	traj_fac[*,2] = oT[*,0,2] * traj_vec[*,0] + oT[*,1,2] * traj_vec[*,1] + oT[*,2,2] * traj_vec[*,2]
-	
+	traj_fac[*,0] = oT['DATA',*,0,0] * traj_vec[*,0] + oT['DATA',*,1,0] * traj_vec[*,1] + oT['DATA',*,2,0] * traj_vec[*,2]
+	traj_fac[*,1] = oT['DATA',*,0,1] * traj_vec[*,0] + oT['DATA',*,1,1] * traj_vec[*,1] + oT['DATA',*,2,1] * traj_vec[*,2]
+	traj_fac[*,2] = oT['DATA',*,0,2] * traj_vec[*,0] + oT['DATA',*,1,2] * traj_vec[*,1] + oT['DATA',*,2,2] * traj_vec[*,2]
+
 	;Compute polar coordinates
 	rad2deg = 180D / !dpi
 	phi     = ATan( Reform(traj_fac[*,1]), Reform(traj_fac[*,0]) ) * rad2deg
 	theta   = ACos( Reform(traj_fac[*,2]) ) * rad2deg
-	
+
 	;Clear data
 	traj_fac = !Null
 	traj_vec = !Null
@@ -425,7 +416,7 @@ THETA_RANGE=theta_range
 	
 	;Time range
 	oTime         = oCounts['TIMEVAR']
-	trange        = [oTime[0, 'TT2000'], oTime[-1, 'TT2000']]
+	trange        = [oTime['DATA', 0, 'TT2000'], oTime['DATA', -1, 'TT2000']]
 	trange_ssm    = MrCDF_epoch2ssm(trange)
 	trange_ssm[0] = trange_ssm[0] - (trange_ssm[0] mod dt)
 	trange_ssm[1] = trange_ssm[1] - (trange_ssm[1] mod dt) + dt
@@ -473,7 +464,7 @@ THETA_RANGE=theta_range
 	; Bin by Phi ///////////////////////////////
 	;-------------------------------------------
 		;Histogram in Phi
-		phiHist = Histogram( oPhi[it], $
+		phiHist = Histogram( oPhi['DATA', it], $
 		                     MIN             = phi_range[0], $
 		                     MAX             = phi_range[1], $
 		                     NBINS           = nPhi_bins, $
@@ -492,7 +483,7 @@ THETA_RANGE=theta_range
 		; Bin by Theta /////////////////////////////
 		;-------------------------------------------
 			;Histogram in theta
-			tempTheta = nPhi EQ 1 ? [oTheta[itPhi]] : oTheta[itPhi]
+			tempTheta = nPhi EQ 1 ? [oTheta['DATA', itPhi]] : oTheta['DATA', itPhi]
 			thetaHist = Histogram( Temporary(tempTheta), $
 			                       MIN             = theta_range[0], $
 			                       MAX             = theta_range[1], $
@@ -511,7 +502,7 @@ THETA_RANGE=theta_range
 				;Save the data
 				;   - Sum all counts
 				;   - Normalize by time spent in each bin
-				theDist[i,j,k] = Total(oCounts[itPhiTheta]) / N_Elements(itPhiTheta)
+				theDist[i,j,k] = Total(oCounts['DATA', itPhiTheta]) / N_Elements(itPhiTheta)
 			ENDFOR
 		ENDFOR
 	ENDFOR
@@ -522,7 +513,7 @@ THETA_RANGE=theta_range
 ;-------------------------------------------
 
 	;Time Bins
-	oBinnedT  = MrTimeVar(t_bins+dt/2.0, 'SSM', /NO_COPY, T_REF=oTime[[0]])
+	oBinnedT  = MrTimeVar(t_bins+dt/2.0, 'SSM', /NO_COPY, T_REF=oTime['DATA', [0]])
 	oBinnedT -> AddAttr, 'DELTA_PLUS',  dt/2.0
 	oBinnedT -> AddAttr, 'DELTA_MINUS', dt/2.0
 	oBinnedT -> AddAttr, 'TIME_BASE',   'J2000'
@@ -727,7 +718,7 @@ PA_STATE=pa_state
 	;Create variables
 	oCounts = MrScalarTS( time, Temporary(counts), T_TYPE='TT2000', NAME='mms_edi_counts_agregate')
 	oPhi    = MrScalarTS( time, Temporary(phi),    T_TYPE='TT2000', NAME='mms_edi_phi_agregate')
-	oTheta  = MrScalarTS( time, theta,  T_TYPE='TT2000', /NO_COPY, NAME='mms_edi_theta_agregate')
+	oTheta  = MrScalarTS( time, theta, /NO_COPY,   T_TYPE='TT2000', NAME='mms_edi_theta_agregate')
 
 	;Copy attributes over
 	chan.counts -> CopyAttrTo, oCounts
@@ -984,25 +975,23 @@ LEVEL=level
 	instr = 'edi'
 	IF n_elements(level)     EQ 0 THEN level     = 'l2'
 	IF n_elements(coord_sys) EQ 0 THEN coord_sys = 'gse'
+	IF N_Elements(optdesc)   EQ 0 THEN optdesc   = ['q0', 'amb', 'amb-pm2', 'amb-alt-cc', 'amb-alt-oc', 'amb-alt-oob', 'amb-alt-ooc']
 	
-	;Determine the type of file found
-	IF N_Elements(optdesc) EQ 0 THEN BEGIN
-		;Search for available files
-		filenames = MrMMS_Get_Filenames(sc, 'edi', mode, level, OPTDESC=optdesc)
-		
-		;Extract the optional descriptors
-		MrMMS_Parse_Filename, filenames, OPTDESC=optdesc
-		
-		;If multiple, pick the first (unless it is efield mode)
-		IF ~Array_Equal(optdesc, optdesc[0]) THEN BEGIN
-			iopt = Where(optdesc NE 'efield', nopt)
-			IF nopt EQ 0 THEN BEGIN
-				Message, 'No ambient or Q0 data found.'
-			ENDIF ELSE BEGIN
-				optdesc = optdesc[iopt[0]]
-				MrPrintF, 'LogWarn', 'Multiple optional descriptors found. Choosing "' + optdesc + '".'
-			ENDELSE
-		ENDIF
+	;Search for available files
+	filenames = MrMMS_Get_Filenames(sc, 'edi', mode, level, OPTDESC=optdesc)
+	
+	;Extract the optional descriptors
+	MrMMS_Parse_Filename, filenames, OPTDESC=optdesc
+	
+	;If multiple, pick the first (unless it is efield mode)
+	IF ~Array_Equal(optdesc, optdesc[0]) THEN BEGIN
+		iopt = Where(optdesc NE 'efield', nopt)
+		IF nopt EQ 0 THEN BEGIN
+			Message, 'No ambient or Q0 data found.'
+		ENDIF ELSE BEGIN
+			optdesc = optdesc[iopt[0]]
+			MrPrintF, 'LogWarn', 'Multiple optional descriptors found. Choosing "' + optdesc + '".'
+		ENDELSE
 	ENDIF
 	
 	;Load the data
