@@ -77,22 +77,22 @@ VARNAMES=varnames
 	ENDIF
 	
 	;Defaults & Constants
-	dir = '/home/argall/moments/2015-10-16/'
+	dir = '/home/argall/data/rager/'
 	IF N_Elements(species) EQ 0 THEN species = 'e'
 	IF N_Elements(suffix)  EQ 0 THEN suffix  = ''
 	
 	instr = 'd' + species + 's'
 	CASE species OF
-		'e': fname = StrJoin( [sc, 'fpi', 'moments', '7p5ms', instr], '_' ) + '.txt'
+		'e': fname = StrJoin( [sc, 'fpi', 'moments', '7p5ms', instr],  '_' ) + '.txt'
 		'i': fname = StrJoin( [sc, 'fpi', 'moments', '37p5ms', instr], '_' ) + '.txt'
 		ELSE: Message, 'Invalid value for SPECIES: "' + species + '".'
 	ENDCASE
 	
 	;Variable names
-	n_vname = StrJoin( [sc, instr, 'numberdensity', 'brst'], '_' ) + suffix
-	v_vname = StrJoin( [sc, instr, 'bulkv',         'brst'], '_' ) + suffix
-	p_vname = StrJoin( [sc, instr, 'pres',          'brst'], '_' ) + suffix
-	q_vname = StrJoin( [sc, instr, 'heatflux',      'brst'], '_' ) + suffix
+	n_vname = StrJoin( [sc, instr, 'numberdensity',        'brst'], '_' ) + suffix
+	v_vname = StrJoin( [sc, instr, 'bulkv',         'gse', 'brst'], '_' ) + suffix
+	p_vname = StrJoin( [sc, instr, 'pres',          'gse', 'brst'], '_' ) + suffix
+	q_vname = StrJoin( [sc, instr, 'heatflux',      'gse', 'brst'], '_' ) + suffix
 	
 	;Load the data into the variable cache
 	MrVar_ReadASCII, FilePath(fname, ROOT_DIR=dir), $
@@ -101,8 +101,9 @@ VARNAMES=varnames
 	                                  Replicate(p_vname, 6), Replicate(q_vname, 3) ], $
 	                 GROUPS       = [1, 2, Replicate(3, 3), Replicate(4, 6), Replicate(5, 3)], $
 	                 NHEADER      = 2, $
-	                 TFORMAT      = 'TT2000', $
-	                 VARNAMES     = varnames
+	                 T_TYPE       = 'TT2000', $
+	                 VARNAMES     = varnames, $
+	                 VARTYPE      = [ 'MrTimeSeries', 'MrScalarTS', 'MrVectorTS', 'MrTimeSeries', 'MrVectorTS']
 	
 	;Add variable attributes
 	n  = MrVar_Get( StrUpCase(n_vname) )

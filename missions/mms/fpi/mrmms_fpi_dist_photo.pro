@@ -117,7 +117,6 @@ NAME=name
 ;-------------------------------------------
 ; Spin-Phase Location //////////////////////
 ;-------------------------------------------
-	
 	;Get spin-phase variables
 	oDelPhi       = MrVar_Get(dphi)
 	oDelPhi_Photo = MrVar_Get(ph_dphi)
@@ -153,24 +152,26 @@ NAME=name
 	
 	;Fast mode
 	ENDIF ELSE BEGIN
+		oE0    = MrVar_Get(ph_e0)
 		of0_ph = MrVar_Get(ph_f0)
-		fphoto = oBgDist0[iPhoto,*,*,*]
+		of_ph  = of0_ph[iPhoto,*,*,*]
+		oE     = oE0
 	ENDELSE
 	
 	;Scale the photo electron distribution and subtract it from
 	;the skymap
 	nPhoto = MrVar_Get(ph_scl)
-	of_ph *= nPhoto[[0]]
+	of_ph *= nPhoto['DATA',0]
 
 ;-------------------------------------------
 ; Attributes ///////////////////////////////
 ;-------------------------------------------
 	;Energy
 	oE['LOG']   = 1B
-	oE['LABEL'] = of0_ph['LABL_PTR_3']
+	oE['LABEL'] = Size(of0_ph['LABL_PTR_3'], /TNAME) EQ 'OBJREF' ? of0_ph['LABL_PTR_3'] -> GetData() : of0_ph['LABL_PTR_3']
 	oE0 -> CopyAttrTo, oE, [ 'FILLVAL', 'FORMAT', 'LABLAXIS', 'MAX_VALUE', 'MIN_VALUE', $
 	                         'PLOT_TITLE', 'TITLE', 'UNITS', 'VAR_NOTES']
-	
+
 	;Distribution
 	of_ph['DEPEND_3'] = oE
 	of0_ph -> CopyAttrTo, of_ph, [ 'CDF_TYPE', 'DEPEND_1', 'DEPEND_2', 'FIELDNAM', 'FILLVAL', $
