@@ -34,16 +34,17 @@
 ; PURPOSE:
 ;+
 ;   Generate a plot of FPI quantities:
-;       1. FGM Bxyz
-;       2. Energy Spectr Par
-;       2. Energy Spectr Perp
-;       2. Energy Spectr Anti
-;       3. PA Spectr Low
-;       3. PA Spectr Mid
-;       3. PA Spectr High
-;       4. Density
-;       5. Vxyz
-;       6. Tpara, Tperp
+;        1. FGM Bxyz
+;        4. PA Distribution
+;        5. PA Distribution High
+;        6. PA Distribution Mid
+;        7. PA Distribution Low
+;        2. FEEPS Omin Energy Spectrogram
+;        3. DES Energy Spectrogram
+;        8. Energy Spectr Par
+;        9. Energy Spectr Perp
+;       10. Energy Spectr Anti
+;       11. EDI 0 & 180 electrons
 ;
 ; :Categories:
 ;   MMS
@@ -61,6 +62,8 @@
 ;                   Data quality level. Options are: {'l1a' | 'l1b' | 'ql' | 'l2pre' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OPTDESC:    in, optional, type=string, default=''
+;                   Optional filename descriptor.
 ;       OUTPUT_DIR: in, optional, type=string, default=pwd
 ;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
 ;                       nor `OUTPUT_EXT` are defined, no file is generated.
@@ -82,12 +85,13 @@
 ;
 ; :History:
 ;   Modification History::
-;       2017/01/13  -   Written by Matthew Argall
+;       2017/06/03  -   Written by Matthew Argall
 ;-
-FUNCTION MrMMS_Plot_DES, sc, mode, $
+FUNCTION MrMMS_Plot_ElecSpec, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
+OPTDESC=optdesc, $
 OUTPUT_DIR=output_dir, $
 OUTPUT_EXT=output_ext, $
 TRANGE=trange
@@ -109,23 +113,22 @@ TRANGE=trange
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
-	;FPI
-	species     = 'e'
-	fpi_instr   = 'd' + species + 's'
-	fpi_mode    = mode EQ 'brst' ? mode : 'fast'
-	fpi_optdesc = fpi_instr + '-moms'
-	
-	;FGM
-	IF N_Elements(fgm_instr) EQ 0 THEN BEGIN
-		CASE level OF
-			'l2': fgm_instr = 'fgm'
-			ELSE: fgm_instr = 'dfg'
-		ENDCASE
-	ENDIF
+	;FPI Parameters
+	species = 'e'
+	instr   = 'd' + species + 's'
+	optdesc = instr + '-moms'
 	IF N_Elements(coords) EQ 0 THEN BEGIN
 		CASE level OF
 			'ql': coords = 'dbcs'
 			ELSE: coords = 'gse'
+		ENDCASE
+	ENDIF
+	
+	;FGM Parameters
+	IF N_Elements(fgm_instr) EQ 0 THEN BEGIN
+		CASE level OF
+			'l2': fgm_instr = 'fgm'
+			ELSE: fgm_instr = 'dfg'
 		ENDCASE
 	ENDIF
 	fgm_coords = coords EQ 'dbcs' ? 'dmpa' : coords
@@ -135,17 +138,18 @@ TRANGE=trange
 	b_vname      = StrJoin( [sc, fgm_instr, 'b',     fgm_coords, fgm_mode, level], '_' )
 	bvec_vname   = StrJoin( [sc, fgm_instr, 'bvec',  fgm_coords, fgm_mode, level], '_' )
 	bmag_vname   = StrJoin( [sc, fgm_instr, 'bmag',  fgm_coords, fgm_mode, level], '_' )
-	eanti_vname  = StrJoin( [sc, fpi_instr,     'energyspectr', 'anti',   fpi_mode], '_' )
-	epar_vname   = StrJoin( [sc, fpi_instr,     'energyspectr', 'par',    fpi_mode], '_' )
-	eperp_vname  = StrJoin( [sc, fpi_instr,     'energyspectr', 'perp',   fpi_mode], '_' )
-	palow_vname  = StrJoin( [sc, fpi_instr,     'pitchangdist', 'lowen',  fpi_mode], '_' )
-	pamid_vname  = StrJoin( [sc, fpi_instr,     'pitchangdist', 'miden',  fpi_mode], '_' )
-	pahigh_vname = StrJoin( [sc, fpi_instr,     'pitchangdist', 'highen', fpi_mode], '_' )
-	n_vname      = StrJoin( [sc, fpi_instr,     'numberdensity', fpi_mode], '_' )
-	v_vname      = StrJoin( [sc, fpi_instr,     'bulkv', coords, fpi_mode], '_' )
-	tpara_vname  = StrJoin( [sc, fpi_instr,     'temppara', fpi_mode], '_' )
-	tperp_vname  = StrJoin( [sc, fpi_instr,     'tempperp', fpi_mode], '_' )
-	
+	espec_vname  = StrJoin( [sc, instr,     'energyspectr',           mode], '_' )
+	eanti_vname  = StrJoin( [sc, instr,     'energyspectr', 'anti',   mode], '_' )
+	epar_vname   = StrJoin( [sc, instr,     'energyspectr', 'par',    mode], '_' )
+	eperp_vname  = StrJoin( [sc, instr,     'energyspectr', 'perp',   mode], '_' )
+	pad_vname    = StrJoin( [sc, instr,     'pitchangdist',           mode], '_' )
+	palow_vname  = StrJoin( [sc, instr,     'pitchangdist', 'lowen',  mode], '_' )
+	pamid_vname  = StrJoin( [sc, instr,     'pitchangdist', 'miden',  mode], '_' )
+	pahigh_vname = StrJoin( [sc, instr,     'pitchangdist', 'highen', mode], '_' )
+	f_0_vname    = StrJoin( [sc, 'edi',     'flux',           '0',    mode, level], '_' )
+	f_180_vname  = StrJoin( [sc, 'edi',     'flux',         '180',    mode, level], '_' )
+	feeps_vname  = StrJoin( [sc, 'epd', 'feeps', mode, level, 'electron', 'omni', 'intensity'], '_' )
+
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
 ;-------------------------------------------
@@ -156,79 +160,96 @@ TRANGE=trange
 		                     LEVEL     = level, $
 		                     VARFORMAT = b_vname
 
-		;DIS
-		MrMMS_FPI_Load_Data, sc, fpi_mode, $
-		                     OPTDESC   = fpi_optdesc, $
-		                     VARFORMAT = [eanti_vname, epar_vname, eperp_vname, $
-		                                  palow_vname, pamid_vname, pahigh_vname, $
-		                                  n_vname, v_vname, tpara_vname, tperp_vname]
+		;DES
+		MrMMS_FPI_Load_Data, sc, mode, $
+		                     OPTDESC   = optdesc, $
+		                     VARFORMAT = ['*energyspectr*', '*pitchangdist*']
+		
+		;FEEPS
+		MrMMS_FEEPS_Load_Data, sc, mode, $
+		                       LEVEL = level
+		
+		;EDI
+		MrMMS_EDI_Load_Data, sc, mode, $
+		                     LEVEL = level, $
+		                     VARFORMAT = ['*flux?_0_'+mode+'*', '*flux?_180_'+mode+'*']
 	ENDIF
-	
+
 ;-------------------------------------------
 ; Properties ///////////////////////////////
 ;-------------------------------------------
 	;BMAG
 	oB = MrVar_Get(b_vname)
-	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, fpi_mode, level, fpi_optdesc], ' ' ) )
+	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, mode, level], ' ' ) )
 	
-	;Epar
+	;PA SPEC
+	oPAD = MrVar_Get(pad_vname)
+	oPA  = oPAD['DEPEND_1']
+	oPA['AXIS_RANGE']    = [0,180]
+	oPA['TICKINTERVAL']  = 90
+	oPAD['TITLE']        = 'DEF!CAll'
+
+	;PA HIGH
+	oPAhigh = MrVar_Get(pahigh_vname)
+	oPAhigh['TITLE'] = 'DEF!CHigh'
+	
+	;PA MID
+	oPAmid = MrVar_Get(paMID_vname)
+	oPAmid['TITLE'] = 'DEF!CMid!C' + oPAmid['UNITS'] + ''
+	
+	;PA LOW
+	oPAlow = MrVar_Get(palow_vname)
+	oPAlow['TITLE'] = 'DEF!CLow'
+	
+	;FEEPS
+	oFEEPS = MrVar_Get(feeps_vname)
+	oFEEPS['TITLE'] = 'DEF!COmni'
+	
+	;E OMNI
+	oESpec = MrVar_Get(espec_vname)
+	oESpec['TITLE'] = 'DEF!COmni'
+	
+	;E PAR
 	oEpar = MrVar_Get(epar_vname)
 	oEpar['TITLE'] = 'DEF!CPar'
 	
-	;EPERP
+	;E PERP
 	oEperp = MrVar_Get(eperp_vname)
-	oEperp['TITLE']    = 'DEF!CPerp!C' + oEperp['UNITS'] + ''
+	oEperp['TITLE'] = 'DEF!CPerp!C' + oEperp['UNITS'] + ''
 	
-	;EANTI
+	;E ANTI
 	oEanti = MrVar_Get(eanti_vname)
-	oEanti['TITLE']    = 'DEF!CAnti'
-
-	;PAHIGH
-	oPAhigh = MrVar_Get(pahigh_vname)
-	oPAhigh['TITLE'] = 'DEF!CHigh-E'
+	oEanti['TITLE'] = 'DEF!CAnti'
 	
-	;PAMID
-	oPAmid = MrVar_Get(paMID_vname)
-	oPAmid['TITLE'] = 'DEF!CMid-E!C' + oPAhigh['UNITS'] + ''
+	;FLUX 0
+	oFlux0   = MrVar_Get(f_0_vname)
+	oFlux180 = MrVar_Get(f_180_vname)
+	i0       = oFlux0   -> Where(0, /GREATER)
+	i180     = oFlux180 -> Where(0, /GREATER)
+	frange   = [ Min( [oFlux0[i0].min, oFlux180[i180].min] ), $
+	             Max( [oFlux0[i0].max, oFlux180[i180].max] ) ]
 	
-	;PALOW
-	oPAlow = MrVar_Get(palow_vname)
-	oPAlow['TITLE'] = 'DEF!CLow-E'
+	oFlux0['AXIS_RANGE'] = frange
+	oFlux0['COLOR']      = 'Black'
+	oFlux0['LABEL']      = 'PA=0'
 	
-	;N
-	oN = MrVar_Get(n_vname)
-	oN['TITLE'] = 'Ne!C(cm$\up-3$)'
-	
-	;V
-	oV = MrVar_Get(v_vname)
-	oV['TITLE'] = 'Ve!C(km/s)'
-	oV['LABEL'] = ['Vx', 'Vy', 'Vz']
-
-	;TPARA
-	oTpara = MrVar_Get(tpara_vname)
-	oTpara['COLOR'] = 'Blue'
-	oTpara['LABEL'] = 'Tpara'
-	oTpara['TITLE'] = 'Te!C(eV)'
-	
-	;TPERP
-	oTperp = MrVar_Get(tperp_vname)
-	oTperp['COLOR'] = 'Red'
-	oTperp['LABEL'] = 'Tperp'
-	oTperp['TITLE'] = 'Te!C(eV)'
+	oFlux180['AXIS_RANGE'] = frange
+	oFlux180['COLOR']      = 'Blue'
+	oFlux180['LABEL']      = 'PA=180'
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
 	;Plot data
-	win = MrVar_PlotTS( [b_vname, epar_vname, eperp_vname, eanti_vname, $
-	                     pahigh_vname, pamid_vname, palow_vname, $
-	                     n_vname, v_vname, tpara_vname], $
+	win = MrVar_PlotTS( [ b_vname, pad_vname, pahigh_vname, pamid_vname, palow_vname, $
+	                      feeps_vname, espec_vname, epar_vname, eperp_vname, eanti_vname, $
+	                      f_0_vname ], $
 	                    /NO_REFRESH, $
 	                    XSIZE = 680, $
 	                    YSIZE = 700 )
 	
 	;Temperatures
-	win = MrVar_OPlotTS( tpara_vname, tperp_vname )
+	win = MrVar_OPlotTS( f_0_vname, f_180_vname )
 
 	;Pretty-up the window
 	win[0] -> SetLayout, [1,1]
@@ -246,9 +267,11 @@ TRANGE=trange
 			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
 		ENDIF
 		
+		str = species EQ 'e' ? 'elec' : 'ion'
+		
 		;File name
-		fname   = StrJoin( [sc, fpi_instr, fpi_mode, level], '_' )
-		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		fname = StrJoin( [sc, str, mode, level, 'spec'], '_' )
+		fname = FilePath( fname, ROOT_DIR=output_dir )
 		
 		;Save the figure
 		fout = MrVar_PlotTS_Save( win, fname, output_ext )

@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_Plot_FGM_4sc
+;       MrMMS_Plot_FGM_FOTE
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2017, Matthew Argall                                                   ;
@@ -33,12 +33,10 @@
 ;       
 ; PURPOSE:
 ;+
-;   Generate a plot to provide an overview of reconnection quantities:
-;       1. Bx MMS1-4
-;       2. By MMS1-4
-;       3. Bz MMS1-4
-;       4. J Curlometer
-;       5. K Scattering Parameter
+;   Generate a plot summarizing the results of the First Order Taylor Expansion method.
+;       1. Rx
+;       2. Ry
+;       3. Rz
 ;
 ; :Categories:
 ;   MMS
@@ -50,9 +48,6 @@
 ;                   FGM strument to use. Options are: {'afg' | 'dfg' | 'fgm'}
 ;
 ; :Keywords:
-;       ENERGY:     in, optional, type=intarr, default=[20\, 100\, 200\, 500]
-;                   Energies of the particles for which the the scattering parameter
-;                       is to be computed.
 ;       EPHDESC:    in, optional, type=string, default='ephts04d'
 ;                   Optional descriptor of the definitive ephemeris datatype to use.
 ;                       Options are: { 'epht89d' | 'epht89q' | 'ephts04d' | 'defeph' | 'predeph' }
@@ -60,11 +55,15 @@
 ;                   Data quality level. Options are: {'l1a' | 'l1b' | 'ql' | 'l2pre' | 'l2'}
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional filename descriptor.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
-;       SPECIES:    in, optional, type=string, default='e'
-;                   Species of particle for which the scattering parameter is calculated.
-;                       Options are: { 'e' | 'i' }
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -81,16 +80,13 @@
 ;   Modification History::
 ;       2017/01/05  -   Written by Matthew Argall
 ;-
-FUNCTION MrMMS_Plot_4sc_FGM, mode, instr, $
-ENERGY=energy, $
+FUNCTION MrMMS_Plot_4sc_FOTE, mode, instr, $
 EPHDESC=ephdesc, $
 LEVEL=level, $
 OPTDESC=optdesc, $
 OUTPUT_DIR=output_dir, $
 OUTPUT_EXT=output_ext, $
 NO_LOAD=no_load, $
-SPECIES=species, $
-TAIL=tail, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -103,9 +99,6 @@ TRANGE=trange
 	ENDIF
 	
 	tf_load = ~Keyword_Set(no_load)
-	tf_tail = Keyword_Set(tail)
-	IF N_Elements(energy)  EQ 0 THEN energy  = tf_tail ? [100, 250, 500, 2500] : [20, 100, 200, 500]
-	IF N_Elements(species) EQ 0 THEN species = 'e'
 	IF N_Elements(trange)  GT 0 THEN MrVar_SetTRange, trange
 	
 	;INSTR
@@ -152,14 +145,21 @@ TRANGE=trange
 		ELSE r_vnames    = StrUpCase(sc) + '_' + StrUpCase(ephdesc) + '_' + 'R'
 	
 	;Output names
-	b1_vnames  = [ bmag_vnames[0], bvec_vnames[0] + '_' + ['x', 'y', 'z'] ]
-	b2_vnames  = [ bmag_vnames[1], bvec_vnames[1] + '_' + ['x', 'y', 'z'] ]
-	b3_vnames  = [ bmag_vnames[2], bvec_vnames[2] + '_' + ['x', 'y', 'z'] ]
-	b4_vnames  = [ bmag_vnames[3], bvec_vnames[3] + '_' + ['x', 'y', 'z'] ]
-	j_vname    = StrJoin( ['mms', instr, 'currentdensity', mode, level], '_' )
-	k_vname    = StrJoin( ['mms', instr, 'scatparam'], '_' ) + '_' + String(energy, FORMAT='(i0)') + '_' + StrJoin( [mode, level], '_' )
-	null_vname = StrJoin( ['mms', instr, 'Rns', mode, level], '_' )
-	pi_vname   = StrJoin( ['mms', instr, 'pi', mode, level], '_' )
+	b1_vnames     = [ bmag_vnames[0], bvec_vnames[0] + '_' + ['x', 'y', 'z'] ]
+	b2_vnames     = [ bmag_vnames[1], bvec_vnames[1] + '_' + ['x', 'y', 'z'] ]
+	b3_vnames     = [ bmag_vnames[2], bvec_vnames[2] + '_' + ['x', 'y', 'z'] ]
+	b4_vnames     = [ bmag_vnames[3], bvec_vnames[3] + '_' + ['x', 'y', 'z'] ]
+	r_null_vname  = StrJoin( ['mms', instr, 'R', 'null', mode, level], '_' )
+	rmag_null_vname = r_null_vname + '_magnitude'
+	rmin_null_vname = r_null_vname + '_min'
+	err_vname     = r_null_vname + '_uncertainty'
+	rx_null_vname = r_null_vname + '_x'
+	ry_null_vname = r_null_vname + '_y'
+	rz_null_vname = r_null_vname + '_z'
+	pi_vname      = StrJoin( ['mms', instr, 'pi', mode, level], '_' )
+	r_plus_vname  = StrJoin( ['mms', 'ephem', 'dr', 'plus',  mode, level], '_' )
+	r_minus_vname = StrJoin( ['mms', 'ephem', 'dr', 'minus', mode, level], '_' )
+	dr_mean_vname  = StrJoin( ['mms', 'ephem', 'dr', 'mean',  mode, level], '_' )
 	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
@@ -189,167 +189,137 @@ TRANGE=trange
 	ENDIF
 
 ;-------------------------------------------
-; Current Density & Curvature //////////////
+; Null Position ////////////////////////////
 ;-------------------------------------------
-	;Mass of particle
-	CASE species OF
-		'e': mass = MrConstants('m_e')
-		'i': mass = MrConstants('m_p')
-		ELSE: Message, 'SPECIES must be {"e" | "i"}.'
-	ENDCASE
-
-	;Current density via reciprocal vectors
-	oJ = oFGM -> J(NAME=j_vname, /CACHE)
-	
-	;Curvature scattering parameter
-	nEnergy = N_Elements(energy)
-	krange  = [1e-1, 1e4]
-	colors  = MrDefaultColor(NCOLORS=nEnergy)
-	FOR i = 0, nEnergy - 1 DO BEGIN
-		oK = oFGM -> Kappa(energy[i], mass, NAME=k_vname[i], /CACHE)
-		oK['COLOR']  = colors[i]
-		oK['LABEL']  = String(energy[i], '(%"%i eV")')
-		krange[0]   <= oK.min
-		krange[1]   >= oK.max
-	ENDFOR
 	
 	;FOTE
-	!Null = oFGM -> FOTE(NAME=null_vname, RMAG=oRmag)
-	oRmag -> SetName, null_vname
-	oRmag -> Cache
+	oRnull = oFGM -> FOTE(/CACHE, ERR=oErr, NAME=r_null_vname, RMAG=oRmag)
+	
+	;Rmin
+	Rmin = Min(oRmag['DATA'], DIMENSION=2)
+	oRmin = MrScalarTS(oRmag['TIMEVAR'], Rmin, /CACHE, NAME=rmin_null_vname)
+	
+	;Rxyz
+	oRnull -> Split, oRx_null, oRy_null, oRz_null, /CACHE
 	
 	;POINCARE INDEX
-	oPI = oFGM -> Poincare(NAME=pi_vname, /CACHE)
-	
-;-------------------------------------------
-; Extract Components ///////////////////////
-;-------------------------------------------
+;	oPI = oFGM -> Poincare(NAME=pi_vname, /CACHE)
 
-	;Split into components
-	xrange   = [!values.f_infinity, -!values.f_infinity]
-	yrange   = [!values.f_infinity, -!values.f_infinity]
-	zrange   = [!values.f_infinity, -!values.f_infinity]
-	magrange = [!values.f_infinity, -!values.f_infinity]
-	FOR i = 0, 3 DO BEGIN
-		;Bxyz
-		oBvec = MrVar_Get(bvec_vnames[i])
-		oBvec -> Split, oBx, oBy, oBz, /CACHE
-		
-		;|B|
-		oBmag = MrVar_Get(bmag_vnames[i])
-		
-		CASE i OF
-			0: color = 'Black'
-			1: color = 'Red'
-			2: color = 'Green'
-			3: color = 'Blue'
-			ELSE: Message, 'Invalid spacecraft number: ' + String(i, FORMAT='(i0)')
-		ENDCASE
-		
-		;|B|
-		oBmag['COLOR'] = color
-		oBmag['LABEL'] = 'mms' + String(i+1, FORMAT='(i0)')
-		magrange[0]   <= oBmag.min
-		magrange[1]   >= oBmag.max
-		
-		
-		;Bx
-		oBx['COLOR'] = color
-		oBx['LABEL'] = 'mms' + String(i+1, FORMAT='(i0)')
-		xrange[0]   <= oBx.min
-		xrange[1]   >= oBx.max
-		
-		;By
-		oBy['COLOR'] = color
-		oBy['LABEL'] = 'mms' + String(i+1, FORMAT='(i0)')
-		yrange[0]   <= oBy.min
-		yrange[1]   >= oBy.max
-		
-		;Bz
-		oBz['COLOR'] = color
-		oBz['LABEL'] = 'mms' + String(i+1, FORMAT='(i0)')
-		zrange[0]   <= oBz.min
-		zrange[1]   >= oBz.max
-	ENDFOR
+;-------------------------------------------
+; Spacecraft Position //////////////////////
+;-------------------------------------------
+	oR1 = MrVar_Get(r_vnames[0])
+	oR2 = MrVar_Get(r_vnames[1])
+	oR3 = MrVar_Get(r_vnames[2])
+	oR4 = MrVar_Get(r_vnames[3])
 	
-	;Clamp at +/-100nT
-	magrange[0]  = 0
-	magrange[1] <= 100
-	xrange[0]   >= -100
-	xrange[1]   <= 100
-	yrange[0]   >= -100
-	yrange[1]   <= 100
-	zrange[0]   >= -100
-	zrange[1]   <= 100
+	oR2 = oR2 -> Interpol(oR1)
+	oR3 = oR3 -> Interpol(oR1)
+	oR4 = oR4 -> Interpol(oR1)
+	
+	;Barycenter
+	oRbary = (oR1 + oR2 + oR3 + oR4) / 4.0
+	
+	;Deltas on barycenter
+	r_plus = Max( [ [[oR1['DATA']]], [[oR2['DATA']]], [[oR3['DATA']]], [[oR4['DATA']]] ], $
+	                DIMENSION = 3, $
+	                MIN       = r_minus )
+	
+	;Create variables
+	oR_plus = MrVectorTS( oR1['TIMEVAR'], r_plus / (1e-3 * MrConstants('RE')), $
+	                      /CACHE, $
+	                      NAME = r_plus_vname, $
+	                      /NO_COPY )
+	
+	oR_minus = MrVectorTS( oR1['TIMEVAR'], r_minus / (1e-3 * MrConstants('RE')), $
+	                       /CACHE, $
+	                       NAME = r_minus_vname, $
+	                       /NO_COPY )
+	
+	;Mean separation
+	odR12 = (oR2 - oR1) -> Magnitude()
+	odR13 = (oR2 - oR1) -> Magnitude()
+	odR14 = (oR2 - oR1) -> Magnitude()
+	odR23 = (oR3 - oR2) -> Magnitude()
+	odR24 = (oR3 - oR2) -> Magnitude()
+	odR34 = (oR4 - oR3) -> Magnitude()
+	dr_mean = Mean( [ [odR12['DATA']], [odR12['DATA']], [odR12['DATA']], $
+	                  [odR12['DATA']], [odR12['DATA']], [odR12['DATA']] ] )
 	
 ;-------------------------------------------
 ; Properties ///////////////////////////////
 ;-------------------------------------------
-	;|B|
-	oBx = MrVar_Get(b1_vnames[0])
-	oBx['PLOT_TITLE'] = 'MMS1-4 ' + StrUpCase(instr) + ' ' + StrUpCase(mode) + ' ' + StrUpCase(level)
-	oBx['AXIS_RANGE'] = magrange
-	oBx['TITLE']      = '|B|!C(nT)'
-
-	;Bx
-	oBx = MrVar_Get(b1_vnames[1])
-	oBx['AXIS_RANGE'] = xrange
-	oBx['TITLE']      = 'Bx!C(nT)'
 	
-	;By
-	oBy = MrVar_Get(b1_vnames[2])
-	oBy['AXIS_RANGE'] = yrange
-	oBy['TITLE']      = 'By!C(nT)'
+	;Rmin
+	oRmin['AXIS_RANGE']   = [1, 1.5e3]
+	oRmin['LOG']          = 1B
+	oRmin['SYMBOL']       = oRmag['SYMBOL']
+	oRmin['TICKINTERVAL'] = 500
+	oRmin['TITLE']        = 'Rmin!C(km)'
 	
-	;Bz
-	oBz = MrVar_Get(b1_vnames[3])
-	oBz['AXIS_RANGE'] = zrange
-	oBz['TITLE']      = 'Bz!C(nT)'
-	
-	;J
-	oJ['AXIS_RANGE'] = [-1e3 > oJ.min, 1e3 < oJ.max]
-	oJ['LABEL']      = ['Jx', 'Jy', 'Jz']
-	
-	;Kappa
-	oK = MrVar_Get(k_vname[-1])
-	oK['AXIS_RANGE'] = krange
-	oK['TITLE']      = '$\kappa$$\up2$'
-	
-	;Rns
+	;Ramg
 	oRmag['AXIS_RANGE'] = [1e0, 5e3]
 	oRmag['LABEL']      = ['mms1', 'mms2', 'mms3', 'mms4']
 	oRmag['LOG']        = 1B
+	oRmag -> RemoveAttr, 'SYMBOL'
+	
+	;RX
+	rx_range = [oR_minus[*,0].min, oR_plus[*,0].max]
+	oRx_null['AXIS_RANGE'] = rx_range + [-1,1] * 0.01 * Abs(rx_range)
+	oRx_null['TITLE']      = 'Rx!C(RE)'
+	
+	;RY
+	ry_range = [oR_minus[*,1].min, oR_plus[*,1].max]
+	oRy_null['AXIS_RANGE'] = ry_range + [-1,1] * 0.01 * Abs(ry_range)
+	oRy_null['TITLE']      = 'Ry!C(RE)'
+	
+	;RZ
+	rz_range = [oR_minus[*,2].min, oR_plus[*,2].max]
+	oRz_null['AXIS_RANGE'] = rz_range + [-1,1] * 0.01 * Abs(rz_range)
+	oRz_null['TITLE']      = 'Rz!C(RE)'
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
 	;Plot data
-	win = MrVar_PlotTS( [ b1_vnames, j_vname, k_vname[-1], null_vname ], $
+	win = MrVar_PlotTS( [ rmag_null_vname, rx_null_vname, ry_null_vname, rz_null_vname, rmin_null_vname, err_vname ], $
 	                    /NO_REFRESH, $
 	                    XSIZE = 600, $
 	                    YSIZE = 700 )
-	win = MrVar_OPlotTS( b1_vnames, b2_vnames )
-	win = MrVar_OPlotTS( b1_vnames, b3_vnames )
-	win = MrVar_OPlotTS( b1_vnames, b4_vnames )
-	IF nEnergy GT 1 THEN win = MrVar_OPlotTS( Replicate(k_vname[-1], nEnergy-1), k_vname[-2:0:-1] )
-
-	;Draw horizontal lines at k=[10, 25]
-	trange = MrVar_GetTRange('SSM')
-	IF trange[1] - trange[0] LE 60.0 THEN trange = trange - Floor(trange[0])
-	l1     = MrPlotS( trange, [10, 10], LINESTYLE='--', NAME='k=10', NOCLIP=0, TARGET=win[k_vname[0]] )
-	l2     = MrPlotS( trange, [25, 25], LINESTYLE='--', NAME='k=25', NOCLIP=0, TARGET=win[k_vname[0]] )
-	ltxt   = MrText( 0.95, 0.05, '\kappa^2=10,25', $
-	                 ALIGNMENT = 1.0, $
-	                 NAME      = 'Txt: Kappa', $
-	                 NOCLIP    = 0B, $
-	                 /RELATIVE, $
-	                 TARGET    = win[k_vname[0]] )
+	
+;	op = MrVar_OPlotTS( rx_null_vname, [oR_minus[*,0], oR_plus[*,0]] )
+;	op = MrVar_OPlotTS( ry_null_vname, [oR_minus[*,1], oR_plus[*,1]] )
+;	op = MrVar_OPlotTS( rz_null_vname, [oR_minus[*,2], oR_plus[*,2]] )
+	
+	s = MrPlotS( win[err_vname].xrange, [0.4, 0.4], $
+	             LINESTYLE = '--', $
+	             TARGET    = win[err_vname] )
+	
+	s = MrPlotS( win[rx_null_vname].xrange, rx_range[[0,0]], LINESTYLE='--', TARGET=win[rx_null_vname] )
+	s = MrPlotS( win[rx_null_vname].xrange, rx_range[[1,1]], LINESTYLE='--', TARGET=win[rx_null_vname] )
+	s = MrPlotS( win[ry_null_vname].xrange, ry_range[[0,0]], LINESTYLE='--', TARGET=win[ry_null_vname] )
+	s = MrPlotS( win[ry_null_vname].xrange, ry_range[[1,1]], LINESTYLE='--', TARGET=win[ry_null_vname] )
+	s = MrPlotS( win[rz_null_vname].xrange, rz_range[[0,0]], LINESTYLE='--', TARGET=win[rz_null_vname] )
+	s = MrPlotS( win[rz_null_vname].xrange, rz_range[[1,1]], LINESTYLE='--', TARGET=win[rz_null_vname] )
+	s = MrPlotS( win[rmin_null_vname].xrange, [dr_mean, dr_mean], LINESTYLE='--', TARGET=win[rmin_null_vname] )
+	
+	l = MrLegend( ALIGNMENT    = 'SE', $
+	              LABEL        = ['A', 'B', 'As', 'Bs'], $
+	              ORIENTATION  = 1, $
+	              POSITION     = [1.0, 0.0], $
+	              /RELATIVE, $
+	              SAMPLE_WIDTH = 0.0, $
+	              /SYM_CENTER, $
+	              SYM_COLOR    = 'Black', $
+	              SYMBOL       = [5, 12, 17, 19], $
+	              TARGET       = win[rmin_null_vname], $
+	              TEXT_COLOR   = 'Black' )
 	
 	;Pretty-up the window
 	win    -> Refresh, /DISABLE
 	win[0] -> SetLayout, [1,1]
 	win    -> TrimLayout
-	win    -> SetProperty, OXMARGIN=[13, 9]
+	win    -> SetProperty, OXMARGIN=[12, 9]
 	win    -> Refresh
 
 ;-------------------------------------------
@@ -365,7 +335,7 @@ TRANGE=trange
 		ENDIF
 		
 		;File name
-		fname   = StrJoin( ['mms1234', instr, mode, level, '4sc'], '_' )
+		fname   = StrJoin( ['mms1234', instr, mode, level, '4sc-fote'], '_' )
 		fname   = FilePath( fname, ROOT_DIR=output_dir )
 		
 		;Save the figure

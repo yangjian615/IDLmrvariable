@@ -53,8 +53,21 @@
 ;                   Particle species. Options are {'e' | 'i'}
 ;
 ; :Keywords:
+;       COORDS:     in, optional, type=string, default='gse'
+;                   Coordinate system in which to load the data. Options are: {'dbcs' | 'gse' | 'gsm'}
+;       FGM_INSTR:  in, optional, type=string, default='fgm'
+;                   The FGM instrument to use. Options are: {'afg' | 'dfg' | 'fgm'}
+;       LEVEL:      in, optional, type=string, default='l2'
+;                   Data quality level. Options are: {'l1a' | 'ql' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source files.
+;       OUTPUT_DIR: in, optional, type=string, default='~/figures/'
+;                   Directory in which to save the figure. If neither `OUTPUT_DIR` or
+;                       `OUTPUT_EXT` are given, no file is made.
+;       OUTPUT_EXT: in, optional, type=string/strarr, default='png'
+;                   Extension (and file type) of the figure. Options include
+;                       'png', 'jpeg', 'tiff', 'ps', 'eps', 'pdf'. If neither
+;                       `OUTPUT_DIR` or `OUTPUT_EXT` are given, no file is made.
 ;
 ; :Categories:
 ;    MMS
@@ -75,7 +88,9 @@ FUNCTION MrMMS_Plot_FPI_Entropy, sc, mode, $
 COORDS=coords, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
-NO_LOAD=no_load
+NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext
 	Compile_Opt idl2
 	
 	Catch, the_error
@@ -230,6 +245,24 @@ NO_LOAD=no_load
 		                     VARFORMAT = '*b_gse*', $
 		                     SUFFIX = suffix
 		
+		;DIS-MOMS
+		MrMMS_FPI_Load_Data, sc, mode, $
+		                     OPTDESC   = 'dis-moms', $
+		                     TEAM_SITE = team_site, $
+		                     VARFORMAT = [ '*energyspectr_omni*', '*pitchangdist*', $
+		                                   '*numberdensity*', '*bulkv_'+coords+'*', $
+		                                   '*pres*'+coords+'*', '*temp*'+coords+'*', '*heatq_'+coords+'*' ]
+
+		;DES-MOMS
+		;   - Must come before MrMMS_FPI_Load_Dist3D
+		;   - Will cause 'mms1_dis_energy_delta_brst' to be destroyed
+		MrMMS_FPI_Load_Data, sc, mode, $
+		                     OPTDESC   = 'des-moms', $
+		                     TEAM_SITE = team_site, $
+		                     VARFORMAT = [ '*energyspectr_omni*', '*pitchangdist*', $
+		                                   '*numberdensity*', '*bulkv_'+coords+'*', $
+		                                   '*pres*'+coords+'*', '*temp*'+coords+'*', '*heatq_'+coords+'*' ]
+		
 		;DIS
 		MrMMS_FPI_Load_Dist3D, sc, mode, 'i', $
 		                       COORD_SYS   = coord_sys, $
@@ -238,36 +271,10 @@ NO_LOAD=no_load
 		
 		;DES
 		MrMMS_FPI_Load_Dist3D, sc, mode, 'e', $
+		                       /APPLY_MODEL, $
 		                       COORD_SYS   = coord_sys, $
 		                       LEVEL       = level, $
 		                       ORIENTATION = orientation
-		
-		;Photoelectron model
-		MrMMS_FPI_Load_Models, sc, mode, 'e', $
-		                       SUFFIX = '_model'
-	
-		;Create f_photo
-		ofPhoto = MrMMS_FPI_Dist_Photo( f_des_vname, dphi_des_vname, ph_scl_vname, ph_dphi_vname, $
-		                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
-		                                parity_des_vname, $
-		                                /CACHE, $
-		                                NAME = fph_vname )
-		
-		;DIS-MOMS
-		MrMMS_FPI_Load_Data, sc, mode, $
-		                     OPTDESC   = 'dis-moms', $
-		                     TEAM_SITE = team_site, $
-		                     VARFORMAT = [ '*energyspectr_omni*', '*pitchangdist*', $
-		                                   '*numberdensity*', '*bulkv_'+coords+'*', $
-		                                   '*pres*'+coords+'*', '*temp*'+coords+'*', '*heatq_'+coords+'*' ]
-		
-		;DES-MOMS
-		MrMMS_FPI_Load_Data, sc, mode, $
-		                     OPTDESC   = 'des-moms', $
-		                     TEAM_SITE = team_site, $
-		                     VARFORMAT = [ '*energyspectr_omni*', '*pitchangdist*', $
-		                                   '*numberdensity*', '*bulkv_'+coords+'*', $
-		                                   '*pres*'+coords+'*', '*temp*'+coords+'*', '*heatq_'+coords+'*' ]
 		
 		;SCPOT
 		MrMMS_Load_Data, sc, 'edp', 'fast', 'l2', $
@@ -276,23 +283,11 @@ NO_LOAD=no_load
 	ENDIF
 
 ;-------------------------------------------
-; DES: Photo Electron Distribution /////////
-;-------------------------------------------
-
-	;Subtract from the distribution function
-	ofDist  = MrVar_Get(f_des_vname)
-	ofPhoto = MrVar_Get(fph_vname)
-	ofcorr  = ofDist - ofPhoto > 0
-	
-	ofcorr -> ReplaceValue, 0, !Values.F_NaN
-	ofDist -> CopyAttrTo, ofcorr
-
-;-------------------------------------------
 ; DES: Compute Moments /////////////////////
 ;-------------------------------------------
 	;Distribution function
 	species = 'e'
-	oDist   = MrDist4D(ofcorr, VSC=scpot_vname, SPECIES=species)
+	oDist   = MrDist4D(f_des_vname, VSC=scpot_vname, SPECIES=species)
 	oDist  -> Moments, /CACHE, $
 	                   DENSITY     = oN_des, $
 	                   ENTROPY     = oS_des, $
@@ -350,7 +345,6 @@ NO_LOAD=no_load
 ;-------------------------------------------
 ; DES: T & P -- Par & Perp /////////////////
 ;-------------------------------------------
-	
 	;Field-aligned coordinates
 	oTx = MrVar_FAC( bvec_vname, v_des_vname, 'VXB', TIME=oSn_des['TIMEVAR'] )
 	
@@ -590,23 +584,27 @@ NO_LOAD=no_load
 	;
 	
 	;DIS
-	oN_dis['COLOR'] = 'Blue'
-	oN_dis['LABEL'] = 'DIS'
+	oN_dis['AXIS_RANGE'] = [ Min([oN_dis.min, oN_des.min]), Max([oN_dis.max, oN_des.max]) ]
+	oN_dis['COLOR']      = 'Blue'
+	oN_dis['LABEL']      = 'DIS'
 	
 	;DES
-	oN_des['COLOR'] = 'Red'
-	oN_des['LABEL'] = 'DES'
+	oN_des['AXIS_RANGE'] = oN_dis['AXIS_RANGE']
+	oN_des['COLOR']      = 'Red'
+	oN_des['LABEL']      = 'DES'
 	
 	;
 	; Entropy per particle
 	;
 	
 	;DIS
+	oSn_dis['AXIS_RANGE'] = [ Min([oSn_dis.min, oSn_dis.min]), Max([oSn_dis.max, oSn_dis.max]) ]
 	oSn_dis['COLOR'] = 'Blue'
 	oSn_dis['LABEL'] = 'DIS'
 	oSn_dis['TITLE'] = 'S/N!C(J/K)'
 	
 	;DES
+	oSn_des['AXIS_RANGE'] = oSn_dis['AXIS_RANGE']
 	oSn_des['COLOR'] = 'Red'
 	oSn_des['LABEL'] = 'DES'
 	oSn_des['TITLE'] = 'S/N!C(J/K)'
@@ -686,41 +684,41 @@ NO_LOAD=no_load
 	oPt_fpi['AXIS_RANGE'] = [0, oPt_fpi.max*1.1]
 	oPt_fpi['COLOR']      = 'Black'
 	oPt_fpi['LABEL']      = 'Total'
-	oPt_fpi['TITLE']      = 'P!C(nT)'
+	oPt_fpi['TITLE']      = 'P!C(nPa)'
 	
 	;DIS - PAR
 	oPi_par['AXIS_RANGE'] = pirange
 	oPi_par['COLOR']      = 'Blue'
 	oPi_par['LABEL']      = 'Par'
-	oPi_par['TITLE']      = 'Pi!C(nT)'
+	oPi_par['TITLE']      = 'Pi!C(nPa)'
 	
 	;DIS - PERP
 	oPi_perp['AXIS_RANGE'] = pirange
 	oPi_perp['COLOR']      = 'Red'
 	oPi_perp['LABEL']      = 'Perp'
-	oPi_perp['TITLE']      = 'Pi!C(nT)'
+	oPi_perp['TITLE']      = 'Pi!C(nPa)'
 	
 	;DIS - SCALAR
 	oPi_scl['COLOR'] = 'Blue'
 	oPi_scl['LABEL'] = 'DIS'
-	oPi_scl['TITLE'] = 'P!C(nT)'
+	oPi_scl['TITLE'] = 'P!C(nPa)'
 	
 	;DES - PAR
 	oPe_par['AXIS_RANGE'] = perange
 	oPe_par['COLOR']      = 'Blue'
 	oPe_par['LABEL']      = 'Par'
-	oPe_par['TITLE']      = 'Pe!C(nT)'
+	oPe_par['TITLE']      = 'Pe!C(nPa)'
 	
 	;DES - PERP
 	oPe_perp['AXIS_RANGE'] = perange
 	oPe_perp['COLOR']      = 'Red'
 	oPe_perp['LABEL']      = 'Perp'
-	oPe_perp['TITLE']      = 'Pe!C(nT)'
+	oPe_perp['TITLE']      = 'Pe!C(nPa)'
 	
 	;DES - SCALAR
 	oPe_scl['COLOR'] = 'Red'
 	oPe_scl['LABEL'] = 'DES'
-	oPe_scl['TITLE'] = 'P!C(nT)'
+	oPe_scl['TITLE'] = 'P!C(nPa)'
 	
 	;
 	; FPI Temperature
@@ -771,6 +769,49 @@ NO_LOAD=no_load
 	win[0] -> SetLayout, [1,1]
 	win -> TrimLayout
 	win.oxmargin = [15,10]
+
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN output_dir = FilePath( '', ROOT_DIR=File_Search('~', /TEST_DIRECTORY), SUBDIRECTORY='figures' )
+		IF N_Elements(output_ext) EQ 0 THEN output_ext = 'png'
+		
+		;Date and time range of plot
+		ftime  = MrVar_GetTRange()
+		dstart = StrJoin( StrSplit( StrMid(ftime[0],  0, 10), '-', /EXTRACT ) )
+		dend   = StrJoin( StrSplit( StrMid(ftime[1],  0, 10), '-', /EXTRACT ) )
+		tstart = StrJoin( StrSplit( StrMid(ftime[0], 11,  8), ':', /EXTRACT ) )
+		tend   = StrJoin( StrSplit( StrMid(ftime[1], 11,  8), ':', /EXTRACT ) )
+		
+		;Sub-seconds time interval?
+		ftime = MrVar_GetTRange('SSM')
+		dtime = ftime[1] - ftime[0]
+		pow   = ALog10(dtime)
+		IF pow LT 0 THEN BEGIN
+			fmt    = '(f0.' + String( Ceil(Abs(pow)), FORMAT='(i0)') + ')'
+			tstart = tstart + 'p' + String(ftime[0] MOD 1, FORMAT=fmt)
+			tend   = tend   + 'p' + String(ftime[1] MOD 1, FORMAT=fmt)
+		ENDIF
+		
+		;Time of file
+		ftime = dstart + '_' + tstart
+		IF dend NE dstart THEN ftime += '_' + dend
+		ftime += '_' + tend
+		
+		;File name
+		fname  = StrJoin( [sc, 'fpi', mode, level, 'entropy', ftime], '_' )
+		fname += '.' + output_ext
+		fname  = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		FOR i = 0, N_Elements(fname) - 1 DO win -> Save, fname
+	ENDIF
+	
+;-------------------------------------------
+; Finish ///////////////////////////////////
+;-------------------------------------------
 
 	win -> Refresh
 	RETURN, win

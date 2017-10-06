@@ -164,98 +164,100 @@ TRANGE=trange
 ;-------------------------------------------
 
 	;Get the data
-	Ve = MrVar_Get(ve_vname)
-	Vi = MrVar_Get(vi_vname)
-	B  = MrVar_Get(bvec_vname)
-	E  = MrVar_Get(e_vname)
+	oVe = MrVar_Get(ve_vname)
+	oVi = MrVar_Get(vi_vname)
+	oB  = MrVar_Get(bvec_vname)
+	oE  = MrVar_Get(e_vname)
 	
 	;Interpolate to DES
-	Vi_des = Vi -> Interpol(Ve)
-	B_des  = B  -> Interpol(Ve)
+	oVi_des = oVi -> Interpol(oVe)
+	oB_des  = oB  -> Interpol(oVe)
 	
 	;Compute the convective electric field
 	;   - Convert km/s * nT to mV/m
-	VexB = -1e-3 * Ve     -> Cross(B_des)
-	VixB = -1e-3 * Vi_des -> Cross(B_des)
+	oVexB = -1e-3 * oVe     -> Cross(oB_des)
+	oVixB = -1e-3 * oVi_des -> Cross(oB_des)
 	
 	;Set properties
-	VexB['DEPEND_0'] = Ve['DEPEND_0']
-	VexB['UNITS']    = 'mV/m'
-	VexB -> Cache
+	oVexB['DEPEND_0'] = oVe['DEPEND_0']
+	oVexB['UNITS']    = 'mV/m'
+	oVexB -> Cache
 	
-	VixB['DEPEND_0'] = Ve['DEPEND_0']
-	VixB['UNITS']    = 'mV/m'
-	VixB -> Cache
+	oVixB['DEPEND_0'] = oVe['DEPEND_0']
+	oVixB['UNITS']    = 'mV/m'
+	oVixB -> Cache
 	
 	;Split into components
-	VexB -> Split, oEx_des, oEy_des, oEz_des, NAMES=[Ex_des_vname, Ey_des_vname, Ez_des_vname], /CACHE
-	VixB -> Split, oEx_dis, oEy_dis, oEz_dis, NAMES=[Ex_dis_vname, Ey_dis_vname, Ez_dis_vname], /CACHE
+	oVexB -> Split, oEx_des, oEy_des, oEz_des, NAMES=[Ex_des_vname, Ey_des_vname, Ez_des_vname], /CACHE
+	oVixB -> Split, oEx_dis, oEy_dis, oEz_dis, NAMES=[Ex_dis_vname, Ey_dis_vname, Ez_dis_vname], /CACHE
 
 	;Clear data
-	obj_destroy, VixB
+	obj_destroy, oVixB
 
 ;-------------------------------------------
 ; Current Density //////////////////////////
 ;-------------------------------------------
-	n = MrVar_Get(ne_vname)
+	oNe = MrVar_Get(ne_vname)
 
 	;Compute current density
 	;   - 1e15 converts to micro-A/m^3
-	J = 1e15 * MrConstants('q') * n * (Vi_des - Ve)
-	J -> SetName, j_vname
-	J -> Cache
+	oJ = 1e15 * MrConstants('q') * oNe * (oVi_des - oVe)
+	oJ -> SetName, j_vname
+	oJ -> Cache
 	
 	;Clear data
-	obj_destroy, Vi_des
+	obj_destroy, oVi_des
 	
 ;-------------------------------------------
 ; E Perp & Par /////////////////////////////
 ;-------------------------------------------
 
 	;Interpolate B to E
-	E_des     = E     -> Interpol(Ve)
-	b_hat_des = B_des -> Normalize()
+	oE_des     = oE     -> Interpol(oVe)
+	ob_hat_des = oB_des -> Normalize()
 
 	;Parallel
-	Epar = E_des -> Dot(b_hat_des)
-	
+	oEpar = oE_des -> Dot(ob_hat_des)
+
 	;Perpendicular
-	Ex_perp = E_des[*,0] - E_des[*,0] * b_hat_des[*,0]
-	Ey_perp = E_des[*,1] - E_des[*,1] * b_hat_des[*,1]
-	Ez_perp = E_des[*,2] - E_des[*,2] * b_hat_des[*,2]
-	Eperp = MrVectorTS( E_des['TIMEVAR'], [ [temporary(Ex_perp)], [temporary(Ey_perp)], [temporary(Ez_perp)] ] )
+	oEx_perp = oE_des[*,0] - oE_des[*,0] * ob_hat_des[*,0]
+	oEy_perp = oE_des[*,1] - oE_des[*,1] * ob_hat_des[*,1]
+	oEz_perp = oE_des[*,2] - oE_des[*,2] * ob_hat_des[*,2]
+	oEperp = MrVectorTS( oE_des['TIMEVAR'], [ [ oEx_perp['DATA'] ], $
+	                                          [ oEy_perp['DATA'] ], $
+	                                          [ oEz_perp['DATA'] ] ] )
 
 	;Set properties
-	Epar -> SetName, Epar_vname
-	Epar['DEPEND_0'] = Ve['DEPEND_0']
-	Epar['TITLE']    = 'Epar!C(mV/m)'
-	Epar['UNITS']    = 'mV/m'
-	Epar -> Cache
+	oEpar -> SetName, Epar_vname
+	oEpar['DEPEND_0'] = oVe['DEPEND_0']
+	oEpar['TITLE']    = 'Epar!C(mV/m)'
+	oEpar['UNITS']    = 'mV/m'
+	oEpar -> Cache
 
-	Eperp['DEPEND_0'] = Ve['DEPEND_0']
-	Eperp['UNITS']    = 'mV/m'
+	oEperp['DEPEND_0'] = oVe['DEPEND_0']
+	oEperp['UNITS']    = 'mV/m'
 	
 	;Split perp into components
-	Eperp -> Split, oEx, oEy, oEz, NAMES=[EperpX_vname, EperpY_vname, EperpZ_vname], /CACHE
+	oEperp -> Split, oEx, oEy, oEz, NAMES=[EperpX_vname, EperpY_vname, EperpZ_vname], /CACHE
 	
 	;Clear data
-	obj_destroy, [B_des, b_hat_des, Eperp]
+	obj_destroy, [oB_des, ob_hat_des, oEperp, oEx_perp, oEy_perp, oEz_perp]
 	
 ;-------------------------------------------
 ; J.Eprime /////////////////////////////////
 ;-------------------------------------------
 	;Electron rest frame
-	oEprime = E_des + VexB
+	oEprime = oE_des + oVexB
 	oEprime -> SetName, eprime_vname
 	oEprime -> Cache
 	
 	;Dissipation
-	oJdotEprime = J -> Dot(oEprime)
+	oJdotEprime = oJ -> Dot(oEprime)
 	oJdotEprime -> SetName, je_vname
 	oJdotEprime -> Cache
 	
 	;Clear data
-	obj_destroy, [E_des, VexB]
+	obj_destroy, [oE_des, oVexB]
 
 ;-------------------------------------------
 ; Attributes ///////////////////////////////
@@ -296,9 +298,9 @@ TRANGE=trange
 	oEz_dis['TITLE'] = 'Ez!C(mV/m)'
 	
 	;CURRENT DENSITY
-	J['LABEL'] = ['Jx', 'Jy', 'Jz']
-	J['TITLE'] = 'J!C($\mu$A/m^2)'
-	J['UNITS'] = '\muA/m^2'
+	oJ['LABEL'] = ['Jx', 'Jy', 'Jz']
+	oJ['TITLE'] = 'J!C($\mu$A/m^2)'
+	oJ['UNITS'] = '\muA/m^2'
 	
 	;EperpX EDP
 	oEx['LABEL'] = 'EDP'

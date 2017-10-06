@@ -76,12 +76,10 @@
 ;   Modification History::
 ;       2017/02/10  -   Written by Matthew Argall
 ;-
-FUNCTION MrMMS_Plot_FPI_Dist, sc, mode, species, time, $
+FUNCTION mrmms_yuri_grl_2016_fig5, sc, mode, species, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 OPTDESC=optdesc, $
-OUTPUT_DIR=output_dir, $
-OUTPUT_EXT=output_ext, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	Compile_Opt idl2
@@ -94,14 +92,21 @@ TRANGE=trange
 		RETURN, !Null
 	ENDIF
 	
-	tf_load = ~Keyword_Set(no_load)
+	sc      = 'mms4'
+	mode    = 'brst'
+	species = 'e'
+	t0      = '2015-12-06T23:38:31.560'
+	n0      = 3
+	MrVar_SetTRange, '2015-12-06T' + ['23:38:31.5', '23:38:31.75']
+	
+	tf_load     = ~Keyword_Set(no_load)
 	theta_range = [-90.0,  90.0]
 	phi_range   = [  0.0, 360.0]
+	IF N_Elements(t0)      EQ 0 THEN t0      = (MrVar_GetTRange())[0]
 	IF N_Elements(level)   EQ 0 THEN level   = 'l2'
 	IF N_Elements(mode)    EQ 0 THEN mode    = 'fast'
 	IF N_Elements(species) EQ 0 THEN species = 'e'
 	IF N_Elements(trange)  GT 0 THEN MrVar_SetTRange, trange
-	IF N_Elements(time)    EQ 0 THEN time    = (MrVar_GetTRange())[0]
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
@@ -125,33 +130,34 @@ TRANGE=trange
 	fgm_mode   = mode      EQ 'brst' ? mode   : 'srvy'
 
 	;Source names
-	b_vname      = StrJoin( [sc, fgm_instr, 'b',     fgm_coords, fgm_mode, level], '_' )
-	bvec_vname   = StrJoin( [sc, fgm_instr, 'bvec',  fgm_coords, fgm_mode, level], '_' )
-	bmag_vname   = StrJoin( [sc, fgm_instr, 'bmag',  fgm_coords, fgm_mode, level], '_' )
-	dist_vname   = StrJoin( [sc, instr, 'dist', mode], '_' )
-	v_vname      = StrJoin( [sc, instr, 'bulkv', coords, mode], '_' )
+	b_vname    = StrJoin( [sc, fgm_instr, 'b',     fgm_coords, fgm_mode, level], '_' )
+	bvec_vname = StrJoin( [sc, fgm_instr, 'bvec',  fgm_coords, fgm_mode, level], '_' )
+	bmag_vname = StrJoin( [sc, fgm_instr, 'bmag',  fgm_coords, fgm_mode, level], '_' )
+	dist_vname = StrJoin( [sc, instr, 'dist', mode], '_' )
+	v_vname    = StrJoin( [sc, instr, 'bulkv', coords, mode], '_' )
+	e_vname    = StrJoin( [sc, 'edp', 'dce', coords, mode, level], '_' )
+	f0_vname   = StrJoin( [sc, 'edi', 'flux',   '0', mode, level], '_' )
+	f180_vname = StrJoin( [sc, 'edi', 'flux', '180', mode, level], '_' )
 	
-	;
-	; Derived names
-	;
+	;Derived names
+	j_vname = StrJoin( [sc, 'edi', 'currentdensity', mode, level] )
 	
 	;2D Time-Series Distributions
-	par_perp1_vname     = StrJoin( [sc, instr, 'dist', 'par_perp1',               mode], '_' )
-	par_perp2_vname     = StrJoin( [sc, instr, 'dist', 'par_perp2',               mode], '_' )
+	idx_str             = '_t' + String(IndGen(n0), FORMAT='(i0)')
 	perp1_perp2_vname   = StrJoin( [sc, instr, 'dist', 'perp1_perp2',             mode], '_' )
 	par_perp_anti_vname = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'vspace', mode], '_' )
 	
 	;2D Distributions
-	pp1_vname  = StrJoin( [sc, instr, 'dist', 'par_perp1',     'vspace', mode], '_' )
-	pp2_vname  = StrJoin( [sc, instr, 'dist', 'par_perp2',     'vspace', mode], '_' )
-	p1p2_vname = StrJoin( [sc, instr, 'dist', 'perp1_perp2',   'vspace', mode], '_' )
-	ppa_vname  = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'espace', mode], '_' )
+	p1p2_vname = StrJoin( [sc, instr, 'dist', 'perp1_perp2',   'vspace', mode], '_' ) + idx_str
+	ppa_vname  = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'espace', mode], '_' ) + idx_str
 	
 	;1D Distributions
-	par_1d_vname  = pp1_vname  + '_par_cut'
-	p1p2_1d_vname = p1p2_vname + '_cuts'
-	ppa_1d_vname  = ppa_vname  + '_cuts'
-	ephi_1d_vname = p1p2_vname + '_ephi_cuts'
+	perp12_cuts_vname = p1p2_vname + '_cuts'
+	ppa_cuts_vname    = ppa_vname  + '_cuts'
+	
+	;Fits
+	xfit_vname = StrJoin( [sc, instr, 'dist', 'ppa', 'xfit', mode], '_' ) + idx_str
+	yfit_vname = StrJoin( [sc, instr, 'dist', 'ppa', 'yfit', mode], '_' ) + idx_str
 
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
@@ -175,12 +181,33 @@ TRANGE=trange
 		MrMMS_FPI_Load_Data, sc, mode, $
 		                     OPTDESC   = instr+'-moms', $
 		                     VARFORMAT = '*bulkv_'+coords+'*'
+		
+		;EDP
+		MrMMS_Load_Data, sc, 'edp', mode, 'l2', $
+		                 OPTDESC = 'dce'
+		
+		;EDI
+		MrMMS_EDI_Load_Data, sc, mode
 	ENDIF
 
 	;Grab the distribution
 	oDist      = MrVar_Get(dist_vname)
 	theMass    = species EQ 'i' ? 'm_H' : 'm_e'
 	theSpecies = species EQ 'i' ? 'H' : 'e'
+
+;-----------------------------------------------------
+; EDI Current Density \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Get the data
+	of0   = MrVar_Get(f0_vname)
+	of180 = MrVar_Get(f180_vname)
+	
+	;Current density
+	;   - 1e4 gets A/m^2
+	;   - 1e6 gets uA/m^2
+	oJ = 1e10 * MrConstants('q') * (of180 - of0)
+	oJ -> SetName, j_vname
+	oJ -> Cache
 
 ;-----------------------------------------------------
 ; FAC Cartesian Grid \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -190,71 +217,14 @@ TRANGE=trange
 	MrVar_Grid_MakeCart, oDist['DEPEND_1'], oDist['DEPEND_2'], oX, oY, oZ, /DEGREES
 
 	;Field-Aligned Coordinate System
+	fac    = 'VXB'
 	oT_fac = MrVar_FAC( bvec_vname, v_vname, 'VXB', $
-	                    TIME = oDist['TIMEVAR'] )
+	                    AXLABELS = axlabels, $
+	                    TIME     = oDist['TIMEVAR'] )
 
 	;Rotate the cartesian grid to field-aligned coordinates
 	;   - Negative sign converts from look-dirction to incident trajectory
 	MrVar_Grid_Cart2FAC, oT_fac, -temporary(oX), -temporary(oY), -temporary(oZ), oX1, oX2, oX3
-	
-	
-;-------------------------------------------
-; Par-Perp1 Distribution ///////////////////
-;-------------------------------------------
-	;Rotate to FAC
-	;   - X = PERP1 = (B x V) x B
-	;   - Y = PERP2 = B x V
-	;   - Z = PAR   = B
-	;   - ORIENTATION = 7
-	;       THETA = Elevation angle from zx-plane
-	;       PHI   = Positive from z-axis
-	orientation = 7
-
-	;Convert from instrument coordinates to field-aligned coordinates
-	MrVar_Grid_cart2sphere, oX1, oX2, oX3, oPhi, oTheta, $
-	                        /DEGREES, $
-	                        ORIENTATION = orientation
-
-	;Create new distribution
-	oTemp = MrDist4D( oDist['DEPEND_0'], oDist, oPhi, oTheta, oDist['DEPEND_3'], $
-	                  /ELEVATION, $
-	                  SPECIES = theSpecies )
-	
-	;Integrate over the PERP2 direction
-	oParPerp1 = oTemp -> PhiE( THETA_RANGE=theta_range, $
-	                           /CACHE, $
-	                           NAME = par_perp1_vname )
-	
-	Obj_Destroy, [oPhi, oTheta, oTemp]
-	
-;-------------------------------------------
-; Par-Perp2 Distribution ///////////////////
-;-------------------------------------------
-	;Rotate to FAC
-	;   - X = PERP1 = (B x V) x B
-	;   - Y = PERP2 = B x V
-	;   - Z = PAR   = B
-	;   - ORIENTATION = 4
-	;       THETA = Elevation angle from yz-plane
-	;       PHI   = Positive from z-axis
-	orientation = 12
-
-	;Convert from instrument coordinates to field-aligned coordinates
-	MrVar_Grid_cart2sphere, oX1, oX2, oX3, oPhi, oTheta, $
-	                        /DEGREES, $
-	                        ORIENTATION = orientation
-	
-	;Create new distribution
-	oTemp = MrDist4D( oDist['DEPEND_0'], oDist, oPhi, oTheta, oDist['DEPEND_3'], $
-	                  /ELEVATION, $
-	                  SPECIES = theSpecies )
-	
-	;Integrate over the PERP2 direction
-	oParPerp2 = oTemp -> PhiE( THETA_RANGE=theta_range, $
-	                           /CACHE, $
-	                           NAME = par_perp2_vname )
-	
-	Obj_Destroy, [oPhi, oTheta, oTemp]
 	
 ;-------------------------------------------
 ; Perp1-Perp2 Distribution /////////////////
@@ -314,194 +284,202 @@ TRANGE=trange
 	Obj_Destroy, [oPhi, oTheta, oTemp]
 	
 ;-------------------------------------------
-; Velocity-Space Distributions /////////////
+; Create Distributions /////////////////////
 ;-------------------------------------------
-	;Select the time to display
-	oTime = oParPerp1['TIMEVAR']
-	idx   = oTime -> Nearest_Neighbor(time)
-
-	;2D Distributions
-	oPP1  = MrVar_Dist2D_Prep(oParPerp1,    theMass, idx, /CACHE, NAME=pp1_vname)
-	oPP2  = MrVar_Dist2D_Prep(oParPerp2,    theMass, idx, /CACHE, NAME=pp2_vname)
-	oP1P2 = MrVar_Dist2D_Prep(oPerp1Perp2,  theMass, idx, /CACHE, NAME=p1p2_vname)
-	oPPA  = MrVar_Dist2D_Prep(oParPerpAnti, theMass, idx, /CACHE, NAME=ppa_vname)
-
-	;1D Distributions
-	energies = [60,250,500,1000]
-	oPP1_1D  = MrVar_Dist1D_Prep( oParPerp1,    theMass, idx, /CACHE )
-	oP1P2_1D = MrVar_Dist1D_Prep( oPerp1Perp2,  theMass, idx, /CACHE )
-	oPPA_1D  = MrVar_Dist1D_Prep( oParPerpAnti, theMass, idx, /CACHE, /POLAR )
-	oEPhi_1D = MrVar_Dist1D_Prep( oPerp1Perp2, energies, theMass, idx, /CACHE, /CIRCULAR )
-	
-	;Remove the Per1 distribution from oPP1
-	oPar_1D = oPP1_1D[*,0]
-	oPar_1D['COLOR'] = 'Black'
-	oPar_1D -> RemoveAttr, 'LABEL'
-	oPar_1D -> Cache
-	Obj_Destroy, oPP1_1D
-
-	;Set Names
-	oPar_1D  -> SetName, par_1d_vname
-	oP1P2_1D -> SetName, p1p2_1d_vname
-	oPPA_1D  -> SetName, ppa_1d_vname
-	oEPhi_1D -> SetName, ephi_1d_vname
-
-;-------------------------------------------
-; Properties ///////////////////////////////
-;-------------------------------------------
-	vrange = [-1.5e4,  1.5e4]
-	frange = [1e-30, 1e-25]
+	;Determine which distribution to plot
+	t0_tt2000 = MrCDF_Epoch_Parse(t0, /TO_TT2000)
+	oTime     = oPerp1Perp2['TIMEVAR']
+	i0        = oTime -> Value_Locate(t0_tt2000, 'TT2000') + 1
+	IF i0 EQ 0 THEN i0 = [i0]
 	
 	;Pick out the distribution of interest
-	time  = oParPerp1['TIME']
-	MrTimeParser, (Temporary(time))[idx], '%Y-%M-%dT%H:%m:%S%f', '%Y-%M-%d %H:%m:%S%f', title
+	MrTimeParser, oTime['DATA',i0], '%Y-%M-%dT%H:%m:%S%f', '%Y-%M-%d %H:%m:%S%f', title
 	title = StrMid(title, 0, StrLen(title)-6)
 	
-	;PAR-PERP1
-	oV   = oPP1['DEPEND_0']
-	oPhi = oPP1['DEPEND_1']
-	oPP1['AXIS_RANGE']    = frange
-	oPP1['MISSING_VALUE'] = 0B
-	oPP1['MISSING_COLOR'] = 'Grey'
-	oPP1['PLOT_TITLE']    = title
-	oPP1['TITLE']         = 'PSD'
-	oPhi['TITLE']         = 'V$\downperp1$!C(km/s)'
-	oV['AXIS_RANGE']      = vrange
-	oV['TITLE']           = 'V$\downpar$(km/s)'
+	;Allocate memory
+	vrange = [-1.5e4,  1.5e4]
+	erange = [10, 3e3]
+	frange = [1e-29, 1e-26]
+	ptitle = StrArr(n0)
 	
-	;PAR-PERP2
-	oV   = oPP2['DEPEND_0']
-	oPhi = oPP2['DEPEND_1']
-	oPP2['AXIS_RANGE']    = frange
-	oPP2['MISSING_VALUE'] = 0B
-	oPP2['MISSING_COLOR'] = 'Grey'
-	oPP2['TITLE']         = 'PSD'
-	oPhi['TITLE']         = 'V$\downperp2$!C(km/s)'
-	oV['AXIS_RANGE']      = vrange
-	oV['TITLE']           = 'V$\downpar$(km/s)'
+	;Loop over each consecutive distribution
+	FOR i = 0, 2 DO BEGIN
+		idx = i0 + i
 	
-	;PERP1-PERP2
-	oV   = oP1P2['DEPEND_0']
-	oPhi = oP1P2['DEPEND_1']
-	oP1P2['AXIS_RANGE']    = frange
-	oP1P2['MISSING_VALUE'] = 0B
-	oP1P2['MISSING_COLOR'] = 'Grey'
-	oP1P2['TITLE']         = 'PSD'
-	oPhi['TITLE']          = 'V$\downperp2$!C(km/s)'
-	oV['AXIS_RANGE']       = vrange
-	oV['TITLE']            = 'V$\downperp1$(km/s)'
+	;-------------------------------------------
+	; 1D & 2D Distributions ////////////////////
+	;-------------------------------------------
 	
-	;PAR
-	oV = oPar_1D['DEPEND_0']
-	oPar_1D['AXIS_RANGE'] = frange
-	oPar_1D['LABEL']      = 'Par'
-	oPar_1D['TITLE']      = 'PSD!C(' + oPar_1D['UNITS'] + ')'
-	oV['AXIS_RANGE']      = vrange
+		;2D Distributions
+		oP1P2 = MrVar_Dist2D_Prep(oPerp1Perp2,  theMass, idx, /CACHE, NAME=p1p2_vname[i])
+		oPPA  = MrVar_Dist2D_Prep(oParPerpAnti, theMass, idx, /CACHE, NAME=ppa_vname[i])
+
+		;1D Distributions
+		oPerp12 = MrVar_Dist1D_Prep( oPerp1Perp2,  theMass, idx, /CACHE, NAME=perp12_cuts_vname[i] )
+		oPPA    = MrVar_Dist1D_Prep( oParPerpAnti, theMass, idx, /CACHE, /POLAR, NAME=ppa_cuts_vname[i] )
 	
-	;P1P2
-	oP1P2_1D['LABEL'] = ['Perp1', 'Perp2']
+	;-------------------------------------------
+	; Fit the Energy Distributions /////////////
+	;-------------------------------------------
+		;Extract the data at 500eV +/-1 neighboring point
+		oE    = oPPA['DEPEND_0']
+		!Null = Min( Abs( oE['DATA'] - 500 ), iMin )
+		x     = oE[ 'DATA', iMin + [-1, 0, 1] ]
+		y     = oPPA[ 'DATA', iMin + [-1, 0, 1], 1 ]
+		
+		;Fit to y = b * x^a
+		;   - ln(y) = ln(b) + a*ln(x)
+		;   - y' = b' + a*x'
+		a = LADFit( alog(x), alog(y) )
+		x = oE['DATA']
+		y = Exp(a[0])*x^a[1]
+		
+		;Use fit as plot title
+		;   - Change bases for e to 10
+		pow = Fix( Floor( a[0] * alog10(exp(1)) ) )
+		num = Exp(a[0]) * 10.0^(-pow)
+		str = String(num, pow, a[1], FORMAT='(%"y=%0.2fx10$\\up%0i$e$\\up%0.2f$")')
+		ptitle[i] = cgCheckForSymbols( str )
+		
+		;Create variables
+		xfit = MrVariable( x, NAME=xfit_vname[i] )
+		yfit = MrVariable( y, /CACHE, NAME=yfit_vname[i] )
 	
-	;PPA
-	oPPA_1D['AXIS_RANGE'] = [1e-32, 1e-25]
-	oPPA_1D['TITLE']      = 'PSD!C(' + oPPA_1D['UNITS'] + ')'
+	;-------------------------------------------
+	; Attributes ///////////////////////////////
+	;-------------------------------------------
+		vrange = [-1.5e4,  1.5e4]
+		erange = [10, 3e3]
+		frange = [1e-29, 1e-26]
 	
-	;E-PHI
-	oPhi = oEPhi_1D['DEPEND_0']
-	oPhi['AXIS_RANGE']     = [-180, 180]
-	oPhi['TICKINTERVAL']   = 90
-	oEPhi_1D['PLOT_TITLE'] = ''
-	oEPhi_1D['TITLE']      = 'PSD!C(' + oEPhi_1D['UNITS'] + ')'
+		;PERP1-PERP2
+		oV   = oP1P2['DEPEND_0']
+		oPhi = oP1P2['DEPEND_1']
+		oPhi['TITLE']          = 'V$\down'+axlabels[0]+'$!C(10$\up3$ km s$\up-1$)'
+		oP1P2['AXIS_RANGE']    = frange
+		oP1P2['MISSING_VALUE'] = 0B
+		oP1P2['MISSING_COLOR'] = 'Grey'
+		oP1P2['PLOT_TITLE']    = oTime['DATA', idx, 11:22]
+		oP1P2['TITLE']         = 'PSD'
+
+;		oV -> SetData, oV['DATA']*1e-3
+		oV['AXIS_RANGE']       = vrange
+		oV['TITLE']            = 'V$\down'+axlabels[1]+'$ (10$\up3$ km s$\up-1$)'
+	
+		;CUTS: PERP1-PEPR2
+		oPerp12['COLOR'] = ['Blue',  'Red']
+		oPerp12['LABEL'] = ['Perp1', 'Perp2']
+
+		;CUTS: PAR-PERP-ANTI
+		oE = oPPA['DEPEND_0']
+		oE['AXIS_RANGE']   = erange
+		oE['TITLE']        = 'Energy (eV)'
+		oPPA['AXIS_RANGE'] = frange
+		oPPA['COLOR']      = ['Black', 'Red', 'Blue']
+		oPPA['LABEL']      = ['0', '90', '180']
+		
+		;XFIT
+		xfit['LOG'] = 1
+		
+		;YFIT
+		yfit['DEPEND_0']  = xfit
+		yfit['LOG']       = 1
+		yfit['LINESTYLE'] = '--'
+	ENDFOR
 
 ;-------------------------------------------
-; Plot Data ////////////////////////////////
+; Attributes ///////////////////////////////
 ;-------------------------------------------
-	;Window
-	win = MrWindow(ASPECT=1.0, LAYOUT=[2,3], OXMARGIN=[12,5], XGAP=15, XSIZE=650, YGAP=4, YSIZE=600, REFRESH=0)
+	;B
+	oB = MrVar_Get(b_vname)
+	oB['PLOT_TITLE'] = StrUpCase(sc)
+	
+	;V
+	oV = MrVar_Get(v_vname)
+	oV['TITLE'] = 'V!C(km/s)'
+	oV['LABEL'] = ['Vx', 'Vy', 'Vz']
+	
+	;E
+	oE = MrVar_Get(e_vname)
+	oE['TITLE'] = 'E!C(mV/m)'
+	
+	;J
+	oJ['TITLE'] = 'J$\downEDI$!C($\mu$A/m$\up2$)'
+	
+;-------------------------------------------
+; Plot Time-Series /////////////////////////
+;-------------------------------------------
+	;Create a window
+	win = MrWindow( LAYOUT   = [1,4], $
+	                OXMARGIN = [9,13], $
+	                OYMARGIN = [23,3], $
+	                XSIZE    = 1040, $
+	                YGAP     = 0.5, $
+	                YSIZE    = 775, $
+	                REFRESH  = 0 )
+	
+	;Plot the time-series data
+	win = MrVar_PlotTS( [b_vname, v_vname, e_vname, j_vname], /CURRENT )
+	
+	ti_sse = oTime['DATA', i0[0]+IndGen(n0), 'SSM'] - Floor((MrVar_GetTRange('SSM'))[0])
+	pV = win[v_vname]
+	op = MrPlotS( [ti_sse[0], ti_sse[0]], pV.yrange, TARGET=pV, LINESTYLE='--' )
+	op = MrPlotS( [ti_sse[1], ti_sse[1]], pV.yrange, TARGET=pV, LINESTYLE='--' )
+	op = MrPlotS( [ti_sse[2], ti_sse[2]], pV.yrange, TARGET=pV, LINESTYLE='--' )
+	
+;-------------------------------------------
+; Plot Distributions ///////////////////////
+;-------------------------------------------
+	;Positions of distributions
+	;   - Create a 3x2 layout for the 6 distributions
+	;   - Make the top margin super large to make room for
+	;     the time-series plots
+	pos = MrLayout( [3,2], $
+	                ASPECT   = 1.0, $
+	                CHARSIZE = 1.5, $
+	                OXMARGIN = [9,13], $
+	                OYMARGIN = [4,30], $
+	                WDIMS    = [1040, 775], $
+	                XGAP     = 16, $
+	                YGAP     = 5 )
 
 	;Plot the distributions
-	im1 = MrVar_Image( pp1_vname,    /CURRENT, LAYOUT=[1,1] )
-	im2 = MrVar_Image( pp2_vname,    /CURRENT, LAYOUT=[1,2] )
-	im3 = MrVar_Image( p1p2_vname,   /CURRENT, LAYOUT=[1,3] )
-
-	p1 = MrVar_Plot( par_1d_vname,  /CURRENT, LAYOUT=[2,1] )
-	p2 = MrVar_Plot( p1p2_1d_vname, /CURRENT, OVERPLOT=p1 )
-	p3 = MrVar_Plot( ppa_1d_vname,  /CURRENT, LAYOUT=[2,2] )
-	p4 = MrVar_Plot( ephi_1d_vname, /CURRENT, LAYOUT=[2,3] )
+	p1  = MrVar_Plot( ppa_cuts_vname[0], /CURRENT, POSITION=pos[*,0], TITLE=ptitle[0] )
+	p2  = MrVar_Plot( ppa_cuts_vname[1], /CURRENT, POSITION=pos[*,1], TITLE=ptitle[1] )
+	p3  = MrVar_Plot( ppa_cuts_vname[2], /CURRENT, POSITION=pos[*,2], TITLE=ptitle[2] )
+	im1 = MrVar_Image( p1p2_vname[0], /CURRENT, POSITION=pos[*,3] )
+	im2 = MrVar_Image( p1p2_vname[1], /CURRENT, POSITION=pos[*,4] )
+	im3 = MrVar_Image( p1p2_vname[2], /CURRENT, POSITION=pos[*,5] )
 	
-	;Fix Axes
-	im1 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
-	im2 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
-	im3 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
-	p1  -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
-	
-	;Velocity of 500eV electron
-	;   - 1e-3 converts m/s -> km/s
-	v500 = 1e-3 * Sqrt( 2.0 * 500 * MrConstants('eV2J') / MrConstants('m_e') )
+	;Overplot
+	o3p1 = MrVar_Plot( yfit_vname[0], OVERPLOT=p1 )
+	o3p2 = MrVar_Plot( yfit_vname[1], OVERPLOT=p2 )
+	o3p3 = MrVar_Plot( yfit_vname[2], OVERPLOT=p3 )
 
+	;Titles
+	p1.title = o3p1.title
+	p2.title = o3p2.title
+	p3.title = o3p3.title
+	
 	;Plot a vertical line at 500eV
-	l1 = MrPlotS( [500, 500], p3.yrange, $
+	l1 = MrPlotS( [500, 500], p1.yrange, $
 	              LINESTYLE = '--', $
 	              NAME      = 'Line: 500eV', $
-	              TARGET    = p3 )
-	l2 = MrPlotS( [-v500, -v500], p1.yrange, $
+	              TARGET    = p1 )
+	l2 = MrPlotS( [500, 500], p2.yrange, $
 	              LINESTYLE = '--', $
 	              NAME      = 'Line: -v500', $
-	              TARGET    = p1 )
-	l3 = MrPlotS( [v500, v500], p1.yrange, $
+	              TARGET    = p2 )
+	l3 = MrPlotS( [500, 500], p3.yrange, $
 	              LINESTYLE = '--', $
 	              NAME      = 'Line: +v500', $
-	              TARGET    = p1 )
-	
-	;Draw circles at 250eV, 500eV, and 1keV
-	nCircles = N_Elements(energies)
-	nVerts      = 200
-	theta_verts = 2*!pi*FIndGen(nVerts)/(nVerts-1)
-	colors      = oEPhi_1D['COLOR']
-	FOR i = 0, nCircles - 1 DO BEGIN
-		;Vertices
-		velocity = 1e-3 * Sqrt( 2.0 * energies[i] * MrConstants('eV2J') / MrConstants('m_e') )
-		x_verts = velocity * Cos(theta_verts)
-		y_verts = velocity * Sin(theta_verts)
-		
-		;Draw the circle
-		circ = MrPlotS( x_verts, y_verts, $
-		                LINESTYLE = '--', $
-		                COLOR     = colors[i], $
-		                NAME      = 'Circle: ' + String(energies[i], FORMAT='(i0)') + 'eV', $
-		                NOCLIP    = 0, $
-		                TARGET    = im3, $
-		                THICK     = 1 )
-	ENDFOR
+	              TARGET    = p3 )
 	
 	;Pretty-up the window
 	win[0]  -> SetLayout, [1,1]
-	win[2]  -> SetLayout, [1,2]
-	win[4]  -> SetLayout, [1,3]
-	win[6]  -> SetLayout, [2,1]
-	win[9]  -> SetLayout, [2,2]
-	win[11] -> SetLayout, [2,3]
-	win     -> TrimLayout
-	win     -> SetProperty, OXMARGIN=[12,5]
+;	win    -> TrimLayout
+	win    -> SetProperty, OXMARGIN=[12,5]
+	win    -> Refresh
 
-;-------------------------------------------
-; Save the File ////////////////////////////
-;-------------------------------------------
-	IF N_Elements(output_ext) GT 0 || N_Elements(output_dir) GT 0 THEN BEGIN
-		IF N_Elements(output_dir) EQ 0 THEN output_dir = File_Search('~', /TEST_DIRECTORY)
-		IF N_Elements(output_ext) EQ 0 THEN output_ext = 'png'
-		
-		;Time stamp of file
-		ftime = StrJoin(StrSplit(oTime['DATA',idx], '-:T', /EXTRACT))
-		ftime = StrMid(ftime, 0, 8) + '_' + StrMid(ftime, 8, 6) + 'p' + StrMid(ftime, 15, 3)
-		
-		;Save the file
-		fname = StrJoin([sc, instr, mode, level, 'dist-2D-1D', ftime + '.' + output_ext], '_')
-		win -> Save, fname
-	ENDIF
-
-;-------------------------------------------
-; Done! ////////////////////////////////////
-;-------------------------------------------
-	win -> Refresh
 	RETURN, win
 END

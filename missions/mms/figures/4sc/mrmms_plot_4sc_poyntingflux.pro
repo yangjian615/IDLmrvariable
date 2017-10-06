@@ -170,9 +170,10 @@ TRANGE=trange
 		;Interpolate B
 		oB     = MrVar_Get(acb_vname[i])
 		oB_scm = oB -> Interpol(oT)
-	
+
 		;Interpolate E
 		oE     = MrVar_Get(dce_vname[i])
+help, oE, oT
 		oE_scm = oE -> Interpol(oT)
 	
 		;Detrend data

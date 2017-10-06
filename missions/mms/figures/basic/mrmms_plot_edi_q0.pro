@@ -59,6 +59,13 @@
 ;                   Data quality level. Options are: {'l1a' | 'ql' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -79,6 +86,8 @@ FUNCTION MrMMS_Plot_EDI_Q0, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -110,15 +119,9 @@ TRANGE=trange
 	edp_coords = coords EQ 'dbcs'  ? 'dsl'  : coords
 
 	;Source names
-	IF fgm_level EQ 'l2pre' THEN BEGIN
-		fgm_b_vname     = StrJoin( [sc, fgm_instr,        fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'mag', fgm_mode, fgm_level, fgm_coords], '_' )
-	ENDIF ELSE BEGIN
-		fgm_b_vname     = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
-		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
-		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
-	ENDELSE
+	fgm_b_vname     = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
+	fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
+	fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
 	e_vname         = StrJoin( [sc, edp_instr, 'dce',  edp_coords, edp_mode, level], '_' )
 	cts_gdu1_vname  = StrJoin( [sc, instr, 'counts', 'gdu1', mode, level], '_' )
 	cts_gdu2_vname  = StrJoin( [sc, instr, 'counts', 'gdu2', mode, level], '_' )
@@ -145,7 +148,17 @@ TRANGE=trange
 		MrMMS_FGM_Load_Data, sc, fgm_mode, $
 		                     INSTR     = fgm_instr, $
 		                     LEVEL     = fgm_level, $
-		                     VARFORMAT = fgm_b_vname
+		                     VARFORMAT = ['*b_'+fgm_coords+'*', '*'+fgm_instr+'_'+fgm_mode+'*']
+		
+		;Right naming convention?
+		IF ~MrVar_IsCached(fgm_b_vname) THEN BEGIN
+			fgm_b_vname     = StrJoin( [sc, fgm_instr,        fgm_mode, fgm_level, fgm_coords], '_' )
+			fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
+			fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'mag', fgm_mode, fgm_level, fgm_coords], '_' )
+			
+			IF ~MrVar_IsCached(fgm_b_vname) $
+				THEN Message, 'Unknown FGM variable naming convention.'
+		ENDIF
 
 		;EDP
 		MrMMS_Load_Data, sc, edp_instr, edp_mode, level, $
@@ -346,5 +359,26 @@ TRANGE=trange
 	win    -> SetProperty, OXMARGIN=[13, 14]
 	win    -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;File name
+		fname = StrJoin( [sc, instr, mode, level, 'q0'], '_' )
+		fname = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

@@ -36,8 +36,8 @@
 ;   Generate a plot of EDP quantities:
 ;       1. FGM Bxyz
 ;       2. EDP Exyz
-;       3. GDU Phi
-;       4. GDU Theta
+;       3. GDU Theta
+;       4. GDU Phi
 ;       5. FAC Phi
 ;       6. FAC Theta
 ;       7. PAD
@@ -59,6 +59,13 @@
 ;                   Data quality level. Options are: {'l1a' | 'ql' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -79,6 +86,8 @@ FUNCTION MrMMS_Plot_EDI_D29, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -120,15 +129,9 @@ TRANGE=trange
 	edp_coords = coords EQ 'dbcs'  ? 'dsl'  : coords
 
 	;Source names
-	IF fgm_level EQ 'l2pre' THEN BEGIN
-		fgm_b_vname     = StrJoin( [sc, fgm_instr,        fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'mag', fgm_mode, fgm_level, fgm_coords], '_' )
-	ENDIF ELSE BEGIN
-		fgm_b_vname     = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
-		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
-		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
-	ENDELSE
+	fgm_b_vname       = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
+	fgm_bvec_vname    = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
+	fgm_bmag_vname    = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
 	e_vname           = StrJoin( [sc, edp_instr, 'dce',  edp_coords, edp_mode, level], '_' )
 	d29_gd12_vname    = StrJoin( [sc, 'edi', 'data29', 'gd12'], '_')
 	d29_gd21_vname    = StrJoin( [sc, 'edi', 'data29', 'gd21'], '_')
@@ -164,7 +167,21 @@ TRANGE=trange
 		MrMMS_FGM_Load_Data, sc, fgm_mode, $
 		                     INSTR     = fgm_instr, $
 		                     LEVEL     = fgm_level, $
-		                     VARFORMAT = fgm_b_vname
+		                     VARFORMAT = [ '*'+fgm_instr+'_'+fgm_mode+'*'+fgm_coords, $
+		                                   '*'+fgm_instr+'_b_*']
+		
+		;Check which naming convention is in use.
+		IF ~MrVar_IsCached(fgm_b_vname) THEN BEGIN
+			;Old names
+			fgm_b_vname     = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
+			fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
+			fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
+			
+			;Check if old names exist
+			IF ~MrVar_IsCached(fgm_b_vname) THEN Message, 'FGM variable names unknown.'
+		ENDIF
+			
+			
 
 		;EDP
 		MrMMS_Load_Data, sc, edp_instr, edp_mode, level, $
@@ -449,5 +466,26 @@ TRANGE=trange
 	win    -> SetProperty, OXMARGIN=[13, 6]
 	win    -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;File name
+		fname = StrJoin( [sc, instr, mode, level, 'data29'], '_' )
+		fname = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

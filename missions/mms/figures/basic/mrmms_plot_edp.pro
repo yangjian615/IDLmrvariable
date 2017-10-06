@@ -77,7 +77,7 @@
 ;   Modification History::
 ;       2017/01/13  -   Written by Matthew Argall
 ;-
-FUNCTION MrMMS_Plot_EDP, sc, mode, $
+FUNCTION MrMMS_Plot_EDP, sc, mode, nfft, nshift, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 OPTDESC=optdesc, $
