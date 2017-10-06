@@ -83,7 +83,8 @@ function MrMMS_Get_Data, sc, instr, mode, level, $
 COUNT=count, $
 OPTDESC=optdesc, $
 TEAM_SITE=team_site, $
-TRANGE=trange
+TRANGE=trange, $
+_REF_EXTRA=extra
 	compile_opt idl2
 
 	catch, the_error
@@ -99,9 +100,8 @@ TRANGE=trange
 	if n_elements(sc)        eq 0 then sc        = ''
 	if n_elements(instr)     eq 0 then instr     = ''
 	if n_elements(mode)      eq 0 then mode      = ''
-	if n_elements(level)     eq 0 then level     = 'l2'
+	if n_elements(level)     eq 0 then level     = ''
 	if n_elements(trange)    eq 0 then trange    = MrVar_GetTRange()
-	if n_elements(varformat) eq 0 then varformat = '*'
 	
 	;Initialize MMS
 	MrMMS_Init
@@ -124,7 +124,7 @@ TRANGE=trange
 	                       DATE_START    = trange[0], $
 	                       DATE_END      = trange[1], $
 	                       _STRICT_EXTRA = extra
-
+	
 	;Attempt to get the data
 	files = !MrMMS -> Get(COUNT=count)
 	

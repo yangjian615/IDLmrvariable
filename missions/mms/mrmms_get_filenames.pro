@@ -75,6 +75,7 @@
 ; :History:
 ;   Modification History::
 ;       2014/07/22  -   Written by Matthew Argall
+;       2015/04/03  -   Works when the OFFLINE flag is set. - MRA
 ;-
 function MrMMS_Get_Filenames, sc, instr, mode, level, $
 COUNT=count, $
@@ -105,6 +106,7 @@ _REF_EXTRA=extra
 ;-----------------------------------------------------
 ; Web \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+
 	;Change direstories to the proper request
 	;   - Always start with a new request.
 	!MrMMS -> SetProperty, /RESET_PATH, $
@@ -115,14 +117,31 @@ _REF_EXTRA=extra
 	                       MODE          = mode, $
 	                       LEVEL         = level, $
 	                       OPTDESC       = optdesc, $
-	                       PUBLIC_SITE   = public_site, $
 	                       TEAM_SITE     = team_site, $
 	                       DATE_START    = trange[0], $
 	                       DATE_END      = trange[1], $
 	                       _STRICT_EXTRA = extra
 	
 	;Attempt to get the data
-	files = !MrMMS -> FileNames(COUNT=count)
+	!MrMMS -> Search, fLocal, fRemote, $
+	                  NLOCAL  = nLocal, $
+	                  NREMOTE = nRemote
+	
+	
+	;Number of files
+	count = nRemote + nLocal
+	IF count EQ 0 THEN RETURN, ''
+
+	;Combine results
+	IF nRemote GT 0 THEN BEGIN
+		MrWeb_Parse_URI, fRemote, PATH=pathRemote
+		files = File_BaseName( Temporary(pathRemote) )
+	ENDIF
+	IF nLocal GT 0 THEN BEGIN
+		MrWeb_Parse_URI, Temporary(fLocal), PATH=pathLocal
+		fLocal = File_BaseName( Temporary(pathLocal) )
+		files  = nRemote EQ 0 ? Temporary(fLocal) : [files, Temporary(fLocal)]
+	ENDIF
 
 	;Return
 	return, files
