@@ -2354,7 +2354,7 @@ _REF_EXTRA=extra
 		
 		;LEVEL
 		IF N_Elements(level) GT 0 THEN BEGIN
-			IF ~Array_Equal( MrIsMember(['', 'l1a', 'l1b', 'ql', 'sitl', 'l2pre', 'l2', 'l2plus', 'l3'], level), 1 ) $
+			IF ~Array_Equal( MrIsMember(['', 'l1a', 'l1b', 'ql', 'sitl', 'l2pre', 'l2', 'l2plus', 'l3', 'acr'], level), 1 ) $
 				THEN Message, 'Invalid value(s) for LEVEL.'
 			new_level = StrJoin(level, ',')
 		ENDIF
