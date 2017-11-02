@@ -51,6 +51,10 @@
 ;   Modification History::
 ;       2016/08/20  -   Written by Matthew Argall
 ;       2017/01/04  -   Remove internally generated photoelectrons. - MRA
+;       2017/10/16  -   All variables associated with the photoelectron model are removed
+;                           from the cache. - MRA
+;       2017/10/23  -   Added the RAGER keyword to load 7.5ms moments data. Pass LEVEL
+;                           on to helper functions because of change to MrMMS_Get_*. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -187,9 +191,11 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 	parity_vname = StrJoin( [sc, instr, 'steptable',   'parity', mode], '_' ) + suffix
 
 	;Source Photoelectron model
-	model_suffix  = '_model'
-	ph_scl_vname  = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + model_suffix
-	ph_dphi_vname = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + model_suffix
+	model_suffix   = '_model'
+	ph_scl_vname   = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + model_suffix
+	ph_dphi_vname  = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + model_suffix
+	ph_phi_vname   = StrJoin( ['mms', instr, 'phi',                   mode], '_' ) + model_suffix
+	ph_theta_vname = StrJoin( ['mms', instr, 'theta',                 mode], '_' ) + model_suffix
 	IF mode EQ 'brst' THEN BEGIN
 		ph_f0_vname = StrJoin( ['mms', instr, 'bgdist',  'p0', mode], '_' ) + model_suffix
 		ph_f1_vname = StrJoin( ['mms', instr, 'bgdist',  'p1', mode], '_' ) + model_suffix
@@ -201,11 +207,12 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 	ENDELSE
 
 	;Derived names
-	fph_vname = StrJoin([sc, instr, 'dist', 'photo', mode], '_')
+	ph_f_vname = StrJoin([sc, instr, 'dist', 'photo', mode], '_')
 
 	;Photoelectron model
 	;   - Only exist for electrons
 	MrMMS_FPI_Load_Models, sc, mode, 'e', $
+	                       LEVEL  = level, $
 	                       SUFFIX = model_suffix
 
 	;Create f_photo
@@ -214,12 +221,12 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 		                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
 		                                parity_vname, $
 		                                /CACHE, $
-		                                NAME = fph_vname )
+		                                NAME = ph_f_vname )
 	ENDIF ELSE BEGIN
 		ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
 		                                ph_f0_vname, ph_e0_vname, $
 		                                /CACHE, $
-		                                NAME = fph_vname )
+		                                NAME = ph_f_vname )
 	ENDELSE
 	
 	;Subtract the model from the distribution
@@ -233,7 +240,7 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 	oDistTS -> SetName, f_vname
 	
 	;Remove variables
-	MrVar_Delete, [ph_dphi_vname, ph_f0_vname, ph_e0_vname, ph_scl_vname]
+	MrVar_Delete, [ph_f_vname, ph_dphi_vname, ph_f0_vname, ph_e0_vname, ph_scl_vname, ph_phi_vname, ph_theta_vname]
 	IF mode EQ 'brst' THEN MrVar_Delete, [ph_f1_vname, ph_e1_vname]
 END
 
@@ -440,6 +447,7 @@ LEVEL=level, $
 ORIENTATION=orientation, $
 PAR=par, $
 PERP=perp, $
+RAGER=rager, $
 SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
@@ -456,6 +464,7 @@ VARNAMES=varnames
 	;Check inputs
 	cs = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
 	tf_apply_model = keyword_set(apply_model)
+	tf_rager       = keyword_set(rager)
 	if n_elements(level)   eq 0 then level   = 'l2'
 	if n_elements(species) eq 0 then species = 'e'
 	if n_elements(suffix)  eq 0 then suffix  = ''
@@ -487,13 +496,22 @@ VARNAMES=varnames
 ;-----------------------------------------------------
 ; Load the FPI \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	dist_level = level
+	IF tf_rager THEN BEGIN
+		!MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
+		!MrMMS -> SetProperty, OFFLINE=1B,      DROPBOX_ROOT='/home/argall/data/rager/'
+		dist_level = 'acr'
+	ENDIF
+	
 	;Get the FPI distribution function
-	MrMMS_Load_Data, sc, 'fpi', mode, level, $
+	MrMMS_Load_Data, sc, 'fpi', mode, dist_level, $
 	                 OPTDESC   = 'd' + species + 's-dist', $
 	                 SUFFIX    = suffix, $
 	                 TEAM_SITE = team_site, $
 	                 VARFORMAT = varformat, $
 	                 VARNAMES  = varnames
+	
+	IF tf_rager THEN !MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
 	
 	;Associate variable attributes with DEPEND_[0-3]
 	dist_vname = sc + '_d' + species + 's_dist_' + mode
@@ -505,7 +523,7 @@ VARNAMES=varnames
 	;Correct the distribution for internally generated photoelectrons
 	IF tf_apply_model && species EQ 'e' $
 		THEN MrMMS_FPI_Load_Dist3D_ePhoto, dist_vname
-
+	
 ;-----------------------------------------------------
 ; FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------

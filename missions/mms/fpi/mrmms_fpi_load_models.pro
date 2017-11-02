@@ -152,7 +152,7 @@ VARNAMES=varnames
 	;Load the data
 	MrVar_ReadCDF, files, $
 	               SUFFIX    = suffix, $
-	               VARFORMAT = ['*bgdist*', '*phi*', '*theta*', '*energy?*'], $
+	               VARFORMAT = ['*bgdist*', '*phi*', '*theta*', '*energy?_'+mode+'*'], $
 	               VARNAMES  = varnames
 	
 	;Attach the proper tables
