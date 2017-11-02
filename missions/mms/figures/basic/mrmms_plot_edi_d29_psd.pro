@@ -118,19 +118,19 @@ TRANGE=trange
 	bmag_vname      = StrJoin( [sc, 'fgm', 'bmag',  'gse',           mode, 'l2'], '_')
 	
 	;Derived names
-	q0_gdu1_vname        = StrJoin( [sc, 'edi', 'q0',  'gdu1', optdesc, mode, level], '_')
-	q1_gdu1_vname        = StrJoin( [sc, 'edi', 'q1',  'gdu1', optdesc, mode, level], '_')
-	q2_gdu1_vname        = StrJoin( [sc, 'edi', 'q2',  'gdu1', optdesc, mode, level], '_')
-	q3_gdu1_vname        = StrJoin( [sc, 'edi', 'q3',  'gdu1', optdesc, mode, level], '_')
-	q0_gdu2_vname        = StrJoin( [sc, 'edi', 'q0',  'gdu2', optdesc, mode, level], '_')
-	q1_gdu2_vname        = StrJoin( [sc, 'edi', 'q1',  'gdu2', optdesc, mode, level], '_')
-	q2_gdu2_vname        = StrJoin( [sc, 'edi', 'q2',  'gdu2', optdesc, mode, level], '_')
-	q3_gdu2_vname        = StrJoin( [sc, 'edi', 'q3',  'gdu2', optdesc, mode, level], '_')
-	j_vname              = StrJoin( [sc, 'edi', 'j',           optdesc, mode, level], '_')
-	psd_gdu1_vname       = StrJoin( [sc, 'edi', 'psd', 'gdu1', optdesc, mode, level], '_')
-	psd_gdu2_vname       = StrJoin( [sc, 'edi', 'psd', 'gdu2', optdesc, mode, level], '_')
-	fce_vname            = StrJoin( [sc, 'fgm', 'fce',                  mode, 'l2'], '_')
-	fce2_vname           = StrJoin( [sc, 'fgm', 'fce', 'half',          mode, 'l2'], '_')
+	q0_gdu1_vname  = StrJoin( [sc, 'edi', 'q0',  'gdu1', optdesc, mode, level], '_')
+	q1_gdu1_vname  = StrJoin( [sc, 'edi', 'q1',  'gdu1', optdesc, mode, level], '_')
+	q2_gdu1_vname  = StrJoin( [sc, 'edi', 'q2',  'gdu1', optdesc, mode, level], '_')
+	q3_gdu1_vname  = StrJoin( [sc, 'edi', 'q3',  'gdu1', optdesc, mode, level], '_')
+	q0_gdu2_vname  = StrJoin( [sc, 'edi', 'q0',  'gdu2', optdesc, mode, level], '_')
+	q1_gdu2_vname  = StrJoin( [sc, 'edi', 'q1',  'gdu2', optdesc, mode, level], '_')
+	q2_gdu2_vname  = StrJoin( [sc, 'edi', 'q2',  'gdu2', optdesc, mode, level], '_')
+	q3_gdu2_vname  = StrJoin( [sc, 'edi', 'q3',  'gdu2', optdesc, mode, level], '_')
+	j_vname        = StrJoin( [sc, 'edi', 'j',           optdesc, mode, level], '_')
+	psd_gdu1_vname = StrJoin( [sc, 'edi', 'psd', 'gdu1', optdesc, mode, level], '_')
+	psd_gdu2_vname = StrJoin( [sc, 'edi', 'psd', 'gdu2', optdesc, mode, level], '_')
+	fce_vname      = StrJoin( [sc, 'fgm', 'fce',                  mode, 'l2'], '_')
+	fce2_vname     = StrJoin( [sc, 'fgm', 'fce', 'half',          mode, 'l2'], '_')
 
 ;-------------------------------------------
 ; Get Data /////////////////////////////////

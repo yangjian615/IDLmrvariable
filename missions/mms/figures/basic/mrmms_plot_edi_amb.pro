@@ -61,6 +61,13 @@
 ;                   Data quality level. Options are: {'l1a' | 'ql' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -81,6 +88,8 @@ FUNCTION MrMMS_Plot_EDI_Amb, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -394,5 +403,28 @@ TRANGE=trange
 	win    -> SetGlobal, XRANGE=trange
 	win    -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+		ENDIF ELSE IF ~File_Test(output_dir, /DIRECTORY) THEN BEGIN
+			MrPrintF, 'LogText', 'Creating directory: "' + output_dir + '".'
+			File_MKDir, output_dir
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, instr, mode, level, optdesc], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done /////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

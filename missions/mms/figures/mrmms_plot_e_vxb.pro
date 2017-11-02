@@ -51,28 +51,22 @@
 ;                   MMS spacecraft ID. Options are {'mms1' | 'mms2' | 'mms3' | 'mms4'}
 ;       MODE:       in, required, type=string
 ;                   Data rate mode. Options are {'srvy' | 'brst'}
-;       TSTART:     in, optional, type=string/strarr
-;                   Date-time string, formatted as YYYY-MM-DDThh:mm:ss.fff indicating the
-;                       time of the first distribution. If an array, `TEND` and `TSTRIDE`
-;                       are ignored. If not provided, the first time stamp will be used.
-;       TEND:       in, optional, type=string/integer, default=1
-;                   Date-time string, formatted as YYYY-MM-DDThh:mm:ss[.fff] indicating
-;                       the time of the last distribution. If an integer, the total
-;                       number of distributions to be plotted.
-;       TSTRIDE:    in, optional, type=integer, defualt=1
-;                   The number of distributions to skip between successive plots.
 ;
 ; :Keywords:
-;       DT:                 in, optional, type=string/objref, default=2.5
-;                           Duration, in seconds, of each time bin.
-;       DGA:                in, optional, type=float, default=11.25
-;                           Width, in degrees, of each gyrophase bin.
-;       FAC:                in, optional, type=string, default='EXB' for srvy and 'VXB' for brst
-;                           Name of the field-aligned coordinate system used
-;                               to define the directions perpendicular to B.
-;                               Options include 'VXB' and 'EXB'
-;       GARANGE:            out, optional, type=string, default=[-180\, 180]
-;                           Range of gyrophase angles over which to bin.
+;       COORDS:     in, optional, type=string, default='gse'
+;                   Coordinate system of the data.
+;       NO_LOAD:    in, optional, type=boolean, default=0
+;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
+;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
+;                   The start and end times of the data interval to be plotted, formatted
+;                       as 'YYYY-MM-DDThh:mm:ss'
 ;       
 ; :Author:
 ;   Matthew Argall::
@@ -88,7 +82,10 @@
 ;       2017/01/18  -   Added E', J, and J.E' to the plot. - MRA
 ;-
 function MrMMS_Plot_E_VxB, sc, mode, $
+COORDS=coords, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	compile_opt idl2
 	
@@ -100,64 +97,72 @@ TRANGE=trange
 		return, !Null
 	endif
 	
-	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
-	tf_load = ~keyword_set(no_load)
+	IF N_Elements(coords) EQ 0 THEN coords = 'gse'
+	IF N_Elements(trange) GT 0 THEN MrVar_SetTRange, trange
+	tf_load = ~Keyword_Set(no_load)
 	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
 ;-------------------------------------------
-	level    = 'l2'
-	edp_mode = 'fast'
-	fgm_mode = 'brst'
-	fpi_mode = 'brst'
+	level = 'l2'
+	
+	fgm_coords = coords EQ 'dsl' || coords EQ 'dbcs' ? 'dmpa' : coords
+	fgm_mode   = mode
+	
+	edp_coords = coords EQ 'dbcs' || coords EQ 'dmpa' ? 'dsl' : coords
+	edp_mode   = 'fast'
+	
+	fpi_coords = coords EQ 'dsl' || coords EQ 'dmpa' ? 'dbcs' : coords
+	fpi_mode   = mode EQ 'srvy' ? 'fast' : mode
 	
 	if tf_load then begin
 		;FGM
 		MrMMS_FGM_Load_Data, sc, fgm_mode, $
-		                     VARFORMAT = '*b_dmpa*'
+		                     VARFORMAT = '*b_'+fgm_coords+'*'
 		
 		;EDP E-Field
 		MrMMS_Load_Data, sc, 'edp', edp_mode, level, $
 		                 OPTDESC   = 'dce', $
-		                 VARFORMAT = '*_dce_dsl_*'
+		                 VARFORMAT = '*_dce_'+edp_coords+'_*'
 	
 		;DES
 		MrMMS_FPI_Load_Data, sc, fpi_mode, $
+;		                     LEVEL     = 'l1b', $
 		                     OPTDESC   = 'dis-moms', $
-		                     VARFORMAT = ['*numberdensity*', '*bulk?_dbcs_*']
+		                     VARFORMAT = ['*numberdensity_', '*bulk?_'+fpi_coords+'_']+fpi_mode
 	
 		;DIS
 		MrMMS_FPI_Load_Data, sc, fpi_mode, $
+;		                     LEVEL     = 'l1b', $
 		                     OPTDESC   = 'des-moms', $
-		                     VARFORMAT = ['*numberdensity*', '*bulk?_dbcs_*']
+		                     VARFORMAT = ['*numberdensity_', '*bulk?_'+fpi_coords+'_']+fpi_mode
 	endif
 
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
 	;Source names
-	ne_vname   = sc + '_des_numberdensity_' + fpi_mode
-	ni_vname   = sc + '_dis_numberdensity_' + fpi_mode
-	ve_vname   = sc + '_des_bulkv_dbcs_'    + fpi_mode
-	vi_vname   = sc + '_dis_bulkv_dbcs_'    + fpi_mode
-	b_vname    = sc + '_fgm_b_dmpa_'        + fgm_mode + '_' + level
-	bvec_vname = sc + '_fgm_bvec_dmpa_'     + fgm_mode + '_' + level
-	e_vname    = sc + '_edp_dce_dsl_'       + edp_mode + '_' + level
+	ne_vname   = StrJoin( [sc, 'des', 'numberdensity',             fpi_mode], '_' )
+	ve_vname   = StrJoin( [sc, 'des', 'bulkv',         fpi_coords, fpi_mode], '_' )
+	ni_vname   = StrJoin( [sc, 'dis', 'numberdensity',             fpi_mode], '_' )
+	vi_vname   = StrJoin( [sc, 'dis', 'bulkv',         fpi_coords, fpi_mode], '_' )
+	b_vname    = StrJoin( [sc, 'fgm', 'b',    fgm_coords, fgm_mode, level], '_' )
+	bvec_vname = StrJoin( [sc, 'fgm', 'bvec', fgm_coords, fgm_mode, level], '_' )
+	e_vname    = StrJoin( [sc, 'edp', 'dce',  edp_coords, edp_mode, level], '_' )
 	
-	;Output names
-	Ex_des_vname  = sc + '_des_ex_dsl_'       + fpi_mode + '_' + level
-	Ey_des_vname  = sc + '_des_ey_dsl_'       + fpi_mode + '_' + level
-	Ez_des_vname  = sc + '_des_ez_dsl_'       + fpi_mode + '_' + level
-	Ex_dis_vname  = sc + '_dis_ex_dsl_'       + fpi_mode + '_' + level
-	Ey_dis_vname  = sc + '_dis_ey_dsl_'       + fpi_mode + '_' + level
-	Ez_dis_vname  = sc + '_dis_ez_dsl_'       + fpi_mode + '_' + level
-	EperpX_vname  = sc + '_edp_ex_dsl_perp_'  + edp_mode + '_' + level
-	EperpY_vname  = sc + '_edp_ey_dsl_perp_'  + edp_mode + '_' + level
-	EperpZ_vname  = sc + '_edp_ez_dsl_perp_'  + edp_mode + '_' + level
-	Epar_vname    = sc + '_edp_epar_'         + edp_mode + '_' + level
-	j_vname       = sc + '_currentdensity_'   + edp_mode + '_' + level
-	eprime_vname  = sc + '_eprime_'           + edp_mode + '_' + level
-	je_vname      = sc + '_jdoteprime_'       + edp_mode + '_' + level
+	Ex_des_vname  = StrJoin( [sc, 'des', 'ex',             fpi_coords, fpi_mode, level], '_' )
+	Ey_des_vname  = StrJoin( [sc, 'des', 'ey',             fpi_coords, fpi_mode, level], '_' )
+	Ez_des_vname  = StrJoin( [sc, 'des', 'ez',             fpi_coords, fpi_mode, level], '_' )
+	Ex_dis_vname  = StrJoin( [sc, 'dis', 'ex',             fpi_coords, fpi_mode, level], '_' )
+	Ey_dis_vname  = StrJoin( [sc, 'dis', 'ey',             fpi_coords, fpi_mode, level], '_' )
+	Ez_dis_vname  = StrJoin( [sc, 'dis', 'ez',             fpi_coords, fpi_mode, level], '_' )
+	j_vname       = StrJoin( [sc, 'dis', 'currentdensity', fpi_coords, fpi_mode, level], '_' )
+	Ex_perp_vname = StrJoin( [sc, 'edp', 'ex', 'perp',  edp_mode, level], '_' )
+	Ey_perp_vname = StrJoin( [sc, 'edp', 'ey', 'perp',  edp_mode, level], '_' )
+	Ez_perp_vname = StrJoin( [sc, 'edp', 'ez', 'perp',  edp_mode, level], '_' )
+	E_par_vname   = StrJoin( [sc, 'edp', 'e',  'par',   edp_mode, level], '_' )
+	E_prime_vname = StrJoin( [sc, 'edp', 'e',  'prime', edp_mode, level], '_' )
+	jdote_vname   = StrJoin( [sc, 'edp', 'jdoteprime',  edp_mode, level], '_' )
 
 ;-------------------------------------------
 ; Ve,i x B /////////////////////////////////
@@ -228,7 +233,7 @@ TRANGE=trange
 	                                          [ oEz_perp['DATA'] ] ] )
 
 	;Set properties
-	oEpar -> SetName, Epar_vname
+	oEpar -> SetName, E_par_vname
 	oEpar['DEPEND_0'] = oVe['DEPEND_0']
 	oEpar['TITLE']    = 'Epar!C(mV/m)'
 	oEpar['UNITS']    = 'mV/m'
@@ -238,7 +243,7 @@ TRANGE=trange
 	oEperp['UNITS']    = 'mV/m'
 	
 	;Split perp into components
-	oEperp -> Split, oEx, oEy, oEz, NAMES=[EperpX_vname, EperpY_vname, EperpZ_vname], /CACHE
+	oEperp -> Split, oEx, oEy, oEz, NAMES=[Ex_perp_vname, Ey_perp_vname, Ez_perp_vname], /CACHE
 	
 	;Clear data
 	obj_destroy, [oB_des, ob_hat_des, oEperp, oEx_perp, oEy_perp, oEz_perp]
@@ -248,12 +253,12 @@ TRANGE=trange
 ;-------------------------------------------
 	;Electron rest frame
 	oEprime = oE_des + oVexB
-	oEprime -> SetName, eprime_vname
+	oEprime -> SetName, E_prime_vname
 	oEprime -> Cache
 	
 	;Dissipation
 	oJdotEprime = oJ -> Dot(oEprime)
-	oJdotEprime -> SetName, je_vname
+	oJdotEprime -> SetName, jdote_vname
 	oJdotEprime -> Cache
 	
 	;Clear data
@@ -304,15 +309,15 @@ TRANGE=trange
 	
 	;EperpX EDP
 	oEx['LABEL'] = 'EDP'
-	oEx['TITLE'] = 'EperpX!C(mV/m)'
+	oEx['TITLE'] = 'Ex_perp!C(mV/m)'
 	
 	;EperpY EDP
 	oEy['LABEL'] = 'EDP'
-	oEy['TITLE'] = 'EperpY!C(mV/m)'
+	oEy['TITLE'] = 'Ey_perp!C(mV/m)'
 	
 	;EperpZ EDP
 	oEz['LABEL'] = 'EDP'
-	oEz['TITLE'] = 'EperpZ!C(mV/m)'
+	oEz['TITLE'] = 'Ez_perp!C(mV/m)'
 	
 	;EPRIME
 	oEprime['TITLE'] = "E'!C(mV/m)"
@@ -325,21 +330,45 @@ TRANGE=trange
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
 	;Plot variables
-	win = MrVar_PlotTS( [B_vname, EperpX_vname, EperpY_vname, EperpZ_vname, Epar_vname, $
-	                     eprime_vname, j_vname, je_vname], $
+	win = MrVar_PlotTS( [B_vname, Ex_perp_vname, Ey_perp_vname, Ez_perp_vname, E_par_vname, $
+	                     E_prime_vname, j_vname, jdote_vname], $
 	                    /NO_REFRESH, $
 	                    YSIZE=750 )
 	win -> Refresh, /DISABLE
 	
 	;Overplot
-	win = MrVar_OPlotTS( [EperpX_vname, EperpY_vname, EperpZ_vname], $
-	                     [Ex_des_vname, Ey_des_vname, Ez_des_vname] )
-	win = MrVar_OPlotTS( [EperpX_vname, EperpY_vname, EperpZ_vname], $
-	                     [Ex_dis_vname, Ey_dis_vname, Ez_dis_vname] )
+	win = MrVar_OPlotTS( [Ex_perp_vname, Ey_perp_vname, Ez_perp_vname], $
+	                     [Ex_des_vname,  Ey_des_vname,  Ez_des_vname] )
+	win = MrVar_OPlotTS( [Ex_perp_vname, Ey_perp_vname, Ez_perp_vname], $
+	                     [Ex_dis_vname,  Ey_dis_vname,  Ez_dis_vname] )
 	
 	win[0] -> SetLayout, [1,1]
 	win    -> TrimLayout
 	win.OXMargin = [10,10]
 	win -> refresh
-	return, win
-end
+
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+		ENDIF ELSE IF ~File_Test(output_dir, /DIRECTORY) THEN BEGIN
+			MrPrintF, 'LogText', 'Creating directory: "' + output_dir + '".'
+			File_MKDir, output_dir
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, 'efield', mode, level, 'frozen-in-Vix5'], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done /////////////////////////////////////
+;-------------------------------------------
+	RETURN, win
+END

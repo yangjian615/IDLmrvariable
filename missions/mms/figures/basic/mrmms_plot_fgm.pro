@@ -46,16 +46,29 @@
 ;   MMS
 ;
 ; :Params:
+;       SC:         in, required, type=string
+;                   Spacecraft identifier. Options are {'mms1' | 'mms2' | 'mms3' | 'mms4'}
 ;       MODE:       in, required, type=string
 ;                   Data rate mode. Options are {'srvy' | 'brst'}
-;       INSTR:      in, required, type=string, default='fgm'
-;                   FGM strument to use. Options are: {'afg' | 'dfg' | 'fgm'}
+;       NFFT:       in, optional, type=integer, default=2048
+;                   Number of points per power spectral density estimate.
+;       NSHIFT:     in, optional, type=integer, default=`NFFT`/2
+;                   Number of points to shift between PSD estimates.
 ;
 ; :Keywords:
+;       INSTR:      in, required, type=string, default='fgm'
+;                   FGM strument to use. Options are: {'afg' | 'dfg' | 'fgm'}
 ;       LEVEL:      in, optional, type=string, default='l2'
 ;                   Data quality level. Options are: {'l1a' | 'l1b' | 'ql' | 'l2pre' | 'l2'}
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional filename descriptor.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
@@ -73,10 +86,16 @@
 ; :History:
 ;   Modification History::
 ;       2017/01/13  -   Written by Matthew Argall
+;       2017/11/01  -   Added the OUTPUT_DIR and OUTPUT_EXT keywords. Added NFFT and NSHIFT
+;                           parameters. INSTR is now a keyword. Set y-axis range and tick
+;                           interval for angles. - MRA
 ;-
-FUNCTION MrMMS_Plot_FGM, sc, mode, instr, $
+FUNCTION MrMMS_Plot_FGM, sc, mode, nfft, nshift, $
+INSTR=instr, $
 LEVEL=level, $
 OPTDESC=optdesc, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	Compile_Opt idl2
@@ -144,22 +163,26 @@ TRANGE=trange
 	;Compute polar and azimuth angles of B
 	oBvec   = MrVar_Get(bvec_vname)
 	oBunit  = oBvec -> Normalize()
-	Bphi   = ATan( oBunit[*,1], oBunit[*,0] ) * !radeg
-	Btheta = ATan( oBunit[*,1], oBunit[*,2] ) * !radeg
+	Bphi   = ATan( oBunit['DATA',*,1], oBunit['DATA',*,0] ) * !radeg
+	Btheta = ATan( oBunit['DATA',*,1], oBunit['DATA',*,2] ) * !radeg
 	
 	;Store Bphi
 	oBphi = MrScalarTS( oBvec['TIMEVAR'], Bphi, /CACHE, NAME=phi_vname, /NO_COPY)
 	oBphi -> Cache
-	oBphi['PLOT_TITLE'] = 'Azimuth angle of the magnetic field.'
-	oBphi['TITLE']      = 'B$\phi$!C(deg)'
-	oBphi['UNITS']      = 'deg'
+	oBphi['AXIS_RANGE']   = [-180, 180]
+	oBphi['PLOT_TITLE']   = 'Azimuth angle of the magnetic field.'
+	oBphi['TITLE']        = 'B$\phi$!C(deg)'
+	oBphi['TICKINTERVAL'] = 90.0
+	oBphi['UNITS']        = 'deg'
 	
 	;Store Btheta
 	oBtheta = MrScalarTS( oBvec['TIMEVAR'], Btheta, /CACHE, NAME=theta_vname, /NO_COPY)
 	oBtheta -> Cache
-	oBtheta['PLOT_TITLE'] = 'Polar angle of the magnetic field.'
-	oBtheta['TITLE']      = 'B$\theta$!C(deg)'
-	oBtheta['UNITS']      = 'deg'
+	oBtheta['AXIS_RANGE']   = [-180, 180]
+	oBtheta['PLOT_TITLE']   = 'Polar angle of the magnetic field.'
+	oBtheta['TITLE']        = 'B$\theta$!C(deg)'
+	oBtheta['TICKINTERVAL'] = 90.0
+	oBtheta['UNITS']        = 'deg'
 	
 	;Destroy data
 	Obj_Destroy, oBunit
@@ -235,6 +258,30 @@ TRANGE=trange
 	win    -> TrimLayout
 	win    -> SetProperty, OXMARGIN=[13, 14]
 	win    -> Refresh
+
+;-------------------------------------------
+; Save Results /////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+		ENDIF ELSE IF ~File_Test(output_dir, /DIRECTORY) THEN BEGIN
+			MrPrintF, 'LogText', 'Creating directory: "' + output_dir + '".'
+			File_MKDir, output_dir
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, instr, mode, level], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 
 	RETURN, win
 END

@@ -771,42 +771,33 @@ OUTPUT_EXT=output_ext
 	win.oxmargin = [15,10]
 
 ;-------------------------------------------
+; Save the Figure //////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;Save the figure
+		fname = StrJoin([sc, instr, mode, level, 'entropy'], '_')
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
 ; Save Figure //////////////////////////////
 ;-------------------------------------------
 	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
 		;Defaults
-		IF N_Elements(output_dir) EQ 0 THEN output_dir = FilePath( '', ROOT_DIR=File_Search('~', /TEST_DIRECTORY), SUBDIRECTORY='figures' )
-		IF N_Elements(output_ext) EQ 0 THEN output_ext = 'png'
-		
-		;Date and time range of plot
-		ftime  = MrVar_GetTRange()
-		dstart = StrJoin( StrSplit( StrMid(ftime[0],  0, 10), '-', /EXTRACT ) )
-		dend   = StrJoin( StrSplit( StrMid(ftime[1],  0, 10), '-', /EXTRACT ) )
-		tstart = StrJoin( StrSplit( StrMid(ftime[0], 11,  8), ':', /EXTRACT ) )
-		tend   = StrJoin( StrSplit( StrMid(ftime[1], 11,  8), ':', /EXTRACT ) )
-		
-		;Sub-seconds time interval?
-		ftime = MrVar_GetTRange('SSM')
-		dtime = ftime[1] - ftime[0]
-		pow   = ALog10(dtime)
-		IF pow LT 0 THEN BEGIN
-			fmt    = '(f0.' + String( Ceil(Abs(pow)), FORMAT='(i0)') + ')'
-			tstart = tstart + 'p' + String(ftime[0] MOD 1, FORMAT=fmt)
-			tend   = tend   + 'p' + String(ftime[1] MOD 1, FORMAT=fmt)
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
 		ENDIF
-		
-		;Time of file
-		ftime = dstart + '_' + tstart
-		IF dend NE dstart THEN ftime += '_' + dend
-		ftime += '_' + tend
 		
 		;File name
 		fname  = StrJoin( [sc, 'fpi', mode, level, 'entropy', ftime], '_' )
-		fname += '.' + output_ext
-		fname  = FilePath( fname, ROOT_DIR=output_dir )
-		
-		;Save the figure
-		FOR i = 0, N_Elements(fname) - 1 DO win -> Save, fname
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
 	ENDIF
 	
 ;-------------------------------------------

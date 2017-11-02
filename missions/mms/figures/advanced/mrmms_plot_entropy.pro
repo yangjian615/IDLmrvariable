@@ -55,6 +55,13 @@
 ; :Keywords:
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;
 ; :Categories:
 ;    MMS
@@ -75,7 +82,9 @@ FUNCTION MrMMS_Plot_Entropy, sc, mode, species, $
 COORDS=coords, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
-NO_LOAD=no_load
+NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext
 	Compile_Opt idl2
 	
 	Catch, the_error
@@ -112,16 +121,6 @@ NO_LOAD=no_load
 	
 	;Source Distribution
 	f_vname      = StrJoin( [sc, instr, 'dist',                  mode], '_')
-	dphi_vname   = StrJoin( [sc, instr, 'startdelphi', 'count',  mode], '_' )
-	parity_vname = StrJoin( [sc, instr, 'steptable',   'parity', mode], '_' )
-	
-	;Source Photoelectron model
-	ph_dphi_vname = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + '_model'
-	ph_f0_vname   = StrJoin( ['mms', instr, 'bgdist',      'p0',     mode], '_' ) + '_model'
-	ph_f1_vname   = StrJoin( ['mms', instr, 'bgdist',      'p1',     mode], '_' ) + '_model'
-	ph_e0_vname   = StrJoin( ['mms', instr, 'energy0',               mode], '_' ) + '_model'
-	ph_e1_vname   = StrJoin( ['mms', instr, 'energy1',               mode], '_' ) + '_model'
-	ph_scl_vname  = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + '_model'
 	
 	;Derived names
 	dist_vname   = StrJoin([sc, instr, 'dist4d',        mode], '_')
@@ -161,22 +160,10 @@ NO_LOAD=no_load
 		
 		;FPI
 		MrMMS_FPI_Load_Dist3D, sc, mode, species, $
+		                       /APPLY_MODEL, $
 		                       COORD_SYS   = coord_sys, $
 		                       LEVEL       = level, $
 		                       ORIENTATION = orientation
-		
-		;Photoelectron model
-		IF species EQ 'e' THEN BEGIN
-			MrMMS_FPI_Load_Models, sc, mode, species, $
-			                       SUFFIX = '_model'
-		
-			;Create f_photo
-			ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
-			                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
-			                                parity_vname, $
-			                                /CACHE, $
-			                                NAME = fph_vname )
-		ENDIF
 		
 		;Load FPI Moments
 		MrMMS_FPI_Load_Data, sc, mode, $
@@ -191,29 +178,13 @@ NO_LOAD=no_load
 		                 OPTDESC   = 'scpot', $
 		                 VARFORMAT = '*scpot*'
 	ENDIF
-
-;-------------------------------------------
-; Photo Electron Distribution //////////////
-;-------------------------------------------
-
-	;Subtract from the distribution function
-	ofDist = MrVar_Get(f_vname)
-	IF species EQ 'e' THEN BEGIN
-		ofPhoto = MrVar_Get(fph_vname)
-		ofcorr  = ofDist - ofPhoto > 0
-	ENDIF ELSE BEGIN
-		ofcorr = ofDist > 0
-	ENDELSE
 	
-	ofcorr -> ReplaceValue, 0, !Values.F_NaN
-	ofDist -> CopyAttrTo, ofcorr
-
 ;-------------------------------------------
 ; Compute Moments //////////////////////////
 ;-------------------------------------------
 	;Distribution function
 	theSpecies = species EQ 'i' ? 'H' : species
-	oDist  = MrDist4D(ofcorr, VSC=scpot_vname, SPECIES=theSpecies)
+	oDist  = MrDist4D(f_vname, VSC=scpot_vname, SPECIES=theSpecies)
 	oDist -> Moments, /CACHE, $
 	                  DENSITY     = oDensity, $
 	                  ENTROPY     = oEntropy, $
@@ -298,6 +269,24 @@ NO_LOAD=no_load
 	win -> TrimLayout
 	win.oxmargin = [15,4]
 
+;-------------------------------------------
+; Save the File ////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;Save the figure
+		fname = StrJoin([sc, instr, mode, level, 'entropy'], '_')
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	win -> Refresh
 	RETURN, win
 END

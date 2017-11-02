@@ -60,6 +60,13 @@
 ;                   Optional filename descriptor.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -78,12 +85,16 @@
 ;-
 FUNCTION MrMMS_Plot_FPI_Dist, sc, mode, species, time, $
 FGM_INSTR=fgm_instr, $
+FRANGE=frange, $
 LEVEL=level, $
+NO_LOAD=no_load, $
 OPTDESC=optdesc, $
 OUTPUT_DIR=output_dir, $
 OUTPUT_EXT=output_ext, $
-NO_LOAD=no_load, $
-TRANGE=trange
+RAGER=rager, $
+TAIL=tail, $
+TRANGE=trange, $
+VRANGE=vrange
 	Compile_Opt idl2
 	
 	Catch, the_error
@@ -95,6 +106,7 @@ TRANGE=trange
 	ENDIF
 	
 	tf_load = ~Keyword_Set(no_load)
+	tf_tail = Keyword_Set(tail)
 	theta_range = [-90.0,  90.0]
 	phi_range   = [  0.0, 360.0]
 	IF N_Elements(level)   EQ 0 THEN level   = 'l2'
@@ -102,6 +114,22 @@ TRANGE=trange
 	IF N_Elements(species) EQ 0 THEN species = 'e'
 	IF N_Elements(trange)  GT 0 THEN MrVar_SetTRange, trange
 	IF N_Elements(time)    EQ 0 THEN time    = (MrVar_GetTRange())[0]
+	
+	IF N_Elements(vrange) EQ 0 THEN BEGIN
+		IF species EQ 'e' THEN BEGIN
+			vrange = tf_tail ? [-4e4,  4e4] : [-1.5e4,  1.5e4]
+		ENDIF ELSE BEGIN
+			vrange = !Null
+		ENDELSE
+	ENDIF
+	
+	IF N_Elements(frange) EQ 0 THEN BEGIN
+		IF species EQ 'e' THEN BEGIN
+			frange = tf_tail ? [1e-32,1e-29] : [1e-30, 1e-25]
+		ENDIF ELSE BEGIN
+			frange = !Null
+		ENDELSE
+	ENDIF
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
@@ -167,12 +195,14 @@ TRANGE=trange
 		;   - The distribution is corrected for internally
 		;     generated photoelectrons.
 		MrMMS_FPI_Load_Dist3d, sc, mode, species, $
-		                       APPLY_MODEL=0, $
+		                       /APPLY_MODEL, $
 		                       COORD_SYS = coords, $
-		                       LEVEL     = level
+		                       LEVEL     = level, $
+		                       RAGER     = rager
 		
 		;MOMENTS
 		MrMMS_FPI_Load_Data, sc, mode, $
+		                     RAGER     = rager, $
 		                     OPTDESC   = instr+'-moms', $
 		                     VARFORMAT = '*bulkv_'+coords+'*'
 	ENDIF
@@ -234,7 +264,7 @@ TRANGE=trange
 	;   - X = PERP1 = (B x V) x B
 	;   - Y = PERP2 = B x V
 	;   - Z = PAR   = B
-	;   - ORIENTATION = 4
+	;   - ORIENTATION = 12
 	;       THETA = Elevation angle from yz-plane
 	;       PHI   = Positive from z-axis
 	orientation = 12
@@ -292,7 +322,7 @@ TRANGE=trange
 	;   - X = PERP1 = (B x V) x B
 	;   - Y = PERP2 = B x V
 	;   - Z = PAR   = B
-	;   - ORIENTATION = 3
+	;   - ORIENTATION = 1
 	;       THETA - Polar angle from z-axis
 	;       PHI   - Positive from x-axis
 	orientation = 1
@@ -349,8 +379,6 @@ TRANGE=trange
 ;-------------------------------------------
 ; Properties ///////////////////////////////
 ;-------------------------------------------
-	vrange = [-1.5e4,  1.5e4]
-	frange = [1e-30, 1e-25]
 	
 	;Pick out the distribution of interest
 	time  = oParPerp1['TIME']
@@ -495,7 +523,9 @@ TRANGE=trange
 		ftime = StrMid(ftime, 0, 8) + '_' + StrMid(ftime, 8, 6) + 'p' + StrMid(ftime, 15, 3)
 		
 		;Save the file
-		fname = StrJoin([sc, instr, mode, level, 'dist-2D-1D', ftime + '.' + output_ext], '_')
+		sres  = Keyword_Set(rager) ? '-rager' : ''
+		fname = StrJoin([sc, instr, mode, level, 'dist-2D-1D'+sres, ftime + '.' + output_ext], '_')
+		fname = FilePath(fname, ROOT_DIR=output_dir)
 		win -> Save, fname
 	ENDIF
 

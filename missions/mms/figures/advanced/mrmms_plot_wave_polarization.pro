@@ -212,7 +212,7 @@ TRANGE=trange
 	polarization_vname = 'Polarization('    + dv_vname + ')'
 	fce_vname          = StrJoin( [sc, 'plasma', 'fce',         mode, level], '_' )
 	fce2_vname         = StrJoin( [sc, 'plasma', 'fce', 'half', mode, level], '_' )
-	fcp_vname          = StrJoin( [sc, 'plasma', 'fci',         mode, level], '_' )
+	fci_vname          = StrJoin( [sc, 'plasma', 'fci',         mode, level], '_' )
 	flh_vname          = StrJoin( [sc, 'plasma', 'flh',         mode, level], '_' )
 	fpe_vname          = StrJoin( [sc, 'plasma', 'fpe',         mode, level], '_' )
 	fpi_vname          = StrJoin( [sc, 'plasma', 'fpi',         mode, level], '_' )
@@ -402,5 +402,5 @@ TRANGE=trange
 ;-------------------------------------------
 ; Done! ////////////////////////////////////
 ;-------------------------------------------
-	return, win
-end
+	RETURN, win
+END
