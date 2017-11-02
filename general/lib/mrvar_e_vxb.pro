@@ -70,6 +70,7 @@
 ; :History:
 ;   Modification History::
 ;       2017/05/10  -   Written by Matthew Argall
+;       2017/10/23  -   Cache and name the output variable if specified. - MRA
 ;-
 function MrVar_E_VxB, v, b, $
 CACHE=cache, $
@@ -83,6 +84,9 @@ NO_CLOBBER=no_clobber
 	oB = MrVar_Get(b)
 	IF ~Obj_IsA(oV, 'MrVectorTS') THEN Message, 'V must be a MrVectorTS variable.'
 	IF ~Obj_IsA(oB, 'MrVectorTS') THEN Message, 'B must be a MrVectorTS variable.'
+	
+	;NAME
+	IF N_Elements(name) EQ 0 THEN name = 'Ec=-VexB'
 	
 	;V UNITS
 	IF oV -> HasAttr('SI_CONVERSION') THEN BEGIN
@@ -136,5 +140,7 @@ NO_CLOBBER=no_clobber
 	oE_VxB['SI_CONVERSION'] = '1e-3>V/m'
 	
 	;Cleanup variables
+	oE_VxB -> SetName, name
+	IF Keyword_Set(cache) THEN oE_VxB -> Cache
 	RETURN, oE_VxB
 END
