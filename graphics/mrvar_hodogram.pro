@@ -112,6 +112,9 @@ FUNCTION MrVar_Hodogram, var, trange, ttype
 ;-------------------------------------------
 ; Remove Labels ////////////////////////////
 ;-------------------------------------------
+	tf_colors = oVar -> HasAttr('COLOR')
+	IF tf_colors THEN colors = oVar['COLOR']
+	
 	tf_labels = oVar -> HasAttr('LABEL')
 	IF tf_labels THEN BEGIN
 		labels = oVar['LABEL']
@@ -127,7 +130,7 @@ FUNCTION MrVar_Hodogram, var, trange, ttype
 	cgLoadCT, 13
 	
 	win = MrWindow( LAYOUT   = [1,1], $
-	                OXMARGIN = [10,6], $
+	                OXMARGIN = [10,7], $
 	                OYMARGIN = [12,2], $
 	                XGAP     = 0.0, $
 	                XSIZE    = 740, $
@@ -138,7 +141,7 @@ FUNCTION MrVar_Hodogram, var, trange, ttype
 	layout = MrLayout( [3,1], $
 	                   ASPECT   = 1.0, $
 	                   CHARSIZE = 1.5, $
-	                   OXMARGIN = [10,6], $
+	                   OXMARGIN = [10,7], $
 	                   OYMARGIN = [4,15], $
 	                   XGAP     = 5, $
 	                   YGAP     = 0 )
@@ -149,7 +152,8 @@ FUNCTION MrVar_Hodogram, var, trange, ttype
 	                 LAYOUT = [1,1] )
 	
 	;Remove labels to prevent legend creation
-	IF tf_labels THEN oVar -> RemoveAttr, ['LABEL']
+	IF tf_labels THEN oVar -> RemoveAttr, 'LABEL'
+	IF tf_colors THEN oVar -> RemoveAttr, 'COLOR'
 	range = [oVar.min, oVar.max]
 	
 	;X-Z
@@ -187,6 +191,7 @@ FUNCTION MrVar_Hodogram, var, trange, ttype
 	
 	;Put labels back
 	IF tf_labels THEN oVar['LABEL'] = labels
+	IF tf_colors THEN oVar['COLOR'] = colors
 
 ;-------------------------------------------
 ; Annotate /////////////////////////////////

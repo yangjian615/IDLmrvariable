@@ -46,7 +46,7 @@
 ;           TEXT_COLOR:        COLOR
 ;           TEXT_SIZE:         CHARSIZE
 ;           TEXT_THICK:        THICK
-;           SAMPLE_COLOR:      COLOR
+;           SAMPLE_COLOR:      SAMPLE_COLOR || COLOR
 ;           SAMPLE_LINESTYLE:  LINESTYLE
 ;           SYMBOL:            SYMBOL
 ;           SYM_COLOR:         SYM_COLOR || COLOR
@@ -83,6 +83,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/06/08  -   Written by Matthew Argall
+;       2017/10/23  -   Check for SYM_COLOR attribute. Use COLOR if not present. - MRA
 ;-
 function MrVar_Legend, var1, var2, var3, var4, var5, var6, var7, var8, $
 ADD=add, $
@@ -170,6 +171,13 @@ _REF_EXTRA=extra
 			theVar -> HasAttr('COLOR'):        sample_color = theVar['COLOR']
 			else: sample_color = !Null
 		endcase
+		
+		;Symbol Color
+		case 1 of
+			theVar -> HasAttr('SYM_COLOR'): sym_color = theVar['SYM_COLOR']
+			theVar -> HasAttr('COLOR'):     sym_color = theVar['COLOR']
+			else: sym_color = !Null
+		endcase
 
 		;Create legend with first variable
 		lgd = MrLegend( TARGET           = target, $
@@ -186,7 +194,7 @@ _REF_EXTRA=extra
 		                ;SYMBOL
 		                SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
 		                /SYM_CENTER, $
-		                SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
+		                SYM_COLOR        = sym_color, $
 		                SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
 		                SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL) )
 		
@@ -226,6 +234,13 @@ _REF_EXTRA=extra
 			else: sample_color = !Null
 		endcase
 		
+		;Symbol Color
+		case 1 of
+			theVar -> HasAttr('SYM_COLOR'): sym_color = theVar['SYM_COLOR']
+			theVar -> HasAttr('COLOR'):     sym_color = theVar['COLOR']
+			else: sym_color = !Null
+		endcase
+		
 		;Add the legend item
 		lgd -> Add, TARGET           = target, $
 		            ;TEXT
@@ -241,7 +256,7 @@ _REF_EXTRA=extra
 		            ;SYMBOL
 		            SYMBOL           = theVar -> GetAttrValue('SYMBOL',    /NULL), $
 		            /SYM_CENTER, $
-		            SYM_COLOR        = theVar -> GetAttrValue('SYM_COLOR', /NULL), $
+		            SYM_COLOR        = sym_color, $
 		            SYM_SIZE         = theVar -> GetAttrValue('SYM_SIZE',  /NULL), $
 		            SYM_THICK        = theVar -> GetAttrValue('SYM_THICK', /NULL)
 

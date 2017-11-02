@@ -62,6 +62,8 @@
 ;       2016/08/13  -   Written by Matthew Argall
 ;       2016/08/25  -   Graphics names or objects may be given. Variable index, name, or
 ;                           objrefs may be given. - MRA
+;       2017/10/20  -   Iterate the correct number of times if GFX is an array and VARS
+;                           is scalar. - MRA
 ;-
 function MrVar_OPlotTS, gfx, vars, $
 WIN=win
@@ -141,7 +143,7 @@ WIN=win
 	nWins      = 0
 	tf_refresh = BytArr(nVars)
 	win        = ObjArr(nVars)
-	FOR i = 0, nVars - 1 DO BEGIN
+	FOR i = 0, nIter - 1 DO BEGIN
 		oVar   = theVars[i]
 		oGfx   = theGfx[i]
 
