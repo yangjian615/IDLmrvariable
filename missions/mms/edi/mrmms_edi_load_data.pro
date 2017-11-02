@@ -481,7 +481,6 @@ SUFFIX=suffix
 END
 
 
-
 ;+
 ;   Load EDI data from source files.
 ;
@@ -532,6 +531,7 @@ VARFORMAT=varformat
 	IF N_Elements(mode)      EQ 0 THEN mode      = 'srvy'
 	IF N_Elements(level)     EQ 0 THEN level     = 'l2'
 	IF N_Elements(suffix)    EQ 0 THEN suffix    = ''
+	IF N_Elements(trange)    GT 0 THEN MrVar_SetTRange, trange
 	IF N_Elements(varformat) EQ 0 THEN varformat = [ '*flux?_0_'+mode+'*', $
 	                                                 '*flux?_180_'+mode+'*', $
 	                                                 '*flux_gdu?_'+mode+'*', $
@@ -539,7 +539,6 @@ VARFORMAT=varformat
 	                                                 '*traj?_'+coords+'_0_'+mode+'*', $
 	                                                 '*traj?_'+coords+'_180_'+mode+'*', $
 	                                                 '*traj_'+coords+'_gdu?_'+mode+'*']
-	IF N_Elements(trange)    GT 0 THEN MrVar_SetTRange, trange
 	
 	;
 	; TODO: If VARFORMAT is supplied by the user, COORDS can be broken.
@@ -548,20 +547,21 @@ VARFORMAT=varformat
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
 ;-------------------------------------------
+	;Determine which EDI file to load
+	IF N_Elements(optdesc) EQ 0 THEN BEGIN
+		fnames = MrMMS_Get_FileNames(sc, 'edi', mode, level, OPTDESC=optdesc)
+		MrMMS_Parse_Filename, fnames, OPTDESC=optdesc
+		iUniq = Uniq(optdesc, Sort(optdesc))
+		IF N_Elements(iUniq) NE 1 THEN BEGIN
+			MrPrintF, 'LogWarn', 'More than one EDI file type found.'
+			MrPrintF, 'LogWarn', '   ' + '[' + StrJoin(optdesc, ', ') + ']'
+		ENDIF
+	ENDIF
 
 	;EDI
 	MrMMS_Load_Data, sc, instr, mode, level, $
 	                 OPTDESC   = optdesc, $
 	                 VARFORMAT = varformat
-	
-	;Determine which EDI file was loaded
-	fnames = MrMMS_Get_FileNames(sc, 'edi', mode, level, OPTDESC=optdesc)
-	MrMMS_Parse_Filename, fnames, OPTDESC=optdesc
-	iUniq = Uniq(optdesc, Sort(optdesc))
-	IF N_Elements(iUniq) NE 1 THEN BEGIN
-		MrPrintF, 'LogWarn', 'More than one EDI file type found.'
-		MrPrintF, 'LogWarn', '   ' + '[' + StrJoin(optdesc, ', ') + ']'
-	ENDIF
 
 ;-------------------------------------------
 ; Alter Data ///////////////////////////////
