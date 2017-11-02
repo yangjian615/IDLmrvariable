@@ -70,6 +70,7 @@
 ;   Modification History::
 ;       2016/05/27  -   Written by Matthew Argall
 ;       2016/10/22  -   Convert to and from Julday and SSM. - MRA
+;       2017/10/24  -   Prevent index out of range errors in ::Nearest_Neighbor. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -1416,6 +1417,12 @@ L64=l64
 		t_value = self -> fromISO(value, 'SSM', T_REF=t_ref)
 		result  = value_locate(time, t_value, L64=l64) > 0
 	endelse
+	
+	;An array of indices gets truncated:
+	;   - Negative indices round up to 0
+	;   - Out of range indices round down to NPTS-1
+	;   - Here, make sure we have an array to prevent "subscript out of range" errors.
+	if n_elements(result) eq 1 then result = [result]
 	
 	;Check the point above
 	result += ( Abs(time[result+1] - t_value) LT Abs(time[result] - t_value) )

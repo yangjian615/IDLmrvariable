@@ -58,6 +58,8 @@
 ;       2016-02-13  -   Written by Matthew Argall
 ;       2016-09-27  -   Added SEARCHSTR and REGEX to ::GetNames. - MRA
 ;       2017-08-29  -   ::FindByNames returns objects in the order of the input names. - MRA
+;       2017-10-30  -   Catch scalars when determining number of objects returned by
+;                           ::Get; prevent call to ::_OverloadSize by N_Elements. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -362,7 +364,8 @@ COUNT=count
 				then message, 'VAR must be an (array of) MrVariable objects.'
 			
 			;Outputs
-			count = n_elements(var)
+			;   - Arrays of objects have TYPENAME='OBJREF'; for scalars TYPENAME=<obj_class()>
+			count = typename(var) eq 'OBJREF' ? n_elements(var) : 1
 			variables = var
 		endcase
 		
