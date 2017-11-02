@@ -51,23 +51,27 @@
 
 ;Set time range and LMN system
 tf_load = 0B
-MrVar_SetTRange, '2017-07-26T' + ['07:03:30', '07:07:00']
+;MrVar_SetTRange, '2017-07-26T' + ['07:03:30', '07:07:00']
+MrVar_SetTRange, '2017-07-11T' + ['22:33:23', '22:34:30']
 sc      = 'mms'+['1', '2', '3', '4']
 mode    = 'brst'
 level   = 'l2'
-coords  = 'gse'
-nsum    = 410
+coords  = 'omb'
+nsum    = 1024
 ;output_dir = '/home/argall/figures/20151016/'
+
+scm_coords = 'gse'
+fgm_coords = coords EQ 'omb' ? 'bcs' : coords
 
 ;Load data
 IF tf_load THEN BEGIN
 	!MrMMS.offline = 1B
 	!MrMMS.dropbox_root = '/nfs/fsm/temp/'
-	MrMMS_Load_Data, sc, 'fsm', mode, 'l3', OPTDESC='8kHz', VARFORMAT='*b_'+coords+'_'+mode+'_*'
+	MrMMS_Load_Data, sc, 'fsm', mode, 'l3', OPTDESC='8khz-cs-test', VARFORMAT='*b_'+coords+'_'+mode+'_*'
 	!MrMMS.offline = 0B
 	
-	MrMMS_FGM_Load_Data, sc, mode, VARFORMAT='*_b_'+coords+'_*'
-	MrMMS_Load_Data, sc, 'scm', mode, 'l2', OPTDESC='scb';, VARFORMAT='*_dce_'+coords+'_*'
+	MrMMS_FGM_Load_Data, sc, mode, VARFORMAT='*_b_'+fgm_coords+'_*'
+	MrMMS_Load_Data, sc, 'scm', mode, 'l2', OPTDESC='scb', VARFORMAT='*_acb_'+scm_coords+'_*_'+level
 ENDIF
 
 ;-------------------------------------------
@@ -75,15 +79,15 @@ ENDIF
 ;-------------------------------------------
 
 ;Data
-b_fsm_vnames = sc + '_' + StrJoin( ['fsm', 'b',    coords,        mode, 'l3'], '_' )
-b_fgm_vnames = sc + '_' + StrJoin( ['fgm', 'bvec', coords,        mode, 'l2'], '_' )
-b_scm_vnames = sc + '_' + StrJoin( ['scm', 'acb',  coords, 'scb', mode, 'l2'], '_' )
+b_fsm_vnames = sc + '_' + StrJoin( ['fsm', 'b',    coords,            mode, 'l3'], '_' )
+b_fgm_vnames = sc + '_' + StrJoin( ['fgm', 'bvec', fgm_coords,        mode, 'l2'], '_' )
+b_scm_vnames = sc + '_' + StrJoin( ['scm', 'acb',  scm_coords, 'scb', mode, 'l2'], '_' )
 
 ;Derived
 ndiff = ['12', '13', '14', '23', '24', '34']
-db_fsm_vnames = 'mms' + ndiff + '_' + StrJoin( ['fsm', 'b',    coords,        mode, 'l3'], '_' )
-db_fgm_vnames = 'mms' + ndiff + '_' + StrJoin( ['fgm', 'bvec', coords,        mode, 'l2'], '_' )
-db_scm_vnames = 'mms' + ndiff + '_' + StrJoin( ['scm', 'acb',  coords, 'scb', mode, 'l2'], '_' )
+db_fsm_vnames = 'mms' + ndiff + '_' + StrJoin( ['fsm', 'b',    coords,            mode, 'l3'], '_' )
+db_fgm_vnames = 'mms' + ndiff + '_' + StrJoin( ['fgm', 'bvec', fgm_coords,        mode, 'l2'], '_' )
+db_scm_vnames = 'mms' + ndiff + '_' + StrJoin( ['scm', 'acb',  scm_coords, 'scb', mode, 'l2'], '_' )
 
 ;-------------------------------------------
 ; FGM Differences //////////////////////////
@@ -96,6 +100,21 @@ oB4_fgm = MrVar_Get(b_fgm_vnames[3])
 oB2_fgm = oB2_fgm -> Interpol(oB1_fgm)
 oB3_fgm = oB3_fgm -> Interpol(oB1_fgm)
 oB4_fgm = oB4_fgm -> Interpol(oB1_fgm)
+
+;Rotate to OMB
+IF coords EQ 'omb' THEN BEGIN
+	omb2smpa = mms_fg_xomb2smpa()
+	bcs2smpa = mms_fg_xbcs2smpa( [0,0,1] )
+	bcs2omb  = Transpose(omb2smpa) ## bcs2smpa
+	bcs2omb  = Rebin( Reform(bcs2omb, 1, 3, 3), 2, 3, 3 )
+	oBCS2OMB = MrMatrixTS( MrVar_GetTRange(), bcs2omb )
+	oBCS2OMB = oBCS2OMB -> Interpol(oB1_fgm)
+	
+	oB1_fgm = oBCS2OMB # oB1_fgm
+	oB2_fgm = oBCS2OMB # oB2_fgm
+	oB3_fgm = oBCS2OMB # oB3_fgm
+	oB4_fgm = oBCS2OMB # oB4_fgm
+ENDIF
 
 ;Signal differences
 oB12_fgm = oB2_fgm - oB1_fgm
@@ -242,7 +261,7 @@ win.xgap = 0.5
 win[15].xtickformat = xtickformat
 win[16].xtickformat = xtickformat
 win[17].xtickformat = xtickformat
-win -> SetGlobal, XRANGE=hms_to_ssm(['07:03:30', '07:07:00']), XTICKINTERVAL=90, XMINOR=6, YRANGE=[-1.0, 1.0]
+;win -> SetGlobal, XRANGE=hms_to_ssm(['07:03:30', '07:07:00']), XTICKINTERVAL=90, XMINOR=6, YRANGE=[-1.0, 1.0]
 win -> TrimLayout
 win -> Refresh
 
@@ -257,7 +276,7 @@ IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
 	ENDIF
 	
 	;File name
-	fname = StrJoin( [sc, 'fsm', mode, 'l3', '8kHz-scdiff'], '_' )
+	fname = StrJoin( [sc, 'fsm', mode, 'l3', '8kHz-scdiff-'+coords], '_' )
 	fname = FilePath( fname, ROOT_DIR=output_dir )
 	
 	;Save the figure
