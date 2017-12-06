@@ -36,7 +36,7 @@
 ;   Overplot time-series MrVariable data
 ;
 ; :Params:
-;       GFXNAMES:   in, optional, type=string/strarr
+;       GFX:        in, optional, type=string/strarr
 ;                   Names of the graphics objects over which data is plotted.
 ;       VARNAMES:   in, optional, type=string/strarr
 ;                   Names of the MrVariable objects to be overplotted.
@@ -60,101 +60,133 @@
 ; :History:
 ;   Modification History::
 ;       2016/08/13  -   Written by Matthew Argall
+;       2016/08/25  -   Graphics names or objects may be given. Variable index, name, or
+;                           objrefs may be given. - MRA
+;       2017/10/20  -   Iterate the correct number of times if GFX is an array and VARS
+;                           is scalar. - MRA
 ;-
-function MrVar_OPlotTS, gfxNames, varNames, $
+function MrVar_OPlotTS, gfx, vars, $
 WIN=win
 	compile_opt strictarr
 
 	;Catch errors
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
 		MrPrintF, 'LogErr'
-		return, !Null
-	endif
-
-;-------------------------------------------
-; Check Inputs /////////////////////////////
-;-------------------------------------------
-	;Scalar or vector
-	nGfx  = n_elements(gfxNames)
-	nVars = n_elements(varNames)
-
-	;Ensure same number of elements
-	if nGfx eq 1 && nVars gt 1 then begin
-		_gfxNames = replicate(gfxNames, nVars)
-		_varNames = varNames
-	endif else if nVars eq 1 && nGfx gt 1 then begin
-		_gfxNames = gfxNames
-		_varNames = replicate(varNames, nGfx)
-	endif else if nGfx eq nVars then begin
-		_gfxNames = gfxNames
-		_varNames = varNames
-	endif else begin
-		message, 'GFXNAMES and VARNAMES must have the same number of elements.'
-	endelse
+		RETURN, !Null
+	ENDIF
 	
-	;Graphics window
-	if n_elements(win) eq 0 then begin
-		gfxWin = GetMrWindows(/CURRENT)
-	endif else begin
-		if obj_isa(win, 'MRWINDOW') $
-			then gfxWin = win $
-			else message, 'WIN must be a MrWindow object.'
-	endelse
+;-------------------------------------------
+; Graphics /////////////////////////////////
+;-------------------------------------------
+	
+	;OBJREFS
+	IF Size(gfx, /TNAME) EQ 'OBJREF' THEN BEGIN
+		;Extract names from objects
+		;   - Objects and ObjArrs are both 'OBJREF' but have different TypeNames
+		;   - For single objects, N_Elements can be overloaded
+		nGfx   = TypeName(gfx) EQ 'OBJREF' ? N_Elements(gfx) : 1
+		theGfx = gfx
+	
+	;NAMES
+	ENDIF ELSE IF Size(gfx, /TNAME) EQ 'STRING' THEN BEGIN
+		;Get the graphics window
+		IF N_Elements(win) EQ 0 THEN BEGIN
+			gfxWin = GetMrWindows(/CURRENT)
+		ENDIF ELSE BEGIN
+			IF Obj_IsA(win, 'MrWindow') $
+				THEN gfxWin = win $
+				ELSE Message, 'WIN must be a MrWindow object.'
+		ENDELSE
+		
+		;Get the object reference for the graphics
+		count  = 0
+		nGfx   = N_Elements(gfx)
+		theGfx = ObjArr(nGfx)
+		FOR i = 0, nGfx - 1 DO BEGIN
+			temp = gfxWin -> FindByName(gfx[i], COUNT=nTemp)
+			IF nTemp EQ 1 THEN BEGIN
+				theGfx[count] = temp
+				count        += 1
+			ENDIF ELSE BEGIN
+				MrPrintF, 'LogWarn', 'No graphic found for name: "' + gfx[i] + '".'
+			ENDELSE
+		ENDFOR
+		
+		nGfx = count
+		IF nGfx EQ 1 THEN theGfx = theGfx[0]
+		
+	;INVALID
+	ENDIF ELSE BEGIN
+		Message, 'GFX must be the names or objrefs of MrGraphics objects.'
+	ENDELSE
 
-	;Disable refreshing for the moment
-	tf_refresh = gfxWin -> GetRefresh()
-	if tf_refresh then gfxWin -> Refresh, /DISABLE
+;-------------------------------------------
+; Variables ////////////////////////////////
+;-------------------------------------------
+	theVars = MrVar_Get(vars, COUNT=nVars)
+	
+	;Make same length
+	IF nGfx EQ 1 && nVars GT 1 THEN BEGIN
+		theGfx = Replicate(theGfx, nVars)
+	ENDIF ELSE IF nVars EQ 1 && nGfx GT 1 THEN BEGIN
+		theVars = Replicate(theVars, nGfx)
+	ENDIF ELSE IF nVars NE nGfx THEN BEGIN
+		Message, 'Invalid number of graphics (' + StrTrim(nGfx, 2) + ') and variables (' + StrTrim(nVars, 2) + ') found.'
+	ENDIF
+	nIter = nGfx > nVars
 
 ;-------------------------------------------
 ; Step Through Variables ///////////////////
 ;-------------------------------------------
-	nVars = n_elements(_varNames)
-	for i = 0, nVars - 1 do begin
-		;Find the graphic & variable to be added to it
-		oGfx = gfxWin -> FindByName(_gfxNames[i], COUNT=gfxCount)
-		oVar = MrVar_Get(_varNames[i], COUNT=varCount)
+	nWins      = 0
+	tf_refresh = BytArr(nVars)
+	win        = ObjArr(nVars)
+	FOR i = 0, nIter - 1 DO BEGIN
+		oVar   = theVars[i]
+		oGfx   = theGfx[i]
 
-		;Skip the variable or graphic
-		;   - Graphics objects do not necessarily have unique names
-		;   - All cached variables have unique names
-		if gfxCount ne 1 then begin
-			MrPrintF, 'LogWarn', 'Invalid number of graphics found (' + strtrim(gfxCount, 2) + ').'
-			continue
-		endif
-		if varCount eq 0 then begin
-			MrPrintF, 'LogWarn', 'Variable not found: "' + _varNames[i] + '".'
-			continue
-		endif
+	;-------------------------------------------
+	; Keep Window //////////////////////////////
+	;-------------------------------------------
+		;Disable refresh
+		win[nWins]        = oGfx.window
+		tf_refresh[nWins] = win[nWins] -> GetRefresh()
+		IF ~tf_refresh[nWins] THEN win[nWins] -> Refresh, /DISABLE
 		
+		;Keep track of the windows
+		;   - Duplicate windows will either be overwritten (next iteration) or thrown out (after loop)
+		IF nWins EQ 0 || Array_Equal( Obj_Valid(win[0:nWins-1], /GET_HEAP_IDENTIFIER) EQ Obj_Valid(win[nWins], /GET_HEAP_IDENTIFIER), 0 ) $
+			THEN nWins += 1
+
 	;-------------------------------------------
-	; Unknown Types ////////////////////////////
+	; Add Graphic //////////////////////////////
 	;-------------------------------------------
-		if oVar -> HasAttr('DEPEND_3') || oVar -> HasAttr('DEPEND_2') then begin
+		
+		;UNKNOWN
+		IF oVar -> HasAttr('DEPEND_3') || oVar -> HasAttr('DEPEND_2') THEN BEGIN
 			MrPrintF, 'LogErr', 'Unknown graphic type for "' + oVar.name + '". Maximum of DEPEND_1 expected.'
-			
-	;-------------------------------------------
-	; Image ////////////////////////////////////
-	;-------------------------------------------
-		endif else if oVar -> HasAttr('DEPEND_1') then begin
-			gfx = MrVar_Image(oVar, OVERPLOT=oGfx)
 		
-	;-------------------------------------------
-	; Plot /////////////////////////////////////
-	;-------------------------------------------
-		endif else if oVar -> HasAttr('DEPEND_0') then begin
-			gfx = MrVar_Plot(oVar, OVERPLOT=oGfx)
+		;IMAGES
+		ENDIF ELSE IF oVar -> HasAttr('DEPEND_1') THEN BEGIN
+			tempGfx = MrVar_Image(oVar, OVERPLOT=oGfx)
+		
+		;SCATTER PLOTS
+		ENDIF ELSE IF oVar -> HasAttr('DEPEND_0') THEN BEGIN
+			tempGfx = MrVar_Plot(oVar, OVERPLOT=oGfx)
 
-	;-------------------------------------------
-	; Non-Time-Series //////////////////////////
-	;-------------------------------------------
-		endif else begin
+		;INVALID
+		ENDIF ELSE BEGIN
 			MrPrintF, 'LogErr', 'Variable must have a DEPEND_0 attribute: "' + oVar.name + '".'
-		endelse
-	endfor
+		ENDELSE
+	ENDFOR
+	
+	;Turn refresh back on
+	win = win[0:nWins-1]
+	FOR i = 0, nWins - 1 DO IF tf_refresh[i] THEN win[i] -> Refresh
+	IF nWins EQ 1 THEN win = win[0]
 
 	;Return the plot
-	if tf_refresh then gfxWin -> Refresh
-	return, gfxWin
-end
+	RETURN, win
+END

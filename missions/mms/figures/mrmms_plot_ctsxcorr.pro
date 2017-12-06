@@ -65,9 +65,14 @@
 ; :History:
 ;   Modification History::
 ;       2016/11/02  -   Written by Matthew Argall
+;       2017/06/04  -   Added the OUTPUT_EXT and OUTPUT_DIR keywords. Correlate
+;                           counts with component of E or B projected onto the
+;                           EDI look direction.
 ;-
 FUNCTION MrMMS_Plot_CtsXCorr, sc, mode, chan, pa, field, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -81,15 +86,14 @@ TRANGE=trange
 	
 	tf_load = ~Keyword_Set(no_load)
 	IF N_Elements(chan)   EQ 0 THEN chan   = 1
-	IF N_Elements(field)  EQ 0 THEN field  = 'Bx'
+	IF N_Elements(field)  EQ 0 THEN field  = 'Bpar'
 	IF N_Elements(pa)     EQ 0 THEN pa     = 0
 	IF N_Elements(f_wave) EQ 0 THEN f_wave = 135.0
-	IF N_Elements(trange) GT 0 THEN MrVar_SetTRange, trange
+	IF N_Elements(trange) EQ 0 THEN trange = MrVar_GetTRange()
 	
-	fmin   = 100
-	fmax   = 400
+	frange = [80, 200]
 	A      = 50
-	nTerms = 512
+	nTerms = 1024
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
@@ -118,18 +122,14 @@ TRANGE=trange
 	fgm_vname     = StrJoin( [sc, fgm_instr, 'bvec', coords, mode, fgm_level], '_' )
 	scm_vname     = StrJoin( [sc, 'scm', 'acb',  coords, scm_desc, mode, level], '_' )
 	edp_vname     = StrJoin( [sc, 'edp', 'dce',  coords, mode, level], '_' )
-	f1pa0_vname   = StrJoin( [sc, 'edi', 'flux1',   '0', mode, level], '_' )
-	f2pa0_vname   = StrJoin( [sc, 'edi', 'flux2',   '0', mode, level], '_' )
-	f3pa0_vname   = StrJoin( [sc, 'edi', 'flux3',   '0', mode, level], '_' )
-	f4pa0_vname   = StrJoin( [sc, 'edi', 'flux4',   '0', mode, level], '_' )
-	f1pa90_vname  = StrJoin( [sc, 'edi', 'flux1',  '90', mode, level], '_' )
-	f2pa90_vname  = StrJoin( [sc, 'edi', 'flux2',  '90', mode, level], '_' )
-	f3pa90_vname  = StrJoin( [sc, 'edi', 'flux3',  '90', mode, level], '_' )
-	f4pa90_vname  = StrJoin( [sc, 'edi', 'flux4',  '90', mode, level], '_' )
-	f1pa180_vname = StrJoin( [sc, 'edi', 'flux1', '180', mode, level], '_' )
-	f2pa180_vname = StrJoin( [sc, 'edi', 'flux2', '180', mode, level], '_' )
-	f3pa180_vname = StrJoin( [sc, 'edi', 'flux3', '180', mode, level], '_' )
-	f4pa180_vname = StrJoin( [sc, 'edi', 'flux4', '180', mode, level], '_' )
+	
+	channel        = ['1', '2', '3', '4']
+	flux_0_vname   = sc + '_edi_flux' + channel +   '_0_' + mode + '_' + level
+	flux_90_vname  = sc + '_edi_flux' + channel +  '_90_' + mode + '_' + level
+	flux_180_vname = sc + '_edi_flux' + channel + '_180_' + mode + '_' + level
+	traj_0_vname   = sc + '_edi_traj' + channel + '_' + coords +   '_0_' + mode + '_' + level
+	traj_90_vname  = sc + '_edi_traj' + channel + '_' + coords +  '_90_' + mode + '_' + level
+	traj_180_vname = sc + '_edi_traj' + channel + '_' + coords + '_180_' + mode + '_' + level
 	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
@@ -163,7 +163,7 @@ TRANGE=trange
 		MrMMS_Load_Data, sc, 'edi', mode, level, $
 		                 OPTDESC   = ['amb', 'amb-noabs', 'amb-pm2', 'amb-alt-cc', 'amb-alt-oc', $
 		                              'amb_alt-ooc', 'amb-alt-oob'], $
-		                 VARFORMAT = ['*flux?*', '*counts*']
+		                 VARFORMAT = ['*flux?*', '*counts*', '*traj?*']
 	ENDIF
 
 	IF ~MrVar_IsCached(fgm_vname) THEN BEGIN
@@ -174,40 +174,50 @@ TRANGE=trange
 ;-------------------------------------------
 ; Compute dFlux ////////////////////////////
 ;-------------------------------------------
-	pa0_vnames   = [  f1pa0_vname,   f2pa0_vname,   f3pa0_vname,   f4pa0_vname]
-	pa90_vnames  = [ f1pa90_vname,  f2pa90_vname,  f3pa90_vname,  f4pa90_vname]
-	pa180_vnames = [f1pa180_vname, f2pa180_vname, f3pa180_vname, f4pa180_vname]
 	
 	CASE pa OF
-		  0: oFlux = MrVar_Get(   pa0_vnames[chan-1] )
-		 90: oFlux = MrVar_Get(  pa90_vnames[chan-1] )
-		180: oFlux = MrVar_Get( pa180_vnames[chan-1] )
+		0: BEGIN
+			oFlux = MrVar_Get( flux_0_vname[chan-1] )
+			oTraj = MrVar_Get( traj_0_vname[chan-1] )
+		ENDCASE
+		90: BEGIN
+			oFlux = MrVar_Get( flux_90_vname[chan-1] )
+			oTraj = MrVar_Get( traj_90_vname[chan-1] )
+		ENDCASE
+		180: BEGIN
+			oFlux = MrVar_Get( flux_180_vname[chan-1] )
+			oTraj = MrVar_Get( traj_180_vname[chan-1] )
+		ENDCASE
 		ELSE: Message, 'Invalid pitch angle (' + String(pa, FORMAT='(i0)') + ').'
 	ENDCASE
 
 	;Filter
-	odFlux = oFlux -> Digital_Filter(fmin/512.0, fmax/512.0, A, nTerms)
+	!Null = oFlux['TIMEVAR'] -> GetSI(RATE=sr)
+	fN     = sr / 2.0
+	odFlux = oFlux -> Digital_Filter(frange[0]/fN, frange[1]/fN, A, nTerms)
 
 ;-------------------------------------------
 ; Compute dB ///////////////////////////////
 ;-------------------------------------------
-	oDCB   = MrVar_Get(fgm_vname)
-	oB     = MrVar_Get(scm_vname)
-	oE     = MrVar_Get(edp_vname)
+	oDCB = MrVar_Get(fgm_vname)
+	oACB = MrVar_Get(scm_vname)
+	oE   = MrVar_Get(edp_vname)
 	
 	;Interpolate to SCM
-	oDCB_scm = oDCB -> Interpol(oB)
+	oDCB_scm = oDCB -> Interpol(oACB)
 	
 	;Create & rotate into FAC
-	oT     = MrVar_FAC( Temporary(oDCB_scm), 'CROSSX')
-	oB_fac = oT ## oB
+	oT     = MrVar_FAC( Temporary(oDCB_scm), !Null, 'CROSSX')
+	oB_fac = oT ## oACB
 	
 	;Filter
-	odB  = oB_fac -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odB -> Split, odBx, odBy, odBz
+	!Null  = oB_fac['TIMEVAR'] -> GetSI(RATE=sr)
+	fN_scm = sr / 2.0
+	odB    = oB_fac -> Digital_Filter(frange[0]/fN_scm, frange[1]/fN_scm, A, nTerms)
+	odB   -> Split, odB_perp1, odB_perp2, odB_par
 	
 	;Perpendicular component
-	odBperp = MrScalarTS( odBx['TIMEVAR'], Sqrt(odBx['DATA']^2 + odBy['DATA']^2) )
+	odB_perp = MrScalarTS( odB_perp1['TIMEVAR'], Sqrt(odB_perp1['DATA']^2 + odB_perp2['DATA']^2) )
 	
 	;Clean up
 	Obj_Destroy, oB_fac
@@ -217,18 +227,49 @@ TRANGE=trange
 ;-------------------------------------------
 
 	;Ensure E and B have the same time tags
-	oE_scm = oE -> Interpol(oB)
-	oE_fac = oT ## Temporary(oE_scm)
+	oE_scm = oE -> Interpol(oACB)
+	oE_fac = oT ## oE_scm
 	
 	;Filter
-	odE  = oE_fac -> Digital_Filter(fmin/4096.0, fmax/4096.0, A, nTerms)
-	odE -> Split, odEx, odEy, odEz
+	!Null  = oE_fac['TIMEVAR'] -> GetSI(RATE=sr)
+	fN_edp = sr / 2.0
+	odE    = oE_fac -> Digital_Filter(frange[0]/fN_edp, frange[1]/fN_edp, A, nTerms)
+	odE   -> Split, odE_perp1, odE_perp2, odE_par
 	
 	;Perpendicular component
-	odEperp = MrScalarTS( odEx['TIMEVAR'], Sqrt(odEx['DATA']^2 + odEy['DATA']^2) )
+	odE_perp = MrScalarTS( odE_perp1['TIMEVAR'], Sqrt(odE_perp1['DATA']^2 + odE_perp2['DATA']^2) )
 	
 	;Clean up
 	Obj_Destroy, [oE_fac, odE, oT]
+
+;-------------------------------------------
+; Project Onto EDI /////////////////////////
+;-------------------------------------------
+	;Split the trajectory into components
+	phi   = oTraj['DATA',*,0] * !dtor
+	theta = oTraj['DATA',*,1] * !dtor
+	
+	;Cartesian coordinates
+	x = Sin(theta) * Cos(phi)
+	y = Sin(theta) * Sin(phi)
+	z = Cos(theta)
+	oVec = MrVectorTS( oTraj['TIMEVAR'], [ [x], [y], [z] ] )
+	
+	;Interpolate
+	oVec = oVec -> Interpol(oACB)
+	oVec = oVec -> Normalize()
+	
+	;Project onto EDI
+	odE_edi = (oE_scm -> Dot(oVec)) -> Digital_Filter(frange[0]/fN_edp, frange[1]/fN_edp, A, nTerms)
+	odB_edi = (oACB   -> Dot(oVec)) -> Digital_Filter(frange[0]/fN_scm, frange[1]/fN_scm, A, nTerms)
+	
+	;Clean up
+	phi   = !Null
+	theta = !Null
+	x     = !Null
+	y     = !Null
+	z     = !Null
+	Obj_Destroy, [ oVec, oE_scm ]
 
 ;-------------------------------------------
 ; Get Component ////////////////////////////
@@ -238,19 +279,22 @@ TRANGE=trange
 	
 	;Interpolate to fluxes
 	CASE StrUpCase(field) OF
-		'BX':    oField = odBx    -> Interpol(oTime)
-		'BY':    oField = odBy    -> Interpol(oTime)
-		'BZ':    oField = odBz    -> Interpol(oTime)
-		'BPERP': oField = odBperp -> Interpol(oTime)
-		'EX':    oField = odEx    -> Interpol(oTime)
-		'EY':    oField = odEy    -> Interpol(oTime)
-		'EZ':    oField = odEz    -> Interpol(oTime)
-		'EPERP': oField = odEperp -> Interpol(oTime)
+		'BEDI':   oField = odB_edi   -> Interpol(oTime)
+		'BPERP':  oField = odBperp   -> Interpol(oTime)
+		'BPERP1': oField = odB_perp1 -> Interpol(oTime)
+		'BPERP2': oField = odB_perp2 -> Interpol(oTime)
+		'BPAR':   oField = odB_par   -> Interpol(oTime)
+		'EEDI':   oField = odE_edi   -> Interpol(oTime)
+		'EPERP':  oField = odEperp   -> Interpol(oTime)
+		'EPERP1': oField = odE_perp1 -> Interpol(oTime)
+		'EPERP2': oField = odE_perp2 -> Interpol(oTime)
+		'EPAR':   oField = odE_par   -> Interpol(oTime)
 		ELSE: Message, 'Invalid field component: "' + field + '".'
 	ENDCASE
 	
 	;Cleanup
-	obj_destroy, [odBx, odBy, odBz, odBperp, odEx, odEy, odEz, odEperp]
+	Obj_Destroy, [ odB_edi, odB_perp1, odB_perp2, odB_par, odB_perp, $
+	               odE_edi, odE_perp1, odE_perp2, odE_par, odE_perp ]
 	
 ;-------------------------------------------
 ; Trim to Reduced Time /////////////////////
@@ -282,11 +326,11 @@ TRANGE=trange
 ;	txt_qual = string(sig[0], chi, FORMAT='(%"\\sigma=%0.4f, \\chi^2=%0.2e")')
 	
 	;Least Absolute Deviation fit
-	params = ladfit( oField['DATA'], odFlux['DATA'], $
+	params = LADFit( oField['DATA'], odFlux['DATA'], $
 	                 ABSDEV = absdev )
 	yfit     = params[1] * oField['DATA'] + params[0]
-	txt_fit  = string(params[0], params[1], FORMAT='(%"y = %0.2e*x + %0.2e")')
-	txt_qual = string(absdev, FORMAT='(%"absdev=%0.2e")')
+	txt_fit  = String(params[0], params[1], FORMAT='(%"y = %0.2e*x + %0.2e")')
+	txt_qual = String(absdev, FORMAT='(%"absdev=%0.2e")')
 	
 	;Create the variable
 	oFit = MrVariable( yfit )
@@ -298,11 +342,11 @@ TRANGE=trange
 	
 	;Flux
 	odFlux['LOG']        = 0
-	odFlux['PLOT_TITLE'] = String(chan, pa, fmin, fmax, FORMAT='(%"Ch%i PA%i Filter: %i-%i Hz")')
+	odFlux['PLOT_TITLE'] = String(chan, pa, frange, FORMAT='(%"Ch%i PA%i Filter: %i-%i Hz")')
 	odFlux['TITLE']      = 'dFlux!C(cm^-2 s^-2)'
 	
 	;Field
-	oField['PLOT_TITLE'] = String(field, fmin, fmax, FORMAT='(%"%s Filtered %i-%i Hz")')
+	oField['PLOT_TITLE'] = String(field, frange, FORMAT='(%"%s Filtered %i-%i Hz")')
 	oField['TITLE']      = 'd' + field + ' (' + units + ')'
 	
 	;Lag
@@ -335,5 +379,25 @@ TRANGE=trange
 	win.oxmargin = [14,4]
 	win -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN CD, CURRENT=output_dir
+		
+		;File name
+		chanstr = 'ch' + String(chan, FORMAT='(i0)')
+		pastr   = 'pa' + String(pa,   FORMAT='(i0)')
+		fname   = StrJoin( [sc, 'edi', mode, level, 'xcorr-'+chanstr+'-'+pastr+'-'+StrLowCase(field)], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

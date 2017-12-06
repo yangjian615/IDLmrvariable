@@ -291,8 +291,9 @@ SUFFIX=suffix
 		;If there is, and we clobber, then clobber its DEPEND_[0-3] and
 		;DELTA_(MINUS|PLUS)_VAR attributes
 		IF count GT 0 && tf_clobber THEN BEGIN
-			attrClobber = [ 'DEPEND_' + string( [0,1,2,3], FORMAT='(i1)' ), $
-			                'DELTA_' + ['MINUS', 'PLUS'] + '_VAR' ]
+			attrClobber = [ 'DEPEND_' + String( [0,1,2,3], FORMAT='(i1)' ), $
+			                'DELTA_' + ['MINUS', 'PLUS'] + '_VAR', $
+			                'LABL_PTR_' + String( [1,2,3], FORMAT='(i1)' ) ]
 		
 			;Step through each possible DEPEND_N
 			FOR i = 0, N_Elements(attrClobber)-1 DO BEGIN
@@ -372,7 +373,7 @@ PRO MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 	;   - So, loop over all attributes
 	cdfinq  = CDF_Inquire(cdfID)
 	varname = oVar['CDF_NAME']
-
+	
 ;-----------------------------------------------------
 ; Loop Over Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -432,19 +433,9 @@ PRO MrVar_ReadCDF_GetVarAttrs, cdfID, oVar
 			ENDIF ELSE BEGIN
 				oAttr = MrVar_ReadCDF_GetVar(attrValue)
 			ENDELSE
-
-			;Delete the LABL_PTR_# variable from the cache
-			;   - But only if it has not already been read into the cache
-			;   - If /SUPPORT_DATA is set, it will be read into the cache as a variable
-			IF nName EQ 0 && StRegEx(attrName, 'LABL_PTR_[1-3]', /BOOLEAN) THEN BEGIN
-				oVar[attrName] = oAttr['DATA']
-				MrVar_ReadCDF_Clobber, attrValue
 			
-			;Add DEPEND_[0-3] or DELTA_(PLUS|MINUS)_VAR to the variable attributes
-			ENDIF ELSE BEGIN
-				oVar[attrName] = oAttr
-			ENDELSE
-
+			oVar[attrName] = oAttr
+			
 	;-----------------------------------------------------
 	; Other Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 	;-----------------------------------------------------
@@ -624,7 +615,7 @@ SUFFIX=suffix
 	;   - Let variables with no data remain as-is
 	;
 	
-	;Append
+	;Variance
 	IF varinq.recvar EQ 'VARY' THEN BEGIN
 		;Data is read with dimensions of
 		;   - [DEPEND_1, DEPEND_2, DEPEND_3, NRECS=DEPEND_0]
@@ -644,7 +635,27 @@ SUFFIX=suffix
 		IF vartype EQ 'MrTimeVar' $
 			THEN data = [theVar['DATA'], theVar -> toISO(data, varinq.datatype)] $
 			ELSE data = [theVar['DATA'], data]
-	ENDIF
+	
+	;NoVary
+	ENDIF ELSE BEGIN
+		IF StRegEx(vartype, '(MrTimeSeries|Mr(Scalar|Vector|Matrix)TS)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
+			;Note change
+			MrPrintF, 'LogWarn', 'Changing ' + vartype + ' to MrVariable'
+			MrPrintF, 'LogWarn', '    VARNAME       = ' + varName
+			MrPrintF, 'LogWarn', '    DISPLAY_TYPE  = ' + (theVar -> HasAttr('DISPLAY_TYPE') ? theVar['DISPLAY_TYPE'] : '')
+			MrPrintF, 'LogWarn', '    RECVAR        = ' + varinq.recvar
+			
+			;Swap the variable
+			oTemp   = MrVariable( NAME=theVar.name )
+			theVar -> CopyAttrTo, oTemp
+			MrVar_Replace, theVar, oTemp
+			theVar  = oTemp
+			vartype = 'MrVariable'
+			
+			;Remove the DEPEND_0 attribute
+			theVar -> RemoveAttr, 'DEPEND_0'
+		ENDIF
+	ENDELSE
 
 	;Set the data
 	CASE vartype of
@@ -656,7 +667,7 @@ SUFFIX=suffix
 		'MrMatrixTS':   theVar -> SetData, oTime, data, DIMENSION=1, /NO_COPY
 		ELSE: message, 'Unknown variable type: "' + vartype + '".'
 	ENDCASE
-
+	
 	;Read attributes
 	IF varType EQ 'MrTimeVar' $
 		THEN MrVar_ReadCDF_GetVarAttrs, cdfID, theVar
@@ -698,7 +709,7 @@ PRO MrVar_ReadCDF_VarAttr2GfxKwd, oVar
 	
 	;LABEL (Legend)
 	IF ~oVar -> HasAttr('LABEL') THEN BEGIN
-		IF oVar -> HasAttr('LABL_PTR_1') THEN oVar['LABEL'] = oVar['LABL_PTR_1']
+		IF oVar -> HasAttr('LABL_PTR_1') THEN oVar['LABEL'] = (oVar['LABL_PTR_1'])['DATA']
 	ENDIF
 	
 	;MIN_VALUE
@@ -946,7 +957,7 @@ VERBOSE=verbose
 			cdfID   = 0LL
 		ENDIF
 	ENDFOR
-
+	
 	;Trim results
 	IF cdf_vcount EQ 0 THEN BEGIN
 		cache_vnames = ''

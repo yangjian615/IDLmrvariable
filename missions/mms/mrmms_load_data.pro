@@ -250,7 +250,7 @@ _REF_EXTRA=extra
 	if n_elements(sc)     eq 0 then sc     = ''
 	if n_elements(instr)  eq 0 then instr  = ''
 	if n_elements(mode)   eq 0 then mode   = ''
-	if n_elements(level)  eq 0 then level  = 'l2'
+	if n_elements(level)  eq 0 then level  = ''
 	if n_elements(trange) eq 0 then trange = MrVar_GetTRange()
 	
 	;Do not let variable names get passed in
@@ -331,7 +331,8 @@ _REF_EXTRA=extra
 			               SUPPORT_DATA = support_data, $
 			               TRANGE       = trange, $
 			               VARFORMAT    = varformat, $
-			               VARNAMES     = temp_names
+			               VARNAMES     = temp_names, $
+			               VERBOSE      = !MrMMS.verbose
 			
 			;Save all of the variables
 			if n_elements(varnames) gt 0 $

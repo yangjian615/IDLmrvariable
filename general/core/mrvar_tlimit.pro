@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrMMS_Anc_Load
+;       MrVar_TLimit
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, University of New Hampshire                                      ;
@@ -35,6 +35,23 @@
 ;+
 ;   Restrict time range for certain variables.
 ;
+;   NOTE:
+;       The same operation can be achieved via bracket overloading. Namely, if MrVAR
+;       is an NxM MrVariable object that depends on time T, an Nx1 MrTimeVar object,
+;       and i0 and i1 are indices of the time interval to be kept, then
+;
+;           RESULT = MrVar[i0:i1,*]
+;
+;       Is similar to 
+;
+;           MrVar_TLimit, MrVar, TRANGE
+;
+;       with the following differences. In the former case, a new (uncached) variable
+;       is created with a new name and new dependent variables. In the latter case,
+;       MrVar is altered directly, it remains in the cache (if it is there to begin with),
+;       and any variable passed in with MrVar that shares the same time object will
+;       continue to share the same time object.
+;
 ;   Calling Sequence::
 ;      MrVar_TLimit, varnames
 ;      MrVar_TLimit, varnames, trange
@@ -47,9 +64,12 @@
 ;                       Names, numbers, or objrefs of the variables for which to limit
 ;                           the time range. If undefined, the names of all variables
 ;                           present in the cache are used.
-;       TRANGE:         in, required, type=strarr(2), default=MrVar_GetTRange()
+;       TRANGE:         in, optional, type=strarr(2), default=MrVar_GetTRange()
 ;                       Time interval by which to restrict data, formatted as
-;                           ISO-8601 date-time strings.
+;                           ISO-8601 date-time strings. Sets the global time interval via
+;                           MrVar_SetTRange. If TRANGE is not set and no time range has
+;                           been establish, the program will exit without altering the
+;                           data.
 ;
 ; :Author:
 ;   Matthew Argall::
@@ -62,8 +82,10 @@
 ; :History:
 ;   Modification History::
 ;       2016-11-22  -   Written by Matthew Argall
-;       2016-12-09  -   Variable numbers or objrefs can be passed in. Variables objrefs
+;       2016-12-09  -   Variable numbers or objrefs can be passed in. Variable objrefs
 ;                           do not have to exist in the cache. - MRA
+;       2017-05-03  -   If no time range has been established via the `TRANGE` parameter
+;                           or MrVar_SetTRange, silently return. - MRA
 ;-
 PRO MrVar_TLimit, variables, trange
 	Compile_Opt idl2
@@ -71,18 +93,27 @@ PRO MrVar_TLimit, variables, trange
 
 	;Defaults
 	IF N_Elements(variables) EQ 0 THEN MrVar_Names, variables
-	IF N_Elements(trange)   GT 0 && trange[0] NE '' THEN MrVar_SetTRange, trange
+	IF N_Elements(trange) GT 0 && trange[0] NE '' THEN MrVar_SetTRange, trange
 
 	;Number OF variables
-	;   - Scalar objects with ::_overloadSize can RETURN any number OF elements
+	;   - Scalar objects with ::_overloadSize can return any number of elements
 	;   - Size(/TNAME) does not distinguish between objects and object arrays
 	IF Size(variables, /TNAME) EQ 'OBJREF' $
 		THEN nVars = TypeName(variables) EQ 'OBJREF' ? N_Elements(variables) : 1 $
 		ELSE nVars = N_Elements(variables)
 	
-	;Useful data
-	trange     = MrVar_GetTRange()
-	trange_ssm = MrVar_GetTRange('SSM')
+	;Get the time range
+	;   - If no time range has been established, return without doing anything.
+	Catch, the_error
+	IF the_error EQ 0 THEN BEGIN
+		trange     = MrVar_GetTRange()
+		trange_ssm = MrVar_GetTRange('SSM')
+	ENDIF ELSE BEGIN
+		Catch, /CANCEL
+		RETURN
+	ENDELSE
+	Catch, /CANCEL
+	On_Error, 2
 
 ;-----------------------------------------------------
 ; Pick out the Epoch Variables \\\\\\\\\\\\\\\\\\\\\\\
@@ -91,6 +122,7 @@ PRO MrVar_TLimit, variables, trange
 	nTime = 0
 	oTime = ObjArr(nVars)
 	tName = StrArr(nVars)
+	tID   = ULonArr(nVars)
 	theVars = MrVar_Get(variables)
 
 	;Loop over each variable
@@ -114,15 +146,17 @@ PRO MrVar_TLimit, variables, trange
 		ENDELSE
 		
 		;Store the epoch variable
-		IF Obj_Valid(tempTime) THEN BEGIN
-			IF ~MrIsMember( tName, tempTime.name ) THEN BEGIN
-				oTime[nTime]  = tempTime
-				tName[nTime]  = tempTime.name
-				nTime        += 1
+		heapID = Obj_Valid( tempTime, /GET_HEAP_IDENTIFIER )
+		IF heapID GT 0 THEN BEGIN
+			IF ~MrIsMember( tID, heapID ) THEN BEGIN
+				oTime[nTime] = tempTime
+				tName[nTime] = tempTime.name
+				tID[nTime]   = heapID
+				nTime       += 1
 			ENDIF
 		ENDIF
 	ENDFOR
-	
+
 	;Return IF no time variables
 	IF nTime EQ 0 THEN RETURN
 	
@@ -140,7 +174,7 @@ PRO MrVar_TLimit, variables, trange
 	;-----------------------------------------------------
 		;Get the variable
 		theTime = oTime[i]
-
+		
 		;Convert to SSM and find relevant data
 		t_ssm = theTime -> GetData('SSM', trange[0])
 		iKeep = Where( (t_ssm GE trange_ssm[0]) and (t_ssm LE trange_ssm[1]), nKeep)
@@ -149,7 +183,7 @@ PRO MrVar_TLimit, variables, trange
 			iKeep = [iKeep, iKeep+1]
 			MrPrintF, 'LogText', 'No data found in time interval for variable "' + theTime.name + '".'
 			MrPrintF, 'LogText', '  Interval: [' + StrJoin(trange, ', ') + ']'
-			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime[iKeep], ', ') + ']'
+			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime['DATA', iKeep], ', ') + ']'
 			MrPrintF, 'LogWarn', 'Choosing closest two points.'
 		
 		ENDIF ELSE IF nKeep EQ 1 THEN BEGIN
@@ -158,13 +192,13 @@ PRO MrVar_TLimit, variables, trange
 				ELSE iKeep = [iKeep-1, iKeep]
 			MrPrintF, 'LogText', 'Only one point found in time interval for variable "' + theTime.name + '".'
 			MrPrintF, 'LogText', '  Interval: [' + StrJoin(trange, ', ') + ']'
-			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime[iKeep], ', ') + ']'
+			MrPrintF, 'LogText', '  Closest:  [' + StrJoin(theTime['DATA', iKeep], ', ') + ']'
 			MrPrintF, 'LogWarn', 'Including next closest point.'
 		ENDIF
 
 		;Trim the time data
-		newEpoch  = MrTimeVar( theTime[iKeep], NAME='TLimit(' + theTime.name + ')' )
-		theTime  -> CopyAttrTo, newEpoch 
+		newEpoch  = theTime[iKeep]
+		newEpoch -> SetName, 'TLimit(' + theTime.name + ')'
 
 	;-----------------------------------------------------
 	; Set Data Range \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -180,19 +214,22 @@ PRO MrVar_TLimit, variables, trange
 			
 			;Trim the variable data
 			CASE obj_class(theVar) OF
-				'MRSCALARTS': theVar -> SetData, newEpoch, theVar[iKeep], DIMENSION=1
-				'MRVECTORTS': theVar -> SetData, newEpoch, theVar[iKeep,*], DIMENSION=1
-				'MRMATRIXTS': theVar -> SetData, newEpoch, theVar[iKeep,*,*], DIMENSION=1
+				'MRSCALARTS': theVar -> SetData, newEpoch, theVar['DATA',iKeep], DIMENSION=1
+				'MRVECTORTS': theVar -> SetData, newEpoch, theVar['DATA',iKeep,*], DIMENSION=1
+				'MRMATRIXTS': theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*], DIMENSION=1
 				'MRTIMESERIES': BEGIN
 					CASE theVar.n_dimensions OF
-						1: theVar -> SetData, newEpoch, theVar[iKeep], DIMENSION=1
-						2: theVar -> SetData, newEpoch, theVar[iKeep,*], DIMENSION=1
-						3: theVar -> SetData, newEpoch, theVar[iKeep,*,*], DIMENSION=1
-						4: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*], DIMENSION=1
-						5: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*], DIMENSION=1
-						6: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*], DIMENSION=1
-						7: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*], DIMENSION=1
-						8: theVar -> SetData, newEpoch, theVar[iKeep,*,*,*,*,*,*,*], DIMENSION=1
+						1: theVar -> SetData, newEpoch, theVar['DATA',iKeep], DIMENSION=1
+						2: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*], DIMENSION=1
+						3: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*], DIMENSION=1
+						4: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*,*], DIMENSION=1
+						5: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*,*,*], DIMENSION=1
+						6: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*,*,*,*], DIMENSION=1
+						7: theVar -> SetData, newEpoch, theVar['DATA',iKeep,*,*,*,*,*,*], DIMENSION=1
+						8: BEGIN
+							data = theVar -> GetData()
+							theVar -> SetData, newEpoch, (Temporary(data))[iKeep,*,*,*,*,*,*,*], DIMENSION=1
+						ENDCASE
 						ELSE: Message, 'Variable has unexpected number of dimensions: "' + theVar.name + '".'
 					ENDCASE
 				ENDCASE

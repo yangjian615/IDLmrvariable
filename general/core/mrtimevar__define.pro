@@ -70,6 +70,7 @@
 ;   Modification History::
 ;       2016/05/27  -   Written by Matthew Argall
 ;       2016/10/22  -   Convert to and from Julday and SSM. - MRA
+;       2017/10/24  -   Prevent index out of range errors in ::Nearest_Neighbor. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -117,13 +118,23 @@ T_REF=t_ref
 
 	;Set time
 	if n_elements(time) gt 0 then self -> SetData, time, type, NO_COPY=no_copy, T_REF=t_ref
-
+	self.token_format = '%Y-%M-%dT%H:%m:%S%f'
+	
 	return, 1
 end
 
 
 ;+
 ;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence:
+;       time = oTime['DATA']
+;       time = oTime['PTR']
+;       time = oTime['POINTER']
+;       time = oTime[T_TYPE]
+;       time = oTime[i1]
+;       time = oTime[i1, <StrMid>]
+;       time = oTime[i1, T_TYPE]
 ;
 ; :Params:
 ;       ISRANGE:            in, required, type=intarr
@@ -145,56 +156,152 @@ end
 ;       RESULT:             out, required, type=numeric array
 ;                           The subarray accessed by the input parameters.
 ;-
-function MrTimeVar::_OverloadBracketsRightSide, isRange, i1, i2
+FUNCTION MrTimeVar::_OverloadBracketsRightSide_IDLVar, isRange, i1, i2
 	compile_opt idl2
 	on_error, 2
 
 	;Number of subscripts given
 	nSubscripts = n_elements(isRange)
 
+	;Range of times
+	IF isRange[0] THEN BEGIN
+		time = (*self.data)[i1[0]:i1[1]:i1[2]]
+	
+	ENDIF ELSE BEGIN
+		;Return all data converted to a specific datatype
+		IF IsA(i1, 'STRING', /SCALAR) THEN BEGIN
+			IF nSubscripts EQ 1 $
+				THEN RETURN, self -> GetData(i1) $
+				ELSE Message, 'Invalid subscript combination.'
+		
+		;Specific time(s)
+		ENDIF ELSE BEGIN
+			time = (*self.data)[i1]
+		ENDELSE
+	ENDELSE
+
+	;Convert units
+	IF nSubscripts eq 2 THEN BEGIN
+		;Segment of the date
+		IF isRange[1] THEN BEGIN
+			time = strmid(time, i2[0], i2[1]-i2[0]+1)
+		
+		;Particular time type
+		ENDIF ELSE BEGIN
+			IF IsA(i2, 'STRING') $
+				THEN time = self -> fromISO(time, i2) $
+				ELSE message, 'The second subscript must be a time type or subscript range.'
+		ENDELSE
+	ENDIF
+
+	RETURN, time
+END
+
+
+;+
+;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence:
+;       time = oTime['DATA']
+;       time = oTime['DATA', i2]
+;       time = oTime['DATA', i2, <StrMid>]
+;       time = oTime['DATA', i2, T_TYPE]
+;       time = oTime['PTR']
+;       time = oTime['POINTER']
+;       time = oTime[i1]
+;       time = oTime[i1, <StrMid>]
+;       time = oTime[i1, T_TYPE]
+;
+; :Params:
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=string/intarr(3)
+;                           An index range used in conjunction with IDL's StrMid() function
+;                               to return a substring of the time array, or a time type
+;                               accepted by the ::fromISO method, which will return time
+;                               as the indicated type.
+;
+; :Returns:
+;       RESULT:             out, required, type=numeric array
+;                           The subarray accessed by the input parameters.
+;-
+FUNCTION MrTimeVar::_OverloadBracketsRightSide, isRange, i1, i2, i3
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Number of subscripts given
+	nSubscripts = n_elements(isRange)
+
 	;String operations.
-	if IsA(i1, /SCALAR, 'STRING') then begin
-		case strupcase(i1) of
-			'DATA':    return, *self.data
-			'POINTER': return,  self.data
-			'PTR':     return,  self.data
-			else:      return,  self -> GetAttrValue(i1)
-		endcase
+	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+		CASE StrUpCase(i1) OF
+			'DATA': BEGIN
+				IF nSubscripts EQ 1 $
+					THEN RETURN, *self.data $
+					ELSE  RETURN, self -> _OverloadBracketsRightSide_IDLVar(isRange[1:*], i2, i3)
+			ENDCASE
+			'POINTER': RETURN,  self.data
+			'PTR':     RETURN,  self.data
+			ELSE:      RETURN,  self -> GetAttrValue(i1)
+		ENDCASE
 
 	;Scalar operations
 	;   - 0   returns the self object
 	;   - [0] returns the first data element
 	;   - All other cases return data
-	endif else if nSubscripts eq 1 && isRange[0] eq 0 && IsA(i1, /SCALAR) && i1 eq 0 then begin
-		return, self
+	ENDIF ELSE IF nSubscripts eq 1 && isRange[0] eq 0 && IsA(i1, /SCALAR) && i1 eq 0 THEN BEGIN
+		RETURN, self
 	
 	;Two indices
 	;   - Must be defined and a scalar string
-	endif
+	ENDIF
 
 ;---------------------------------------------------------------------
 ; 1D Subscripts ///////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
 	;Range or index?
-	if isRange[0] $
-		then time = (*self.data)[i1[0]:i1[1]:i1[2]] $
-		else time = (*self.data)[i1] 
+	IF isRange[0] $
+		THEN time = (*self.data)[i1[0]:i1[1]:i1[2]] $
+		ELSE time = (*self.data)[i1]
 
 ;---------------------------------------------------------------------
 ; Convert Type ///////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	if nSubscripts eq 2 then begin
-		if isRange[1] then begin
+	IF nSubscripts eq 2 THEN BEGIN
+		;Segment of the date
+		IF isRange[1] THEN BEGIN
 			time = strmid(time, i2[0], i2[1]-i2[0]+1)
-		endif else begin
-			if IsA(i2, 'STRING') $
-				then time = self -> fromISO(time, i2) $
-				else message, 'The second subscript must be a time type or subscript range.'
-		endelse
-	endif
+		
+		;Particular time type
+		ENDIF ELSE BEGIN
+			IF IsA(i2, 'STRING') $
+				THEN time = self -> fromISO(time, i2) $
+				ELSE message, 'The second subscript must be a time type or subscript range.'
+		ENDELSE
+		
+		;Create a MrVariable
+		oTime = MrVariable(time, NAME='_OverloadBRS(' + self.name + ')', /NO_COPY)
 
-	return, time
-end
+;---------------------------------------------------------------------
+; Keep Iso Format ////////////////////////////////////////////////////
+;---------------------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Create the variable
+		oTime = MrTimeVar(time, NAME='_OverloadBRS(' + self.name + ')', /NO_COPY)
+		
+		;Copy all attributes
+		self -> CopyAttrTo, oTime
+	ENDELSE
+
+	RETURN, oTime
+END
 
 
 ;+
@@ -648,6 +755,97 @@ end
 
 
 ;+
+;   Write data to a CDF file.
+;
+;   NOTE:
+;       Requires the MrCDF library.
+;       https://github.com/argallmr/IDLcdf
+;
+; :Params:
+;       THECDF:         in, optional, type=long/string/objref
+;                       The name or CDF ID of the CDF file to which data is written,
+;                           or the MrCDF_File object containing the file information.
+;
+; :Keywords:
+;       CREATE:         in, optional, type=boolean
+;                       If set and the variable does not exist in the file, it is created.
+;                           The default is to check the file for a variable with the same
+;                           name and set the keyword accordingly. If set a variable by the
+;                           same name already exists in `THECDF`, an error will occur.
+;       CDF_TYPE:       in, optional, type=string
+;                       The CDF datatype of the variable. The default determined automatically
+;                           from the IDL datatype.
+;       TEST:           in, optional, type=boolean, default=0
+;                       If set, check if the variable already exists in the file. If it
+;                           does, return without doing anything. If not, set `CREATE`=1.
+;                           This is useful for, e.g., variables pointed to be the DEPEND_#
+;                           variables attribute, which can be shared among several other
+;                           variables. Prevents writing multiple times.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrCDF_File::WriteVar is also accepted here.
+;-
+PRO MrTimeVar::ExportToCDF, theCDF, $
+CREATE=create, $
+CDF_TYPE=cdf_type, $
+TEST=test, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		RETURN
+	END
+
+	;Get a MrCDF_File object
+	CASE 1 OF
+		MrIsA(theCDF, 'MrCDF_File'): oCDF = theCDF
+		MrIsA(theCDF, 'STRING'):     oCDF = MrCDF_File(theCDF)
+		MrIsA(theCDF, /NUMBER):      oCDF = MrCDF_File(theCDF)
+		ELSE: Message, 'Invalid value for THECDF.'
+	ENDCASE
+	
+	;Creat the variable?
+	IF Keyword_Set(test) THEN BEGIN
+		IF oCDF -> HasVar(self.name) $
+			THEN RETURN $
+			ELSE tf_create = 1B
+	ENDIF
+	tf_create = N_Elements(create) EQ 0 ? ~oCDF -> HasVar(self.name) : Keyword_Set(create)
+	
+	;Default to TT2000 time
+	IF N_Elements(cdf_type) EQ 0 THEN BEGIN
+		IF self -> HasAttr('CDF_TYPE') $
+			THEN cdf_type = self['CDF_TYPE'] $
+			ELSE cdf_type = 'CDF_TIME_TT2000'
+	ENDIF
+	
+	;Convert time to a CDF datatype
+	time = self -> GetData(cdf_type)
+
+	;Write the data to the file
+	;   - Variable dimensions are [NRECS, DEP1, DEP2, DEP3]
+	;   - CDF dimensions are [DEP3, DEP2, DEP1, NRECS]
+	oCDF -> WriteVar, self.name, Temporary(time), $
+	                  CREATE        = tf_create, $
+	                  CDF_TYPE      = cdf_type, $
+	                  _STRICT_EXTRA = extra
+
+;-------------------------------------------
+; Variable Attributes //////////////////////
+;-------------------------------------------
+	self -> ExportToCDF_Attrs, oCDF
+	
+;-------------------------------------------
+; Clean Up /////////////////////////////////
+;-------------------------------------------
+	;If the CDF object was created internally, destroy it to close the file.
+	IF Size(theCDF, /TNAME) NE 'OBJREF' THEN Obj_Destroy, oCDF
+END
+
+
+;+
 ;   Identify the type of time-string given.
 ;
 ; :Params:
@@ -790,25 +988,54 @@ end
 ;                           'ISO-8601'        - ISO-8601 formatted string
 ;                           'SSM'             - Seconds since midnight
 ;                           'CUSTOM'          - Custom time string format
+;       DELTA:          in, optional, type=float
+;                       The tolerance allowed on the samping interval when determining
+;                           if it is `CONSTANT`.
+;
+; :Keywords:
+;       CONSTANT:       out, optional, type=boolean
+;                       A named variable indicated whether or not the sampling interval
+;                           is contant. Used with the parameter `DELTA`.
+;       NGAPS:          out, optional, type=integer
+;                       A named variable to contain the number of data gaps found. Data
+;                           gaps are considered to be time intervals of duration equal to
+;                           an integer multiple of the sampling interval, when rounded:
+;                           Round(dt/si).
+;       RATE:           out, optional, type=boolean
+;                       A named variable to receive the median sampling rate: 1/`SI`.
 ;
 ; :Returns:
 ;       SI:             out, required, type=number
 ;                       Median sampling interval. Units are those implied by `TYPE`.
 ;-
-function MrTimeVar::GetSI, type
+FUNCTION MrTimeVar::GetSI, type, delta, $
+CONSTANT=constant, $
+NGAPS=nGaps, $
+RATE=rate
 	compile_opt idl2
 	on_error, 2
 	
 	;Default units
-	if n_elements(type) eq 0 then type = 'SSM'
+	IF N_Elements(type)  EQ 0 THEN type  = 'SSM'
+	IF N_Elements(delta) EQ 0 THEN delta = 10.0
 	
 	;Compute sampling interval
 	t  = self -> GetData(type)
-	si = median(t[1:*] - t)
+	dt = t[1:*] - t
+	si = Median(dt)
+	
+	;Look for data gaps
+	IF Arg_Present(nGaps) THEN iGap = Where( Round(dt/si) GT 1, nGaps )
+	
+	;Look for changes in sampling rage
+	IF Arg_Present(constant) THEN constant = Array_Equal( Abs(dt-si)/si LE delta, 1 )
+	
+	;Sampling rate
+	IF Arg_Present(rate) THEN rate = 1.0 / si
 	
 	;Return the array
-	return, si
-end
+	RETURN, si
+END
 
 
 ;+
@@ -909,10 +1136,77 @@ T_REF=t_ref
 	if sz[0] eq 2 && sz[1] eq 1 $
 		then *self.data = reform(temporary(iso_time)) $
 		else *self.data = temporary(iso_time)
-	
-	;Set format
-	self.token_format = type
 end
+
+
+;+
+;   Set the units. Units apply to any time-related variable attribute.
+;
+; :Params:
+;       UNITS:              in, required, type=string/objref
+;                           The name of the physical units to which the implicit array is
+;                               to be converted, or and IDLunit object containing the new
+;                               units and scaling coefficient.
+;-
+PRO MrTimeVar::SetUnits, units
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Unit Name
+	newErr = 0
+	IF Size(units, /TNAME) EQ 'STRING' THEN BEGIN
+		newUnits = units
+	
+	;Unit Object
+	ENDIF ELSE IF IsA(units, 'IDLUnit') THEN BEGIN
+		IF units.quantity NE 1.0 THEN  MrPrintF, 'LogWarn', 'New units cannot have quantity. Ignoring.'
+		newUnits = units.unit
+	
+	;Invalid
+	ENDIF ELSE BEGIN
+		Message, 'UNITS must be a string or IDLUnit object.'
+	ENDELSE
+	
+	;Set units
+	self.attributes['UNITS'] = newUnits
+END
+
+
+;+
+;   Return a vector of subscripts that allow access to the elements of the implicit
+;   array in ascending order. See IDL's `Sort <http://www.harrisgeospatial.com/docs/SORT.html>`
+;
+; :Params:
+;       TYPE:               in, optional, type=any, default='ISO-8601'
+;                           The time basis in which values should be sorted. Any basis
+;                               recognized by the ::FromISO method is accepted.
+;
+; :Keywords:
+;       L64:                in, optional, type=boolean, default=0
+;                           If set, indices will be returned as type Long64.
+;
+; :Returns:
+;       RESULT:             Indices into the implicit array.
+;-
+FUNCTION MrTimeVar::Sort, type, $
+L64=l64
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Defaults
+	IF N_Elements(type) EQ 0 THEN type = 'ISO-8601'
+	
+	
+	;Locate values
+	IF StrUpCase(type) NE 'ISO-8601' THEN BEGIN
+		time   = self -> fromISO(*self.data, type)
+		result = Sort( Temporary(time), L64=l64 )
+	ENDIF ELSE BEGIN
+		result = Sort(*self.data, L64=l64)
+	ENDELSE
+
+	RETURN, result
+END
 
 
 ;+
@@ -932,7 +1226,8 @@ end
 ;       ISO_TIME:           out, required, type=strarr
 ;                           Time array of the requested datatype.
 ;-
-function MrTimeVar::fromISO, iso_time, type
+function MrTimeVar::fromISO, iso_time, type, $
+T_REF=t_ref
 	compile_opt idl2
 	on_error, 2
 
@@ -992,17 +1287,17 @@ TOKEN_FMT=token_fmt
 	;Convert to ISO
 	case strupcase(type) of
 		'CDF_EPOCH': begin
-			iso_time  = self -> CDFEpoch2ISO(time)
+			iso_time  = self -> Epoch2ISO(time)
 			token_fmt = '%Y-%M-%dT%H:%m:%S.%1%z'
 		endcase
 		
 		'CDF_EPOCH16': begin
-			iso_time  = self -> CDFEpoch16toISO(time)
+			iso_time  = self -> Epoch16toISO(time)
 			token_fmt = '%Y-%M-%dT%H:%m:%S.%1%2%3%4%z'
 		endcase
 		
 		'CDF_EPOCH_LONG': begin
-			iso_time  = self -> CDFEpoch16toISO(time)
+			iso_time  = self -> Epoch16toISO(time)
 			token_fmt = '%Y-%M-%dT%H:%m:%S.%1%2%3%4%z'
 		endcase
 		
@@ -1075,8 +1370,166 @@ L64=l64
 		time = self -> fromISO(*self.data, type)
 		result = value_locate( temporary(time), value, L64=l64 )
 	endif else begin
-		result = value_locate(*self.data, value, L64=l64)
+		t_ref    = (*self.data)[0]
+		t_data   = self -> fromISO(*self.data, 'SSM', T_REF=t_ref)
+		t_locate = self -> fromISO(value, 'SSM', T_REF=t_ref)
+		result = value_locate( temporary(t_data), temporary(t_locate), L64=l64)
 	endelse
+
+	return, result
+end
+
+
+;+
+;   Finds the intervals within a given monotonic vector that brackets a given set of
+;   one or more search values. See IDL's `Value_Locate <http://exelisvis.com/docs/VALUE_LOCATE.html>`
+;
+; :Params:
+;       VALUE:              in, required, type=any
+;                           Values to be located in the implicit array.
+;       TYPE:               in, optional, type=any, default='ISO-8601'
+;                           The time basis of `VALUE`. Any basis recognized by the
+;                               ::FromISO method is accepted.
+;
+; :Keywords:
+;       L64:                in, optional, type=boolean, default=0
+;                           If set, indices will be returned as type Long64.
+;
+; :Returns:
+;       RESULT:             Indices into the implicit array.
+;-
+function MrTimeVar::Nearest_Neighbor, value, type, $
+L64=l64
+	compile_opt idl2
+	on_error, 2
+	
+	;Defaults
+	if n_elements(type) eq 0 then type = 'ISO-8601'
+	
+	;Locate values
+	if strupcase(type) ne 'ISO-8601' then begin
+		time    = self -> fromISO(*self.data, type)
+		t_value = value
+		result  = value_locate( time, value, L64=l64 ) > 0
+	endif else begin
+		t_ref   = (*self.data)[0]
+		time    = self -> fromISO(*self.data, 'SSM', T_REF=t_ref)
+		t_value = self -> fromISO(value, 'SSM', T_REF=t_ref)
+		result  = value_locate(time, t_value, L64=l64) > 0
+	endelse
+	
+	;An array of indices gets truncated:
+	;   - Negative indices round up to 0
+	;   - Out of range indices round down to NPTS-1
+	;   - Here, make sure we have an array to prevent "subscript out of range" errors.
+	if n_elements(result) eq 1 then result = [result]
+	
+	;Check the point above
+	result += ( Abs(time[result+1] - t_value) LT Abs(time[result] - t_value) )
+	
+	return, result
+end
+
+
+;+
+;   Finds the intervals within a given monotonic vector that brackets a given set of
+;   one or more search values. See IDL's `Value_Locate <http://exelisvis.com/docs/VALUE_LOCATE.html>`
+;
+; :Params:
+;       VALUE:              in, required, type=any
+;                           Values to be located in the implicit array.
+;       TYPE:               in, optional, type=any, default='ISO-8601'
+;                           The time basis of `VALUE`. Any basis recognized by the
+;                               ::FromISO method is accepted.
+;
+; :Keywords:
+;       COMPLEMENT:         out, optional, type=intarr
+;                           Indices where the comparison failed.
+;       COUNT:              out, optional, type=integer
+;                           Number of true comparisons.
+;       L64:                in, optional, type=boolean, default=0
+;                           If set, indices will be returned as type Long64.
+;       NCOMPLEMENT:        out, optional, type=integer
+;                           Number of false comparisons.
+;       EQUAL:              in, optional, type=boolean
+;                           If set, use the EQ operator for the comparison. If no other
+;                               input keyords are given, this is assumed.
+;       GREATER:            in, optional, type=boolean, default=0
+;                           If set, use the GT operator for the comparison.
+;       GEQ:                in, optional, type=boolean, default=0
+;                           If set, use the GE operator for the comparison.
+;       NOTEQ:              in, optional, type=boolean, default=0
+;                           If set, use the NE operator for the comparison.
+;       LESS:               in, optional, type=boolean, default=0
+;                           If set, use the LT operator for the comparison.
+;       LEQ:                in, optional, type=boolean, default=0
+;                           If set, use the LE operator for the comparison.
+;       MATCHES:            in, optional, type=boolean
+;                           If set, then the elements of the implicit array will be
+;                               returned instead of their index locations. Cannot
+;                               be used with `MULTID`.
+;       MULTID:             in, optional, type=boolean, default=0
+;                           If set, `RESULTS` will contain the multi-dimensional array
+;                               indices of each match. Normally, 1D array indices are
+;                               returned. Cannot be used with `MATCHES`.
+;
+; :Returns:
+;       RESULT:             Indices into the implicit array where the comparison returned
+;                               true. If `COUNT`=0, !Null is returned. If `MATCHES` is
+;                               set, then the matching elements are returned.
+;-
+function MrTimeVar::Where, value, type, $
+COMPLEMENT=complement, $
+COUNT=count, $
+L64=l64, $
+NCOMPLEMENT=ncomplement, $
+MATCHES=matches, $
+MULTID=multiD, $
+;Relational Operators
+EQUAL=equal, $
+GREATER=greater, $
+GEQ=GEQ, $
+NOTEQ=notEQ, $
+LESS=less, $
+LEQ=LEQ
+	compile_opt idl2
+	on_error, 2
+
+	;Defaults
+	equal   = keyword_set(equal)
+	greater = keyword_set(greater)
+	geq     = keyword_set(geq)
+	noteq   = keyword_set(notEQ)
+	less    = keyword_set(less)
+	leq     = keyword_set(leq)
+
+	;Resolve conflicts
+	nKeys = equal + less + leq + greater + geq
+	if nKeys gt 1 then message, 'Conflicting keywords. Only one comparison keyword is allowed.'
+	if nKeys eq 0 then equal = 1
+	
+	;Convert units
+	temp = self -> FromISO(*self.data, type)
+
+	;Check where
+	case 1 of
+		equal:   result = where( temporary(temp) eq value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		greater: result = where( temporary(temp) gt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		geq:     result = where( temporary(temp) ge value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		noteq:   result = where( temporary(temp) ne value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		less:    result = where( temporary(temp) lt value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+		leq:     result = where( temporary(temp) le value, count, COMPLEMENT=complement, NCOMPLEMENT=ncomplement, L64=l64, /NULL)
+	endcase
+
+	;Return the matches as well.
+	if arg_present(matches) then begin
+		result = (*self.data)[result]
+	
+	;Return the multi-dimensional array indices
+	endif else if keyword_set(multiD) then begin
+		dims   = size(*self.data, /DIMENSIONS)
+		result = array_indices(dims, result, /DIMENSIONS)
+	endif
 
 	return, result
 end

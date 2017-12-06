@@ -54,6 +54,13 @@
 ; :Keywords:
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;
 ; :Categories:
 ;    MMS
@@ -74,7 +81,10 @@ FUNCTION MrMMS_Plot_FPI_GPD, sc, mode, species, $
 COORDS=coords, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
-NO_LOAD=no_load
+NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
+TAIL=tail
 	Compile_Opt idl2
 	
 	Catch, the_error
@@ -85,41 +95,57 @@ NO_LOAD=no_load
 	ENDIF
 	
 	tf_load = ~Keyword_Set(no_load)
+	tf_tail = Keyword_Set(tail)
 	IF N_Elements(coords)    EQ 0 THEN coords    = 'gse'
 	IF N_Elements(fgm_instr) EQ 0 THEN fgm_instr = 'fgm'
 	IF N_Elements(level)     EQ 0 THEN level     = 'l2'
 	IF N_Elements(species)   EQ 0 THEN species   = 'e'
 	instr   = 'd' + species + 's'
+	
+	IF tf_tail THEN BEGIN
+		energies = [ [ 0, 10], $     ;< 100eV
+		             [11, 14], $     ;250 eV
+		             [15, 18], $     ;500 eV
+		             [19, 25], $     ;2.5 keV
+		             [26, 31] ]      ;> 7 keV
+	ENDIF ELSE BEGIN
+		energies = [ [ 0,  4], $    ;20 eV
+		             [ 5,  9], $    ;60 eV
+		             [10, 13], $    ;250 eV
+		             [14, 17], $    ;500 eV
+		             [18, 31] ]     ;> 1 keV
+	ENDELSE
 
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
+	fpi_mode  = mode EQ 'brst' ? mode : 'fast'
 	fpi_instr = 'd' + species + 's'
 
 	;Source
 	b_vname     = StrJoin( [sc, fgm_instr, 'b',     coords, mode, level], '_' )
 	bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec',  coords, mode, level], '_' )
 	bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag',  coords, mode, level], '_' )
-	f_vname     = StrJoin( [sc, instr, 'dist', mode], '_')
-	v_vname     = StrJoin( [sc, fpi_instr, 'bulkv', coords, mode], '_')
-	p_vname     = StrJoin( [sc, fpi_instr, 'prestensor', coords, mode], '_')
+	f_vname     = StrJoin( [sc, instr, 'dist', fpi_mode], '_')
+	v_vname     = StrJoin( [sc, fpi_instr, 'bulkv', coords, fpi_mode], '_')
+	p_vname     = StrJoin( [sc, fpi_instr, 'prestensor', coords, fpi_mode], '_')
 	scpot_vname = StrJoin( [sc, 'edp', 'scpot', 'fast', level], '_' )
 	
 	;Derived Moments
-	pscl_vname    = StrJoin( [sc, fpi_instr, 'p', coords, mode], '_')
-	pscl_calc_vname = StrJoin( [sc, fpi_instr, 'p',    'calc', coords, mode], '_')
-	gpd_20_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '20eV',  mode], '_')
-	gpd_60_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '60eV',  mode], '_')
-	gpd_250_vname = StrJoin( [sc, fpi_instr, 'gpd',     '250eV', mode], '_')
-	gpd_500_vname = StrJoin( [sc, fpi_instr, 'gpd',     '500eV', mode], '_')
-	gpd_1k_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '1keV',  mode], '_')
-	q_20_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '20eV',  mode], '_')
-	q_60_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '60eV',  mode], '_')
-	q_250_vname   = StrJoin( [sc, fpi_instr, 'qfactor', '250eV', mode], '_')
-	q_500_vname   = StrJoin( [sc, fpi_instr, 'qfactor', '500eV', mode], '_')
-	q_1k_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '1keV',  mode], '_')
-	q_all_vname   = StrJoin( [sc, fpi_instr, 'qfactor', 'all',   mode], '_')
-	q_moms_vname  = StrJoin( [sc, fpi_instr, 'qfactor', 'moms',  mode], '_')
+	pscl_vname    = StrJoin( [sc, fpi_instr, 'p', coords, fpi_mode], '_')
+	pscl_calc_vname = StrJoin( [sc, fpi_instr, 'p',    'calc', coords, fpi_mode], '_')
+	gpd_20_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '20eV',  fpi_mode], '_')
+	gpd_60_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '60eV',  fpi_mode], '_')
+	gpd_250_vname = StrJoin( [sc, fpi_instr, 'gpd',     '250eV', fpi_mode], '_')
+	gpd_500_vname = StrJoin( [sc, fpi_instr, 'gpd',     '500eV', fpi_mode], '_')
+	gpd_1k_vname  = StrJoin( [sc, fpi_instr, 'gpd',     '1keV',  fpi_mode], '_')
+	q_20_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '20eV',  fpi_mode], '_')
+	q_60_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '60eV',  fpi_mode], '_')
+	q_250_vname   = StrJoin( [sc, fpi_instr, 'qfactor', '250eV', fpi_mode], '_')
+	q_500_vname   = StrJoin( [sc, fpi_instr, 'qfactor', '500eV', fpi_mode], '_')
+	q_1k_vname    = StrJoin( [sc, fpi_instr, 'qfactor', '1keV',  fpi_mode], '_')
+	q_all_vname   = StrJoin( [sc, fpi_instr, 'qfactor', 'all',   fpi_mode], '_')
+	q_moms_vname  = StrJoin( [sc, fpi_instr, 'qfactor', 'moms',  fpi_mode], '_')
 
 ;-------------------------------------------
 ; Load Data ////////////////////////////////
@@ -134,14 +160,14 @@ NO_LOAD=no_load
 		                     SUFFIX = suffix
 		
 		;FPI-DIST
-		MrMMS_FPI_Load_Dist3D, sc, mode, species, $
+		MrMMS_FPI_Load_Dist3D, sc, fpi_mode, species, $
 		                       /APPLY_MODEL, $
 		                       COORD_SYS   = coord_sys, $
 		                       LEVEL       = level, $
 		                       ORIENTATION = orientation
 		
 		;FPI-MOMS
-		MrMMS_FPI_Load_Data, sc, mode, $
+		MrMMS_FPI_Load_Data, sc, fpi_mode, $
 		                     OPTDESC   = fpi_instr + '-moms', $
 		                     LEVEL     = level, $
 		                     VARFORMAT = ['*pres*'+coords+'*', '*bulkv*'+coords+'*']
@@ -151,7 +177,7 @@ NO_LOAD=no_load
 		                 OPTDESC   = 'scpot', $
 		                 VARFORMAT = '*scpot*'
 	ENDIF
-
+	
 ;-------------------------------------------
 ; GPD(E) ///////////////////////////////////
 ;-------------------------------------------
@@ -174,11 +200,11 @@ NO_LOAD=no_load
 	;   - Weight each bin by its original size.
 	;   - This compensates for the non-uniform spacing in FAC coordinates
 	;   - Do not have to re-bin data into FAC coordinate grid
-	oGPD_20eV  = oDist4D_FAC -> PhiSpec( E_RANGE=[ 0,  4], /CACHE, NAME=gpd_20_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
-	oGPD_60eV  = oDist4D_FAC -> PhiSpec( E_RANGE=[ 5,  9], /CACHE, NAME=gpd_60_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
-	oGPD_250eV = oDist4D_FAC -> PhiSpec( E_RANGE=[10, 13], /CACHE, NAME=gpd_250_vname, THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
-	oGPD_500eV = oDist4D_FAC -> PhiSpec( E_RANGE=[14, 17], /CACHE, NAME=gpd_500_vname, THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
-	oGPD_1keV  = oDist4D_FAC -> PhiSpec( E_RANGE=[18, 31], /CACHE, NAME=gpd_1k_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
+	oGPD_20eV  = oDist4D_FAC -> PhiSpec( E_RANGE=energies[*,0], /CACHE, NAME=gpd_20_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
+	oGPD_60eV  = oDist4D_FAC -> PhiSpec( E_RANGE=energies[*,1], /CACHE, NAME=gpd_60_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
+	oGPD_250eV = oDist4D_FAC -> PhiSpec( E_RANGE=energies[*,2], /CACHE, NAME=gpd_250_vname, THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
+	oGPD_500eV = oDist4D_FAC -> PhiSpec( E_RANGE=energies[*,3], /CACHE, NAME=gpd_500_vname, THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
+	oGPD_1keV  = oDist4D_FAC -> PhiSpec( E_RANGE=energies[*,4], /CACHE, NAME=gpd_1k_vname,  THETA_RANGE=[0.0, 180.0], UNITS='EFLUX', WEIGHT=odV )
 	
 	Obj_Destroy, [odV, oDist_FAC, oDist4D_FAC]
 
@@ -188,12 +214,12 @@ NO_LOAD=no_load
 	;Distribution function
 	;   - Calculate moments in original coordinate system
 	oDist4D  = MrDist4D(f_vname, VSC=scpot_vname, SPECIES=theSpecies)
-	oDist4D -> Moments, PRESSURE = oPres_20eV,  ENERGY_RANGE = [ 0,  4]
-	oDist4D -> Moments, PRESSURE = oPres_60eV,  ENERGY_RANGE = [ 5,  9]
-	oDist4D -> Moments, PRESSURE = oPres_250eV, ENERGY_RANGE = [10, 13]
-	oDist4D -> Moments, PRESSURE = oPres_500eV, ENERGY_RANGE = [14, 17]
-	oDist4D -> Moments, PRESSURE = oPres_1keV,  ENERGY_RANGE = [18, 31]
-	oDist4D -> Moments, PRESSURE = oPres_All,   ENERGY_RANGE = [ 0, 31]
+	oDist4D -> Moments, PRESSURE = oPres_20eV,  ENERGY_RANGE = energies[*,0]
+	oDist4D -> Moments, PRESSURE = oPres_60eV,  ENERGY_RANGE = energies[*,1]
+	oDist4D -> Moments, PRESSURE = oPres_250eV, ENERGY_RANGE = energies[*,2]
+	oDist4D -> Moments, PRESSURE = oPres_500eV, ENERGY_RANGE = energies[*,3]
+	oDist4D -> Moments, PRESSURE = oPres_1keV,  ENERGY_RANGE = energies[*,4]
+	oDist4D -> Moments, PRESSURE = oPres_All,   ENERGY_RANGE = [0, 31]
 
 	;Calculate agyrotropy Q-value
 	oQ_20eV  = MrVar_Pres_QFactor( bvec_vname, oPres_20eV,  /CACHE, NAME=q_20_vname  )
@@ -224,7 +250,21 @@ NO_LOAD=no_load
 ;-------------------------------------------
 	;B
 	oB = MrVar_Get(b_vname)
-	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, fpi_instr, mode, level], ' ' ) )
+	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, fpi_instr, fpi_mode, level], ' ' ) )
+	
+	;Determine axis labels
+	oDist = MrVar_Get(f_vname)
+	oE    = oDist['DEPEND_3']
+	E_labels = StrArr(5)
+	E_titles = StrArr(5)
+	FOR i = 0, 4 DO BEGIN
+		E0 = oE['DATA',0,energies[0,i]]
+		E1 = oE['DATA',0,energies[1,i]]
+		E0 = E0 LT 1000 ? String(E0, FORMAT='(i0)')+'eV' : String(E0/1000.0, FORMAT='(i0)')+'keV'
+		E1 = E1 LT 1000 ? String(E1, FORMAT='(i0)')+'eV' : String(E1/1000.0, FORMAT='(i0)')+'keV'
+		E_labels[i] = E0 + '-' + E1
+		E_titles[i] = E0 + '!C' + E1
+	ENDFOR
 	
 	;
 	; GPD
@@ -232,33 +272,33 @@ NO_LOAD=no_load
 	
 	;20eV
 	oPhi = oGPD_20eV['DEPEND_1']
-	oGPD_20eV['AXIS_RANGE'] = [-180.0, 180.0]
-	oPhi['TICKINTERVAL']    = 90.0
-	oPhi['TITLE']           = 'Gyrophase!C20eV!C(deg)'
+	oPhi['AXIS_RANGE']   = [-180.0, 180.0]
+	oPhi['TICKINTERVAL'] = 90.0
+	oPhi['TITLE']        = 'Gyrophase!C' + E_titles[0] + '!C(deg)'
 	
 	;60eV
 	oPhi = oGPD_60eV['DEPEND_1']
-	oGPD_60eV['AXIS_RANGE'] = [-180.0, 180.0]
-	oPhi['TICKINTERVAL']    = 90.0
-	oPhi['TITLE']           = 'Gyrophase!C60eV!C(deg)'
+	oPhi['AXIS_RANGE']   = [-180.0, 180.0]
+	oPhi['TICKINTERVAL'] = 90.0
+	oPhi['TITLE']        = 'Gyrophase!C' + E_titles[1] + '!C(deg)'
 	
 	;250eV
 	oPhi = oGPD_250eV['DEPEND_1']
-	oGPD_250eV['AXIS_RANGE'] = [-180.0, 180.0]
-	oPhi['TICKINTERVAL']     = 90.0
-	oPhi['TITLE']            = 'Gyrophase!C250eV!C(deg)'
+	oPhi['AXIS_RANGE']   = [-180.0, 180.0]
+	oPhi['TICKINTERVAL'] = 90.0
+	oPhi['TITLE']        = 'Gyrophase!C' + E_titles[2] + '!C(deg)'
 	
 	;500eV
 	oPhi = oGPD_500eV['DEPEND_1']
-	oGPD_500eV['AXIS_RANGE'] = [-180.0, 180.0]
-	oPhi['TICKINTERVAL']     = 90.0
-	oPhi['TITLE']            = 'Gyrophase!C500eV!C(deg)'
+	oPhi['AXIS_RANGE']   = [-180.0, 180.0]
+	oPhi['TICKINTERVAL'] = 90.0
+	oPhi['TITLE']        = 'Gyrophase!C' + E_titles[3] + '!C(deg)'
 	
 	;1keV
 	oPhi = oGPD_1keV['DEPEND_1']
-	oGPD_1keV['AXIS_RANGE'] = [-180.0, 180.0]
-	oPhi['TICKINTERVAL']    = 90.0
-	oPhi['TITLE']           = 'Gyrophase!C1keV!C(deg)'
+	oPhi['AXIS_RANGE']   = [-180.0, 180.0]
+	oPhi['TICKINTERVAL'] = 90.0
+	oPhi['TITLE']        = 'Gyrophase!C' + E_titles[4] + '!C(deg)'
 	
 	;
 	; Q
@@ -266,32 +306,46 @@ NO_LOAD=no_load
 	colors = MrDefaultColor(NCOLORS=7)
 	
 	;20eV
-	oQ_20eV['COLOR'] = colors[0]
-	oQ_20eV['LABEL'] = '20eV'
+	oQ_20eV['AXIS_RANGE'] = [0, Max( [oQ_20eV.max, oQ_60eV.max, oQ_250eV.max, oQ_500eV.max, oQ_1keV.max, oQ_all.max] )]
+	oQ_20eV['COLOR']      = colors[0]
+	oQ_20eV['LABEL']      = E_labels[0]
 	
 	;60eV
 	oQ_60eV['COLOR'] = colors[1]
-	oQ_60eV['LABEL'] = '60eV'
+	oQ_60eV['LABEL'] = E_labels[1]
 	
 	;250eV
 	oQ_250eV['COLOR'] = colors[2]
-	oQ_250eV['LABEL'] = '250eV'
+	oQ_250eV['LABEL'] = E_labels[2]
 	
 	;20eV
 	oQ_500eV['COLOR'] = colors[3]
-	oQ_500eV['LABEL'] = '500eV'
+	oQ_500eV['LABEL'] = E_labels[3]
 	
 	;1keV
 	oQ_1keV['COLOR'] = colors[4]
-	oQ_1keV['LABEL'] = '1keV'
+	oQ_1keV['LABEL'] = E_labels[4]
 	
 	;All
 	oQ_all['COLOR'] = colors[5]
-	oQ_all['LABEL'] = 'All'
+	oQ_all['LABEL'] = 'UNH'
 	
 	;Moms
 	oQ_moms['COLOR'] = colors[6]
-	oQ_moms['LABEL'] = 'Moms'
+	oQ_moms['LABEL'] = 'FPI'
+	
+	;
+	; P
+	;
+	oP = MrVar_Get(pscl_calc_vname)
+	oP['COLOR'] = 'Blue'
+	oP['LABEL'] = 'UNH'
+	oP['TITLE'] = 'P!C(nPa)'
+	
+	oP = MrVar_Get(pscl_vname)
+	oP['COLOR'] = 'Black'
+	oP['LABEL'] = 'FPI'
+	oP['TITLE'] = 'P!C(nPa)'
 
 ;-------------------------------------------
 ; Plot /////////////////////////////////////
@@ -302,13 +356,34 @@ NO_LOAD=no_load
 	                    YSIZE = 750 )
 	
 	;Overplot Q-factors
-	win = MrVar_OPlotTS( q_20_vname, [q_500_vname, q_all_vname, q_moms_vname]) ;[q_60_vname, q_250_vname, q_500_vname, q_1k_vname, q_all_vname, q_moms_vname] )
+	win = MrVar_OPlotTS( q_20_vname, [q_60_vname, q_250_vname, q_500_vname, q_1k_vname, q_all_vname, q_moms_vname] )
 	win = MrVar_OPlotTS( pscl_vname, pscl_calc_vname )
 
 	win[0] -> SetLayout, [1,1]
-	win -> SetProperty, OXMARGIN=[13,14]
+	win -> SetProperty, OXMARGIN=[15,14]
 	win -> TrimLayout
-
 	win -> Refresh
+
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;File name
+		fname = StrJoin( [sc, fpi_instr, fpi_mode, level, 'gpd'], '_' )
+		fname = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

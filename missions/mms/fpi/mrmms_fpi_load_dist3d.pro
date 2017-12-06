@@ -51,6 +51,10 @@
 ;   Modification History::
 ;       2016/08/20  -   Written by Matthew Argall
 ;       2017/01/04  -   Remove internally generated photoelectrons. - MRA
+;       2017/10/16  -   All variables associated with the photoelectron model are removed
+;                           from the cache. - MRA
+;       2017/10/23  -   Added the RAGER keyword to load 7.5ms moments data. Pass LEVEL
+;                           on to helper functions because of change to MrMMS_Get_*. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -115,7 +119,6 @@ PRO MrMMS_FPI_Load_Dist3D_Meta, name
 ;-----------------------------------------------------
 ; Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	
 	;Set the distribution function dependencies
 	oDist = MrVar_Get(dist_vname)
 	oDist['DEPEND_1'] = MrVar_Get(phi_vname)
@@ -135,7 +138,7 @@ PRO MrMMS_FPI_Load_Dist3D_Meta, name
 	;PHI: Check if the correction is needed
 	;   - DELTA_MINUS_VAR & DELTA_PLUS_VAR are the same variable
 	odMinus = oPhi['DELTA_MINUS_VAR']
-	IF Abs(odMinus[[0]] - 11.25/2.0) GT 1.0 THEN BEGIN
+	IF Abs(odMinus['DATA', 0] - 11.25/2.0) GT 1.0 THEN BEGIN
 		MrPrintF, 'LogWarn', 'Correcting FPI Dist PHI DELTA+/-.'
 		odMinus -> SetData, odMinus['DATA'] / 2.0
 	ENDIF ELSE BEGIN
@@ -188,28 +191,43 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 	parity_vname = StrJoin( [sc, instr, 'steptable',   'parity', mode], '_' ) + suffix
 
 	;Source Photoelectron model
-	model_suffix  = '_model'
-	ph_dphi_vname = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + model_suffix
-	ph_f0_vname   = StrJoin( ['mms', instr, 'bgdist',      'p0',     mode], '_' ) + model_suffix
-	ph_f1_vname   = StrJoin( ['mms', instr, 'bgdist',      'p1',     mode], '_' ) + model_suffix
-	ph_e0_vname   = StrJoin( ['mms', instr, 'energy0',               mode], '_' ) + model_suffix
-	ph_e1_vname   = StrJoin( ['mms', instr, 'energy1',               mode], '_' ) + model_suffix
-	ph_scl_vname  = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + model_suffix
+	model_suffix   = '_model'
+	ph_scl_vname   = StrJoin( [sc,    instr, 'scl',         'model',  mode], '_' ) + model_suffix
+	ph_dphi_vname  = StrJoin( ['mms', instr, 'startdelphi', 'counts', mode], '_' ) + model_suffix
+	ph_phi_vname   = StrJoin( ['mms', instr, 'phi',                   mode], '_' ) + model_suffix
+	ph_theta_vname = StrJoin( ['mms', instr, 'theta',                 mode], '_' ) + model_suffix
+	IF mode EQ 'brst' THEN BEGIN
+		ph_f0_vname = StrJoin( ['mms', instr, 'bgdist',  'p0', mode], '_' ) + model_suffix
+		ph_f1_vname = StrJoin( ['mms', instr, 'bgdist',  'p1', mode], '_' ) + model_suffix
+		ph_e0_vname = StrJoin( ['mms', instr, 'energy0',       mode], '_' ) + model_suffix
+		ph_e1_vname = StrJoin( ['mms', instr, 'energy1',       mode], '_' ) + model_suffix
+	ENDIF ELSE BEGIN
+		ph_f0_vname = StrJoin( ['mms', instr, 'bgdist', mode], '_' ) + model_suffix
+		ph_e0_vname = StrJoin( ['mms', instr, 'energy', mode], '_' ) + model_suffix
+	ENDELSE
 
 	;Derived names
-	fph_vname = StrJoin([sc, instr, 'dist', 'photo', mode], '_')
+	ph_f_vname = StrJoin([sc, instr, 'dist', 'photo', mode], '_')
 
 	;Photoelectron model
 	;   - Only exist for electrons
 	MrMMS_FPI_Load_Models, sc, mode, 'e', $
+	                       LEVEL  = level, $
 	                       SUFFIX = model_suffix
 
 	;Create f_photo
-	ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
-	                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
-	                                parity_vname, $
-	                                /CACHE, $
-	                                NAME = fph_vname )
+	IF mode EQ 'brst' THEN BEGIN
+		ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
+		                                ph_f0_vname, ph_e0_vname, ph_f1_vname, ph_e1_vname, $
+		                                parity_vname, $
+		                                /CACHE, $
+		                                NAME = ph_f_vname )
+	ENDIF ELSE BEGIN
+		ofPhoto = MrMMS_FPI_Dist_Photo( f_vname, dphi_vname, ph_scl_vname, ph_dphi_vname, $
+		                                ph_f0_vname, ph_e0_vname, $
+		                                /CACHE, $
+		                                NAME = ph_f_vname )
+	ENDELSE
 	
 	;Subtract the model from the distribution
 	;   - Set all negative contributions to zero
@@ -220,6 +238,10 @@ PRO MrMMS_FPI_Load_Dist3D_ePhoto, name
 	oDist -> CopyAttrTo, oDistTS
 	MrVar_Replace, oDist, oDistTS
 	oDistTS -> SetName, f_vname
+	
+	;Remove variables
+	MrVar_Delete, [ph_f_vname, ph_dphi_vname, ph_f0_vname, ph_e0_vname, ph_scl_vname, ph_phi_vname, ph_theta_vname]
+	IF mode EQ 'brst' THEN MrVar_Delete, [ph_f1_vname, ph_e1_vname]
 END
 
 
@@ -425,6 +447,7 @@ LEVEL=level, $
 ORIENTATION=orientation, $
 PAR=par, $
 PERP=perp, $
+RAGER=rager, $
 SUFFIX=suffix, $
 TEAM_SITE=team_site, $
 TRANGE=trange, $
@@ -441,6 +464,7 @@ VARNAMES=varnames
 	;Check inputs
 	cs = n_elements(coord_sys) eq 0 ? 'gse' : strlowcase(coord_sys)
 	tf_apply_model = keyword_set(apply_model)
+	tf_rager       = keyword_set(rager)
 	if n_elements(level)   eq 0 then level   = 'l2'
 	if n_elements(species) eq 0 then species = 'e'
 	if n_elements(suffix)  eq 0 then suffix  = ''
@@ -450,21 +474,45 @@ VARNAMES=varnames
 	if n_elements(mode)  ne 1 then message, 'MODE must be scalar.'
 	
 	;Fast and Brst are organized differently
-	if mode eq 'fast' $
-		then varformat = ['*_dist_*', '*_theta_*', '*_energy_*', '*_phi_*', '*startdelphi*'] $
-		else varformat = ['*dist_*', '*energy?*', '*phi*', '*theta*', '*startdelphi*', '*steptable*']
+	if mode eq 'fast' then begin
+		varformat = [ StrJoin( [sc, 'd'+species+'s', 'dist',                  mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'phi',                   mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'theta',                 mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'energy',                mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'startdelphi', 'count',  mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'startdelphi', 'angle',  mode], '_' ) ]
+	ENDIF ELSE BEGIN
+		varformat = [ StrJoin( [sc, 'd'+species+'s', 'dist',                  mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'phi',                   mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'theta',                 mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'energy',                mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'energy0',               mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'energy1',               mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'startdelphi', 'count',  mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'startdelphi', 'angle',  mode], '_' ), $
+		              StrJoin( [sc, 'd'+species+'s', 'steptable',   'parity', mode], '_' ) ]
+	ENDELSE
 
 ;-----------------------------------------------------
 ; Load the FPI \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
+	dist_level = level
+	IF tf_rager THEN BEGIN
+		!MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
+		!MrMMS -> SetProperty, OFFLINE=1B,      DROPBOX_ROOT='/home/argall/data/rager/'
+		dist_level = 'acr'
+	ENDIF
+	
 	;Get the FPI distribution function
-	MrMMS_Load_Data, sc, 'fpi', mode, level, $
+	MrMMS_Load_Data, sc, 'fpi', mode, dist_level, $
 	                 OPTDESC   = 'd' + species + 's-dist', $
 	                 SUFFIX    = suffix, $
 	                 TEAM_SITE = team_site, $
 	                 VARFORMAT = varformat, $
 	                 VARNAMES  = varnames
-
+	
+	IF tf_rager THEN !MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
+	
 	;Associate variable attributes with DEPEND_[0-3]
 	dist_vname = sc + '_d' + species + 's_dist_' + mode
 	MrMMS_FPI_Load_Dist3D_Meta, dist_vname
@@ -472,11 +520,10 @@ VARNAMES=varnames
 ;-----------------------------------------------------
 ; Correct for Internal Photoelectrons \\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	
 	;Correct the distribution for internally generated photoelectrons
 	IF tf_apply_model && species EQ 'e' $
 		THEN MrMMS_FPI_Load_Dist3D_ePhoto, dist_vname
-
+	
 ;-----------------------------------------------------
 ; FAC \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -494,4 +541,7 @@ VARNAMES=varnames
 		                              ORIENTATION = orientation, $
 		                              VARNAMES    = varnames
 	ENDIF
+	
+	;Remove extra variables
+	MrVar_Remove, varformat[1:*] + suffix
 END

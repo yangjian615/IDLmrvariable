@@ -98,7 +98,12 @@ TRANGE=trange
 	;Get EDI data
 	if tf_load then begin
 		;Load EDI data
-		MrMMS_Load_Data, sc, 'edi', ['brst', 'srvy'], level, $
+		MrMMS_Load_Data, sc, 'edi', 'brst', level, $
+		                 OPTDESC   = ['amb', 'amb-pm2'], $
+		                 VARFORMAT = '*' + type + '*'
+		
+		;Load EDI data
+		MrMMS_Load_Data, sc, 'edi', 'srvy', level, $
 		                 OPTDESC   = ['amb', 'amb-pm2'], $
 		                 VARFORMAT = '*' + type + '*'
 	endif
@@ -122,19 +127,17 @@ TRANGE=trange
 ;-------------------------------------------
 ; Set Properties ///////////////////////////
 ;-------------------------------------------
-	if tf_load then begin
-		;BRST
-		for i = 0, n_elements(cts_brst_vname) - 2 do begin
-			oVar = MrVar_Get( cts_brst_vname[i] )
-			oVar -> AddAttr, 'AXIS_RANGE', [1, max(oVar['DATA'])]
-		endfor
-	
-		;SRVY
-		for i = 0, n_elements(cts_srvy_vname) - 1 do begin
-			oVar = MrVar_Get( cts_srvy_vname[i] )
-			oVar -> AddAttr, 'COLOR', 'Red'
-		endfor
-	endif
+	;BRST
+	for i = 0, n_elements(cts_brst_vname) - 2 do begin
+		oVar = MrVar_Get( cts_brst_vname[i] )
+		oVar['AXIS_RANGE'] = [1, max(oVar['DATA'])]
+	endfor
+
+	;SRVY
+	for i = 0, n_elements(cts_srvy_vname) - 1 do begin
+		oVar = MrVar_Get( cts_srvy_vname[i] )
+		oVar['COLOR'] = 'Red'
+	endfor
 
 ;-------------------------------------------
 ; First Row ////////////////////////////////

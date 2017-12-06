@@ -92,6 +92,12 @@
 ; :History:
 ;   Modification History::
 ;       2016/10/24  -   Written by Matthew Argall
+;       2017/03/31  -   Testing revealed VAR->GetData() is faster than VAR['DATA'],
+;                           so the change was made in all ::_Overload methods. Reduced
+;                           number of IF ELSE cases in the ::_Overload methods.
+;                           _OverloadBracketsRightSide returns and object with DEPEND_# and
+;                           DELTA_(PLUS|MINUS)_VAR attributes are propertly reduced. - MRA
+;       2017/05/31  -   Added the ::Digital_Filter method. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -198,6 +204,101 @@ end
 
 
 ;+
+;   Perform a bit-wise AND comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadAnd, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'AND(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data AND right -> GetData() $
+			ELSE result = left -> GetData() AND *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'AND(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) AND right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'AND(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left AND (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
+
+
+;+
 ;   Multiply two expressions together.
 ;
 ; :Params:
@@ -216,42 +317,28 @@ function MrTimeSeries::_OverloadAsterisk, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-
+	
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Multiply(' + left.name + ',' + right.name + ')'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   * right['DATA'] $
-			else temp = left['DATA'] * *self.data
+			then result = (*self.data) * (right -> GetData()) $
+			else result = (right -> GetData()) * (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Multiply(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then result = *self.data   * right['DATA'] $
-			else result = left['DATA'] * *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(result, NAME=name, /NO_COPY)
-
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+	
 ;-------------------------------------------------------
 ; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
@@ -294,187 +381,17 @@ function MrTimeSeries::_OverloadAsterisk, left, right
 			;Operation
 			result = left * (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
-
+	
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
-
-
-;+
-;   Allow square-bracket array indexing from the left side of an operator.
-;
-; :Examples:
-;   Saving a subarray into a 4D array::
-;       myArray = MrVariable(4, 2, 5, 3, TYPE='FLOAT')
-;       myArray[1:2, 0, 2:4, 1] = RandomU(5, 2,1,3,1)
-;
-;   Saving a subarray into a 3D array::
-;       myArray = MrVariable(fltarr(5,5,5))
-;       myArray[*,-3,0:2] = findgen(5,1,3)
-;
-;
-; :Params:
-;       OBJREF:             in, required, type=ObjRef
-;                           The object reference variable that is being indexed (i.e. "self")
-;                               Use when you want to replace "self" with `VALUE`.
-;       VALUE:              in, required, type=numeric array
-;                           The value specified on the right-hand side of the equal sign.
-;       ISRANGE:            in, required, type=intarr
-;                           A vector that has one element for each Subscript argument
-;                               supplied by the user; each element contains a zero if the
-;                               corresponding input argument was a scalar index value or
-;                               array of indices, or a one if the corresponding input
-;                               argument was a subscript range.
-;       I1:                 in, required, type=integer/intarr(3)
-;                           Index subscripts. Either a scalar, an index array, or a 
-;                               subscript range in the form [start, stop, step_size]
-;       I2:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I3:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I4:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I5:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I6:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I7:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;       I8:                 in, optional, type=integer/intarr(3)
-;                           Index subscripts.
-;-
-pro MrTimeSeries::_OverloadBracketsLeftSide, objRef, value, isRange, i1, i2, i3, i4, i5, i6, i7, i8
-	compile_opt idl2
-	on_error, 2
-
-	;Number of subscripts given
-	nSubscripts = N_ELEMENTS(isRange)
-
-;---------------------------------------------------------------------
-; Attribute Name Given ///////////////////////////////////////////////
-;---------------------------------------------------------------------
-	if nSubscripts eq 1 && MrIsA(i1, 'STRING', /SCALAR) then begin
-		;Restricted names
-		;   - They have special uses within ::_OverloadBracketsRightSide
-		if MrIsMember(['DATA', 'PTR', 'POINTER', 'TIME', 'TIMEVAR'], i1) $
-			then message, '"' + i1 + '" cannot be an attribute name.'
 		
-		;Set the attribute
-		self -> SetAttributeValue, i1, value, /CREATE
-		return
-	endif
-
-;---------------------------------------------------------------------
-; Brute Force Subscripting ///////////////////////////////////////////
-;---------------------------------------------------------------------
-	;
-	; Highly optimized code for three dimensions or lower. 
-	; Handle all combinations of subscript ranges or indices.
-	;
-
-	;<= 3D subscript range
-	if (nSubscripts le 3) then begin
-	;---------------------------------------------------------------------
-	; 3D Subscripts //////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		if IsA(i3) then begin 
-			;[? ,? , min:max:interval]
-			if isRange[2] then begin 
-				;[? , min:max:interval, min:max:interval]
-				if isRange[1] then begin 
-					;[min:max:interval , min:max:interval, min:max:interval]
-					if isRange[0] then begin
-						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = value
-					;[index , min:max:interval, min:max:interval]
-					endif else begin
-						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] = value 
-					endelse
-				;[? , index, min:max:interval]
-				endif else begin
-					;[min:max:interval , index, min:max:interval]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]] = value
-					;[index , index, min:max:interval]
-					endif else begin 
-						(*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] = value 
-					endelse 
-				endelse
-			;[? , ?, index]
-			endif else begin
-				;[? , min:max:interval, index]
-				if isRange[1] then begin
-					;[min:max:interval, min:max:interval, index]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] = value 
-					;[index, min:max:interval, index]
-					endif else begin 
-						(*self.data)[i1,i2[0]:i2[1]:i2[2],i3] = value 
-					endelse 
-				;[?, index, index]
-				endif else begin
-					;[min:max:interval, index, index]
-					if isRange[0] then begin 
-						(*self.data)[i1[0]:i1[1]:i1[2],i2,i3] = value 
-					;[index, index, index]
-					endif else begin 
-						(*self.data)[i1,i2,i3] = value 
-					endelse 
-				endelse 
-			endelse 
-	;---------------------------------------------------------------------
-	; 2D Subscripts //////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		endif else if IsA(i2) then begin
-			;[?, min:max:interval]
-			if isRange[1] then begin
-				;[min:max:interval, min:max:interval]
-				if isRange[0] then begin
-					(*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]] = value
-				;[index, min:max:interval]
-				endif else begin
-					(*self.data)[i1,i2[0]:i2[1]:i2[2]] = value
-				endelse
-			;[?, index]
-			endif else begin
-				;[min:max:interval, index]
-				if isRange[0] then begin
-					(*self.data)[i1[0]:i1[1]:i1[2],i2] = value
-				;[index, index]
-				endif else begin
-					(*self.data)[i1,i2] = value
-				endelse
-			endelse
-	;---------------------------------------------------------------------
-	; 1D Subscripts //////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		endif else begin
-			;min:max:interval
-			if isRange[0] then begin
-				(*self.data)[i1[0]:i1[1]:i1[2]] = value 
-			;Index
-			endif else begin
-				(*self.data)[i1] = value 
-			endelse
-		endelse
-
-		return
-	endif
-
-;---------------------------------------------------------------------
-; Brute Force Code for 4D or Higher Arrays. //////////////////////////
-;---------------------------------------------------------------------
-	;Works for any number of dimensions.
-	indices = MrReformIndices(Size(*self.data, /DIMENSIONS), isRange, i1, i2, i3, i4, i5, i6, i7, i8);, /IDL_METHOD)
-	(*self.data)[indices] = value
-end 
+	;Create the object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
+end
 
 
 ;+
@@ -488,7 +405,13 @@ end
 ;       pData     = oTSvar['PTR']
 ;       isoTime   = oTSvar['TIME']
 ;       time      = oTSvar['TIME', T_TYPE]
+;       time      = oTSvar['TIME', i2]
+;       time      = oTSvar['TIME', i2, <StrMid>]
+;       time      = oTSvar['TIME', i2, T_TYPE]
 ;       oTime     = oTSvar['TIMEVAR']
+;       oTime     = oTSvar['TIMEVAR', i1]
+;       oTime     = oTSvar['TIMEVAR', i1, <strmid>]
+;       oTime     = oTSvar['TIMEVAR', i1, T_TYPE]
 ;       attrValue = oTSvar[AttrName]
 ;       data      = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
 ;
@@ -521,127 +444,95 @@ end
 ;       RESULT:             in, required, type=numeric array
 ;                           The subarray accessed by the input parameters.
 ;-
-function MrTimeSeries::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6, i7, i8
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrTimeSeries::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4, i5, i6, i7, i8
+	Compile_Opt idl2
+	On_Error, 2
 
+	catch, the_error
+	if the_error ne 0 then begin
+		catch, /CANCEL
+		MrPrintF, 'LogErr'
+		Return, !Null
+	endif
+	
 	;Number of subscripts given
-	nSubscripts = n_elements(isRange)
-
-	;String operations.
-	if IsA(i1, /SCALAR, 'STRING') then begin
-		case i1 of
-			'DATA':    return, *self.data
-			'POINTER': return,  self.data
-			'PTR':     return,  self.data
-			'TIME':    return,  self.oTime -> GetData(i2)
-			'TIMEVAR': return,  self.oTime
-			else:      return,  self -> GetAttrValue(i1)
-		endcase
+	nSubs = N_Elements(isRange)
+	
+	;String operations
+	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+		CASE i1 OF
+			'DATA': BEGIN
+				IF nSubs EQ 1 $
+					THEN RETURN, *self.data $
+					ELSE RETURN, self -> _OverloadBracketsRightSide_Data(isRange[1:*], i2, i3, i4, i5, i6, i7, i8)
+			ENDCASE
+			'POINTER': RETURN, self.data
+			'PTR':     RETURN, self.data
+			'TIMEVAR': BEGIN
+				IF nSubs EQ 1 $
+					THEN RETURN, self.oTime $
+					ELSE RETURN, self.oTime -> _OverloadBracketsRightSide(isRange[1:*], i2, i3)
+			ENDCASE
+			'TIME': BEGIN
+				IF nSubs EQ 1 $
+					THEN RETURN, self.oTime['DATA'] $
+					ELSE RETURN, self.oTime -> _OverloadBracketsRightSide( [0,isRange[1:*]], 'DATA', i2, i3)
+			ENDCASE
+			ELSE: RETURN, self -> GetAttrValue(i1)
+		ENDCASE
 
 	;Scalar operations
 	;   - 0   returns the self object
 	;   - [0] returns the first data element
-	;   - All other cases return data
-	endif else if nSubscripts eq 1 && isRange[0] eq 0 && IsA(i1, /SCALAR) && i1 eq 0 then begin
-		return, self
-	endif
+	;   - All other cases RETURN data
+	ENDIF ELSE IF nSubs EQ 1 && isRange[0] EQ 0 && IsA(i1, /SCALAR) && i1 EQ 0 THEN BEGIN
+		RETURN, self
+	ENDIF
 
 ;---------------------------------------------------------------------
-;Optimized Subscripting for <= 3D ////////////////////////////////////
+; Extract the Subarray ///////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	if (nSubscripts le 3) then begin
-	;---------------------------------------------------------------------
-	;3D Subscripts ///////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		if IsA(i3) then begin 
-			;Subscript range given: [min:max:interval]?
-			if isRange[2] then begin 
-				;Subscript range for dimensions 2 and 3?
-				if isRange[1] then begin 
-					;Range: [1,2,3], Index: --
-					if isRange[0] then begin
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]]
-					;Range: [2,3], Index: 1
-					endif else begin
-						return, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3[0]:i3[1]:i3[2]] 
-					endelse
-				;Index value for dimension 2?
-				endif else begin
-					;Range: [3,1], Index: 2
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3[0]:i3[1]:i3[2]]
-					;Range: 3, Index: [2,1]
-					endif else begin 
-						return, (*self.data)[i1,i2,i3[0]:i3[1]:i3[2]] 
-					endelse 
-				endelse
-			;Index for dimension 3?
-			endif else begin
-				;Range for dimension 2?
-				if isRange[1] then begin
-					;Range: [2,1]
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2],i3] 
-					endif else begin 
-						return, (*self.data)[i1,i2[0]:i2[1]:i2[2],i3] 
-					endelse 
-				endif else begin 
-					if isRange[0] then begin 
-						return, (*self.data)[i1[0]:i1[1]:i1[2],i2,i3] 
-					endif else begin 
-						return, (*self.data)[i1,i2,i3] 
-					endelse 
-				endelse 
-			endelse 
-	;---------------------------------------------------------------------
-	;2D Subscripts ///////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		endif else if IsA(i2) then begin
-			if isRange[1] then begin
-				;[Range, Range]
-				if isRange[0] then begin
-					return, (*self.data)[i1[0]:i1[1]:i1[2],i2[0]:i2[1]:i2[2]]
-				;[Index, Range]
-				endif else begin
-					return, (*self.data)[i1,i2[0]:i2[1]:i2[2]]
-				endelse
-			endif else begin
-				;[Range, Index]
-				if isRange[0] then begin
-					return, (*self.data)[i1[0]:i1[1]:i1[2],i2]
-				;[Index, Index]
-				endif else begin
-					return, (*self.data)[i1,i2]
-				endelse
-			endelse
-	;---------------------------------------------------------------------
-	;1D Subscripts ///////////////////////////////////////////////////////
-	;---------------------------------------------------------------------
-		endif else begin
-			;Range?
-			if isRange[0] then begin
-				return, (*self.data)[i1[0]:i1[1]:i1[2]] 
-			;Index
-			;   - Compensate for passing in [0] instead of 0 for the first element.
-			;   - i.e. return a scalar instead of a 1-element array
-			endif else begin
-				if n_elements(i1) eq 1 && i1 eq 0 $
-					then return, (*self.data)[0] $
-					else return, (*self.data)[i1]
-			endelse
-		endelse
-	endif
+	;Data
+	data = self -> _OverloadBracketsRightSide_Data(isRange, i1, i2, i3, i4, i5, i6, i7, i8)
 
+	;Attributes
+	outDims = Size(data, /DIMENSIONS)
+	attrs   = self -> _OverloadBracketsRightSide_Attrs(outDims, isRange, i1, i2, i3, i4, i5, i6, i7, i8)
+	
 ;---------------------------------------------------------------------
-; Brute Force Code for 4D or Higher Arrays. //////////////////////////
+; Create Output //////////////////////////////////////////////////////
 ;---------------------------------------------------------------------
-	;Works for any number of dimensions.
-	dims = size(*self.data, /DIMENSIONS)
-	indices = MrReformIndices(dims, isRange, i1, i2, i3, i4, i5, i6, i7, i8, DIMENSIONS=dimensions);, /IDL_METHOD)
+	;MrTimeSeries
+	;   - Scalars have a dimension size of 0 with 1 element.
+	nDep0 = N_Elements( attrs['DEPEND_0'] )
+	IF (outDims[0] EQ nDep0) || (N_Elements(data) EQ 1 && nDep0 EQ 1) THEN BEGIN
+		vOut = MrTimeSeries( attrs['DEPEND_0'], data, $
+		                     NAME='OverloadBRS(' + self.name + ')', $
+		                     /NO_COPY )
+	
+	;MrVariable
+	ENDIF ELSE BEGIN
+		;Issue warning
+		MrPrintF, 'LogWarn', 'Unable to create MrTimeSeries object. Converting to MrVariable.'
+		
+		;Create variable
+		vOut = MrVariable( data, $
+		                   NAME='OverloadBRS(' + self.name + ')', $
+		                   /NO_COPY )
+	ENDELSE
+	
+	;Copy all attributes
+	self -> CopyAttrTo, vOut
+	
+	;Update attributes
+	vOut -> SetAttrValue, attrs, /OVERWRITE
+	
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 
-	return, reform((*self.data)[indices], dimensions, /OVERWRITE)
-end
+	RETURN, vOut
+END
 
 
 ;+
@@ -667,40 +558,26 @@ function MrTimeSeries::_OverloadCaret, left, right
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Caret(' + left.name + ',' + right.name + ')'
 
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   ^ right['DATA'] $
-			else temp = left['DATA'] ^ *self.data
+			then result = (*self.data) ^ (right -> GetData()) $
+			else result = (right -> GetData()) ^ (*self.data)
 		
 		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Caret(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then result = *self.data   ^ right['DATA'] $
-			else result = left['DATA'] ^ *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(result, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -741,18 +618,112 @@ function MrTimeSeries::_OverloadCaret, left, right
 			;Operation
 			result = left ^ (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+		
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
+
+
+;+
+;   Perform an EQUALS comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadEQ, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'EQ(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data EQ right -> GetData() $
+			ELSE result = left -> GetData() EQ *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'EQ(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) EQ right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'EQ(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left EQ (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
 
 
 ;+
@@ -806,6 +777,101 @@ end
 
 
 ;+
+;   Perform an GREATER THAN OR EQUAL TO comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadGE, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'GE' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data GE right -> GetData() $
+			ELSE result = left -> GetData() GE *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'GE(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) GE right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'GE' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left GE (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
+
+
+;+
 ;   Add one expression to another.
 ;
 ; :Params:
@@ -828,41 +894,26 @@ function MrTimeSeries::_OverloadGreaterThan, left, right
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'GreaterThan(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   > right['DATA'] $
-			else temp = left['DATA'] > *self.data
+			then result = (*self.data) > (right -> GetData()) $
+			else result = (right -> GetData()) > (*self.data)
 		
 		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'GreaterThan(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   > right['DATA'] $
-			else temp = left['DATA'] > *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -903,18 +954,207 @@ function MrTimeSeries::_OverloadGreaterThan, left, right
 			;Operation
 			result = left > *self.data
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
+
+
+;+
+;   Perform an GREATER THAN comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadGT, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'GT(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data GT right -> GetData() $
+			ELSE result = left -> GetData() GT *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'GT(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) GT right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'GT(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left GT (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
+
+
+;+
+;   Perform an LESS THAN OR EQUAL TO comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadLE, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'LE' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data LE right -> GetData() $
+			ELSE result = left -> GetData() LE *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'LE(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) LE right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'LE' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left LE (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
 
 
 ;+
@@ -936,45 +1176,30 @@ function MrTimeSeries::_OverloadLessThan, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'LessThan(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   < right['DATA'] $
-			else temp = left['DATA'] < *self.data
+			then result = (*self.data) < (right -> GetData()) $
+			else result = (right -> GetData()) < (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'LessThan(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   < right['DATA'] $
-			else temp = left['DATA'] < *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1016,17 +1241,111 @@ function MrTimeSeries::_OverloadLessThan, left, right
 			result = left < *self.data
 		endelse
 		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
+
+
+;+
+;   Perform an LESS THAN comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadLT, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'LT' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data LT right -> GetData() $
+			ELSE result = left -> GetData() LT *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'LT(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) LT right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) EQ self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'LT' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left LT (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
 
 
 ;+
@@ -1052,40 +1371,26 @@ function MrTimeSeries::_OverloadMinus, left, right
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Minus(' + left.name + ',' + right.name + ')'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   - right['DATA'] $
-			else temp = left['DATA'] - *self.data
-
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Minus(' + left.name + ',' + right.name + ')'
+			then result = (*self.data) - (right -> GetData()) $
+			else result = (right -> GetData()) - (*self.data)
 		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   - right['DATA'] $
-			else temp = left['DATA'] - *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1126,17 +1431,15 @@ function MrTimeSeries::_OverloadMinus, left, right
 			;Operation
 			result = left - (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
 
 
@@ -1159,44 +1462,30 @@ function MrTimeSeries::_OverloadMOD, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Mod(' + left.name + ',' + right.name + ')'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   mod right['DATA'] $
-			else temp = left['DATA'] mod *self.data
+			then result = (*self.data) mod (right -> GetData()) $
+			else result = (right -> GetData()) mod (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Mod(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   mod right['DATA'] $
-			else temp = left['DATA'] mod *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1237,18 +1526,206 @@ function MrTimeSeries::_OverloadMOD, left, right
 			;Operation
 			result = left mod (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
+
+
+;+
+;   Perform an NOT EQUAL TO comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadNE, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'NE(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data NE right -> GetData() $
+			ELSE result = left -> GetData() NE *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'NE(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) NE right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'NE(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left NE (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
+
+
+;+
+;   Perform a bit-wise OR comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadOr, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'OR(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data OR right -> GetData() $
+			ELSE result = left -> GetData() OR *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'OR(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) OR right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'OR(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left OR (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
 
 
 ;+
@@ -1270,45 +1747,30 @@ function MrTimeSeries::_OverloadPlus, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-
+	
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Plus(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   + right['DATA'] $
-			else temp = left['DATA'] + *self.data
+			then result = (*self.data) + (right -> GetData()) $
+			else result = (right -> GetData()) + (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Plus(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   + right['DATA'] $
-			else temp = left['DATA'] + *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1349,17 +1811,15 @@ function MrTimeSeries::_OverloadPlus, left, right
 			;Operation
 			result = left + *self.data
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
 
 
@@ -1382,45 +1842,30 @@ function MrTimeSeries::_OverloadPound, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Pound(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   # right['DATA'] $
-			else temp = left['DATA'] # *self.data
+			then result = (*self.data) # (right -> GetData()) $
+			else result = (right -> GetData()) # (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Pound(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   # right['DATA'] $
-			else temp = left['DATA'] # *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1461,17 +1906,14 @@ function MrTimeSeries::_OverloadPound, left, right
 			;Operation
 			result = left # (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
 
 
@@ -1494,51 +1936,30 @@ function MrTimeSeries::_OverloadPoundPound, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'PoundPound(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   ## right['DATA'] $
-			else temp = left['DATA'] ## *self.data
+			then result = (*self.data) ## (right -> GetData()) $
+			else result = (right -> GetData()) ## (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'PoundPound(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   ## right['DATA'] $
-			else temp = left['DATA'] ## *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1589,7 +2010,9 @@ function MrTimeSeries::_OverloadPoundPound, left, right
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
 
 
@@ -1612,51 +2035,30 @@ function MrTimeSeries::_OverloadSlash, left, right
 	on_error, 2
 
 	;Is SELF on the left or right?
-	;   - Are both LEFT and RIGHT GDA data objects?
+	;   - Are both LEFT and RIGHT MrVariable data objects?
 	side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
 
 ;-------------------------------------------------------
-; Two MrTimeSeries Objects /////////////////////////////
+; Two MrVariable Objects ///////////////////////////////
 ;-------------------------------------------------------
-	if isa(left, 'MrTimeSeries') && isa(right, 'MrTimeSeries') then begin
+	;oVar -> GetData() is faster than oVar['DATA']
+	if isa(left, 'MrVariable') && isa(right, 'MrVariable') then begin
 		
 		;New name
 		name = 'Divide(' + left.name + ',' + right.name + ')'
-		outClass = 'MrTimeSeries'
-
+		
 		;Perform operation
 		if side eq 'LEFT' $
-			then temp = *self.data   / right['DATA'] $
-			else temp = left['DATA'] / *self.data
+			then result = (*self.data) / (right -> GetData()) $
+			else result = (right -> GetData()) / (*self.data)
 		
-		;Return object
-		result = MrTimeSeries( self.oTime, temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
+		;Output object class
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrVariable /////////////////////////
-;-------------------------------------------------------
-	endif else if ( side eq 'LEFT'  && isa(right, 'MrVariable') ) || $
-	              ( side eq 'RIGHT' && isa(left,  'MrVariable') )    $
-	then begin
-		;Name of result
-		name = 'Divide(' + left.name + ',' + right.name + ')'
-		
-		;Multiply
-		if side eq 'LEFT' $
-			then temp = *self.data   / right['DATA'] $
-			else temp = left['DATA'] / *self.data
-		
-		;Create a MrVariable object
-		result = MrVariable(temp, NAME=name, /NO_COPY)
-		
-		;Update attributes
-		self -> CopyAttrTo, result
-
-;-------------------------------------------------------
-; MrScalarTS with Expression ///////////////////////////
+; MrTimeSeries with Expression /////////////////////////
 ;-------------------------------------------------------
 	endif else begin
 		;Rules for output
@@ -1697,17 +2099,15 @@ function MrTimeSeries::_OverloadSlash, left, right
 			;Operation
 			result = left / (*self.data)
 		endelse
-		
-		;Create a MrVariable object
-		if classOut eq 'MrVariable' $
-			then result = obj_new( classOut, result, NAME=name, /NO_COPY ) $
-			else result = obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 	endelse
 
 ;-------------------------------------------------------
 ; Output Object ////////////////////////////////////////
 ;-------------------------------------------------------
-	return, result
+	;Create a MrVariable object
+	if classOut eq 'MrVariable' $
+		then return, obj_new( classOut, result, NAME=name, /NO_COPY ) $
+		else return, obj_new( classOut, self.oTime, result, NAME=name, /NO_COPY)
 end
 
 
@@ -1724,6 +2124,101 @@ function MrTimeSeries::_OverloadMinusUnary
 	;Negate the array, making positive values negative, and vice versa
 	return, self -> New( self.oTime, -(*self.data), NAME='-'+self.name)
 end
+
+
+;+
+;   Perform a bit-wise XOR comparison.
+;
+; :Params:
+;       LEFT:               out, required, type=any
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;       RIGHT:              out, required, type=long
+;                           The argument that appears on the left side of the operator. 
+;                               Possibly the implicit "self".
+;
+; :Returns:
+;       RESULT:             Returns 1 if there is a current element to retrieve, and 0 if
+;                               there are no more elements.
+;-
+FUNCTION MrTimeSeries::_OverloadXOr, left, right
+	Compile_Opt idl2
+	On_Error, 2
+
+	;Is SELF on the left or right?
+	;   - Are both LEFT and RIGHT GDA data objects?
+	side = self -> _LeftOrRight(left, right, ISMrVariable=IsMrVariable)
+
+;-------------------------------------------------------
+; Two MrVariable Objects ///////////////////////////////
+;-------------------------------------------------------
+	;Both LEFT and RIGHT are MrVariable objects
+	;   - IDL will call _Overload for LEFT first
+	;   - oVar -> GetData() is faster than oVar['DATA']
+	IF IsA(left, 'MrVariable') && IsA(right, 'MrVariable') THEN BEGIN
+		name = 'XOR(' + left.name + ',' + right.name + ')'
+		
+		;Perform operation
+		IF side EQ 'left' $
+			THEN result = *self.data XOR right -> GetData() $
+			ELSE result = left -> GetData() XOR *self.data
+		
+		;Type of output
+		if obj_isa(left, 'MrTimeSeries') && obj_isa(right, 'MrTimeSeries') $
+			then classOut = 'MrTimeSeries' $
+			else classOut = 'MrVariable'
+
+;-------------------------------------------------------
+; MrTimeSeries with Expression /////////////////////////
+;-------------------------------------------------------
+	ENDIF ELSE BEGIN
+		;Rules for output
+		;  Create time series if:
+		;     1. Expression is a scalar
+		;     2. Expression's first dimension is same size as that of implicit self
+		;  Create MrVariable in all other cases
+		
+		;LEFT
+		IF side EQ 'LEFT' THEN BEGIN
+			;Object class for output
+			IF MrIsA(right, /SCALAR) || MrDim(right, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(right) eq 1 $
+				THEN dims = StrTrim(right[0], 2) $
+				ELSE dims = '[' + StrJoin(StrTrim(Size(right, /DIMENSIONS), 2), ',') + ']'
+			name = 'XOR(' + self.name + ',' + dims + ')'
+			
+			;Operation
+			result = (*self.data) XOR right
+			
+		;RIGHT
+		endif else begin
+			;Object class for output
+			IF MrIsA(left, /SCALAR) || MrDim(left, 1) eq self -> GetNPts() $
+				THEN classOut = Obj_Class(self) $
+				ELSE classOut = 'MrVariable'
+			
+			;Name of output variable
+			IF N_Elements(left) EQ 1 $
+				THEN dims = StrTrim(left[0], 2) $
+				ELSE dims = Size(left, /TNAME) + '[' + StrJoin(StrTrim(Size(left, /DIMENSIONS), 2), ',') + ']'
+			name = 'XOR(' + dims + ',' + self.name + ')'
+			
+			;Operation
+			result = left XOR (*self.data)
+		ENDELSE
+	ENDELSE
+;-------------------------------------------------------
+; Output Object ////////////////////////////////////////
+;-------------------------------------------------------
+	;Create a new object based on the results
+	IF classOut EQ 'MrVariable' $
+		THEN RETURN, Obj_New(classOut, result, /NO_COPY, NAME=name) $
+		ELSE RETURN, Obj_New(classOut, self.oTime, result, /NO_COPY, NAME=name)
+END
 
 
 ;+
@@ -1896,6 +2391,70 @@ end
 
 
 ;+
+;   High-pass, low-pass, band-pass, or band-stop filter data. The filter is created
+;   using IDL's DIGITAL_FILTER function and applied using IDL's CONVOL function.
+;
+; :Params:
+;       FLOW:           in, required, type=Numeric array
+;                       Lower frequency of the filter as a fraction of the nyquist.
+;       FHIGH:          in, required, type=Numeric array
+;                       Upper frequency of the filter as a fraction of the nyquist.
+;       A:              in, required, type=Numeric array
+;                       The filter power relative to the Gibbs phenomenon wiggles in
+;                           decibels. 50 is a good choice.
+;       NTERMS:         in, required, type=Numeric array
+;                       The number of terms used to construct the filter.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the result will be added to the cache.
+;       DOUBLE:         in, optional, type=boolean, default=0
+;                       If set, computations are performed in double-precision.
+;       NAME:           in, optional, type=string, default='Digital_Filter(<name>)'
+;                       A name to be given to the variable.
+;
+; :Returns:
+;       VAROUT:         out, required, type=object
+;                       A MrScalarTS object containing the filtered data.
+;-
+FUNCTION MrTimeSeries::Digital_Filter, fLow, fHigh, A, nTerms, $
+CACHE=cache, $
+DOUBLE=double, $
+NAME=name
+	compile_opt idl2
+	on_error, 2
+	
+	IF N_Elements(name) EQ 0 THEN name = 'Digital_Filter(' + self.name + ')'
+	
+	;Create the filter
+	coeff = Digital_Filter(fLow, fHigh, A, nTerms, DOUBLE=double)
+	
+	;Reform to NxM
+	dims  = Size(self, /DIMENSIONS)
+	nDims = N_Elements(dims)
+	IF nDims GT 2 $
+		THEN temp = Reform( (*self.data), [dims[0], Product(dims[1:*])] ) $
+		ELSE temp = *self.data
+	
+	;Loop over second dimension
+	nLoop = nDims LE 1 ? 1 : Product(dims[1:*])
+	FOR i = 0, nLoop - 1 DO temp[0,i] = Convol( temp[*,i], coeff )
+	
+	;Reform back to orignal size
+	IF nDims GT 2 THEN temp = Reform( temp, dims, /OVERWRITE )
+	
+	;Create the output variable
+	varOut = MrScalarTS( self.oTime, temp, $
+	                     CACHE     = cache, $
+	                     DIMENSION = 1, $
+	                     NAME      = name, $
+	                     /NO_COPY )
+	
+	;Return the new variable
+	RETURN, varOut
+END
+
+;+
 ;   Store variables as TPlot variables.
 ;
 ;   NOTE:
@@ -2027,7 +2586,7 @@ END
 ;                           one FFT is possible, a MrTimeSeries object is returned.
 ;                           Otherwise, a MrVariable object is returned.
 ;-
-function MrTimeSeries::FFT, nfft, nshift, $
+function MrTimeSeries::FFT_Old, nfft, nshift, $
 DOUBLE=double, $
 NOISE=noise, $
 ONE_SIDED=one_sided, $
@@ -2107,8 +2666,6 @@ WINDOW=win
 		dt_fft    = fltarr(nMax)
 	endif
 
-	istart = 0
-	iend   = nfft-1
 	for i = 0, nMax-1 do begin
 	;-----------------------------------------------------
 	; Define Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -2160,7 +2717,7 @@ WINDOW=win
 		fN    = sr / 2.0
 		df    = 1.0 / (SI * nfft)
 		f     = [0:fN:df]
-		f     = [ f, -reverse(f[1:-2]) ]
+		f     = nfft MOD 2 EQ 0 ? [ f, -reverse(f[1:-2]) ] : [ f, -reverse(f[1:-1]) ]
 	
 		;Compute the FFT
 		case ndims of
@@ -2254,7 +2811,7 @@ WINDOW=win
 ; Output Object \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;TIME
-	if nMax gt 1 then oTime = MrTimeVar( t_fft, 'SSM', /NO_COPY, T_REF=self.oTime[[0]] )
+	if nMax gt 1 then oTime = MrTimeVar( t_fft, 'SSM', /NO_COPY, T_REF=self.oTime['DATA', [0]] )
 
 	;FREQUENCY
 	if size(freqs, /DIMENSIONS) eq 2 $
@@ -2311,7 +2868,7 @@ WINDOW=win
 	oFreq['UNITS'] = 'Hz'
 	if tf_one_sided then begin
 		oFreq['LOG']        = 1B
-		oFreq['AXIS_RANGE'] = [oFreq[1], oFreq[-1]]
+		oFreq['AXIS_RANGE'] = [oFreq['DATA',1], oFreq['DATA',-1]]
 	endif
 	
 	;DFT
@@ -2322,6 +2879,500 @@ WINDOW=win
 	return, oDFT
 end
 
+
+;+
+;   Compute the FFT
+;
+; :Params:
+;       NFFT:           in, optional, type=integer, default=all
+;                       Number of points per FFT.
+;       NSHIFT:         in, optional, type=integer, default=`NFFT`/2.0
+;                       Number of points to shift between FFTs.
+;
+; :Params:
+;       DETREND:        in, optional, type=boolean, default=0
+;                       If set, each FFT interval will be fitted with a straight line
+;                           which is then used to remove a linear trend in the data.
+;       DOUBLE:         in, optional, type=boolean, default=0
+;                       If set, the FFT is computed in double precision.
+;       ONE_SIDED:      in, optional, type=boolean, default=0
+;                       If set, the Fourier coefficients of negative frequencies are discarded.
+;       NOISE:          in, optional, type=boolean, default=0
+;                       If set, the FFT is normalized based on signal noise.
+;       POWER:          in, optional, type=boolean, default=0
+;                       If set, the FFT is normalized based on signal power.
+;       RANGE:          in, optional, type=strarr(2)/intarr(2), default=[0\,N]
+;                       A time or index range outlining a subinterval of data over which
+;                           the FFT is to be computed. If a time range is given, it must
+;                           be formatted as ISO-8601 strings.
+;       RMS:            in, optional, type=boolean, default=0
+;                       If set, the FFT is normalized based on RMS values.
+;       WINDOW:         in, optional, type=fltarr/string, default='Rectangular'
+;                       A tapering window or the name of a tapering window to be applied
+;                           before the FFT is performed.
+;       ZEROPAD:        in, optional, type=boolean/integer, default=0
+;                       If set, the data will be zero-padded with N zeros, where N brings
+;                           the total number of points up to the nearest power of 2. ZEROPAD
+;                           can also be an integer > 1 indicating the number of zeros with
+;                           which to pad the data.
+;
+; :Returns:
+;       RESULT:         out, required, type=MrTimeSeries or MrVariable object
+;                       The results of the fast fourier transformation. If more than
+;                           one FFT is possible, a MrTimeSeries object is returned.
+;                           Otherwise, a MrVariable object is returned.
+;-
+FUNCTION MrTimeSeries::FFT, nfft, nshift, $
+DETREND=detrend, $
+DOUBLE=double, $
+NOISE=noise, $
+ONE_SIDED=one_sided, $
+POWER=power, $
+RANGE=range, $
+RMS=rms, $
+WINDOW=win, $
+ZEROPAD=zeropad
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Range
+	IF N_Elements(range)  EQ 0 THEN range  = [0, (self -> GetNPts()) - 1]
+	IF Size(range, /TNAME) EQ 'STRING' $
+		THEN irange = self -> Value_Locate(range) $
+		ELSE irange = range
+	nPts = irange[1] - irange[0] + 1
+	
+	dim          = 1
+	tf_double    = Keyword_Set(double)
+	tf_noise     = Keyword_Set(noise)
+	tf_one_sided = Keyword_Set(one_sided)
+	tf_power     = Keyword_Set(power)
+	tf_rms       = Keyword_Set(rms)
+	tf_zeropad   = Keyword_Set(zeropad)
+	tf_detrend   = Keyword_Set(detrend)
+	IF N_Elements(nfft)   EQ 0 THEN nfft   = nPts
+	IF N_Elements(nshift) EQ 0 THEN nshift = nfft / 2
+	
+	;Conflicts
+	IF tf_rms + tf_noise + tf_power GT 1 THEN Message, 'RMS, NOISE, and POWER are mutually exclusive.'
+	IF nfft GT nPts THEN Message, 'Length of FFT is longer than data interval.'
+
+;-------------------------------------------------------
+; Extract Data /////////////////////////////////////////
+;-------------------------------------------------------
+	;Time
+	time = self.oTime['DATA', irange[0]:irange[1], 'SSM']
+	
+	;Data
+	ndims = Size(*self.data, /N_DIMENSIONS)
+	CASE ndims OF
+		1: data = (*self.data)[irange[0]:irange[1]]
+		2: data = (*self.data)[irange[0]:irange[1],*]
+		3: data = (*self.data)[irange[0]:irange[1],*,*]
+		4: data = (*self.data)[irange[0]:irange[1],*,*,*]
+		5: data = (*self.data)[irange[0]:irange[1],*,*,*,*]
+		6: data = (*self.data)[irange[0]:irange[1],*,*,*,*,*]
+		7: data = (*self.data)[irange[0]:irange[1],*,*,*,*,*,*]
+		8: data = (*self.data)[irange[0]:irange[1],*,*,*,*,*,*,*]
+		ELSE: Message, 'Incorrect number OF dimensions: SELF.'
+	ENDCASE
+	
+	;New dimension sizes
+	dims = Size(*self.data, /DIMENSIONS)
+
+;-------------------------------------------------------
+; Tapering Window //////////////////////////////////////
+;-------------------------------------------------------
+	;Default window
+	IF N_Elements(win) EQ 0 THEN BEGIN
+		taper = self -> FFT_Window(nfft)
+	
+	;Named window
+	ENDIF ELSE IF MrIsA(win, /SCALAR, 'STRING') THEN BEGIN
+		taper = self -> FFT_Window(nfft, win)
+		
+	;User-defined window
+	ENDIF ELSE BEGIN
+		;Check length
+		IF tf_window && N_Elements(win) NE nfft THEN Message, 'WINDOW must have NFFT elements.'
+		taper = win
+	ENDELSE
+	
+	;Correct dimensions
+	IF ndims GT 1 THEN taper = Rebin( taper, [nfft, dims[1:*]] )
+
+;-----------------------------------------------------
+; Step Through Intervals \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Declare variables
+	nMax   = Floor( (nPts - nfft) / nshift ) + 1    ;Number of FFTs to perform
+	N_new  = nfft                                   ;Total number of points in FFT after zero-padding
+	nZeros = 0                                      ;Number of zeros to pad
+	
+	;Allocate memory
+	;   - Only necessary if more than one FFT is being performed
+	type = tf_double ? 9 : 6
+	IF nMax GT 1 THEN BEGIN
+		IF nDims GT 7 THEN Message, 'DIMENSIONS must be < 7 for sliding FFTs.'
+		outDims = nDims EQ 1 ? [nMax, nfft] : [nMax, nfft, dims[1:*]]
+		dft     = Make_Array( outDims, TYPE=type )
+	ENDIF ELSE BEGIN
+		outDims = nDims EQ 1 ? nfft : [nfft, dims[1:*]]
+		dft     = Make_Array( outDims, TYPE=type )
+	ENDELSE
+	freqs     = FltArr(nMax,nfft)
+	dt_median = FltArr(nMax)
+	df_fft    = FltArr(nMax)
+	t_fft     = FltArr(nMax)
+	dt_fft    = FltArr(nMax)
+	
+	;Step through each interval
+	FOR i = 0, nMax-1 DO BEGIN
+	;-----------------------------------------------------
+	; Define Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;
+		; Place at beginning of loop so that continue
+		; advances interval as well as loop index.
+		;
+	
+		;First interval
+		IF i EQ 0 THEN BEGIN
+			istart = 0
+			iend   = nfft - 1
+		
+		;Last interval
+		;   - Extend backward from the end of the array
+		ENDIF ELSE IF i EQ nMax-1 THEN BEGIN
+			ilast  = iend
+			iend   = nPts - 1
+			istart = nPts - nfft
+		
+		;Intermediate intervals
+		;   - Advance forward by NSHIFT
+		ENDIF ELSE BEGIN
+			istart += nshift
+			iend   += nshift
+		ENDELSE
+	
+	;-----------------------------------------------------
+	; Compute Sample Interval \\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;Time and sampling interval
+		dtTemp = time[istart+1:iend] - time[istart:iend-1]
+
+		;Is the sampling interval consistent throughout?
+		;   - A "bad" sampling interval occurs if it is 10% different
+		;     from the first sampling interval
+		SI = Median(dtTemp)
+		IF Total( Abs(Temporary(dtTemp) - SI) GT 0.1*SI ) NE 0 THEN BEGIN
+			MrPrintF, 'LogWarn', 'Sampling interval changes during FFT. Skipping.'
+			CONTINUE
+		ENDIF
+	
+	;-----------------------------------------------------
+	; Select Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		t_temp = time[istart:iend]
+		
+		;Extract the sub-interval
+		CASE ndims OF
+			1: temp = data[istart:iend]
+			2: temp = data[istart:iend,*]
+			3: temp = data[istart:iend,*,*]
+			4: temp = data[istart:iend,*,*,*]
+			5: temp = data[istart:iend,*,*,*,*]
+			6: temp = data[istart:iend,*,*,*,*,*]
+			7: temp = data[istart:iend,*,*,*,*,*,*]
+			8: temp = data[istart:iend,*,*,*,*,*,*,*]
+			ELSE: Message, 'Incorrect number OF dimensions: SELF.'
+		ENDCASE
+	
+	;-----------------------------------------------------
+	; Detrend \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		IF tf_detrend THEN BEGIN
+			;Single fit
+			IF ndims EQ 1 THEN BEGIN
+				params = LADFit(t_temp, temp)
+				temp   = temp - (params[0] + params[1]*t_temp)
+			
+			;Fit each dimension
+			ENDIF ELSE BEGIN
+				;Reform to 2 dimensions
+				dim2 = Product(dims[1:*])
+				temp = Reform(temp, [nfft, dim2], /OVERWRITE)
+				
+				;Detrend each component individually
+				FOR j = 0, dim2 - 1 DO BEGIN
+					params    = LADFit(t_temp, temp[*,j])
+					temp[*,j] = temp - (params[0] + params[1]*t_temp)
+				ENDFOR
+				
+				;Return to original size
+				temp = Reform(temp, [nfft, dims[1:*]], /OVERWRITE)
+			ENDELSE
+		ENDIF
+	
+	;-----------------------------------------------------
+	; Apply Window \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		temp = taper * temp
+	
+	;-----------------------------------------------------
+	; Zero Pad \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		
+		;Zero pad
+		IF tf_zeropad THEN BEGIN
+			;Number of zeros to add
+			IF zeropad EQ 1 THEN BEGIN
+				N_new  = 2^Ceil(alog2(nfft))
+				nZeros = N - nfft
+			ENDIF ELSE BEGIN
+				N_new  = nfft + zeropad
+				nZeros = zeropad
+			ENDELSE
+			
+			;Zero pad the data
+			IF ndims GT 1 $
+				THEN temp = [ temp, Replicate(0, [nZeros, dims[1:*]]) ] $
+				ELSE temp = [ temp, Replicate(0, nZeros) ]
+		ENDIF
+		
+		;Increase number of frequencies
+		IF N_new GT nfft THEN freqs = [ [freqs], [FltArr(1,N_new-nfft)] ]
+		
+	;-----------------------------------------------------
+	; Determine Frequencies \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		sr = 1.0 / SI
+		fN = sr / 2.0
+		df = 1.0 / (SI * N_new)
+		f  = [0:fN:df]
+		f  = N_new MOD 2 EQ 0 ? [ f, -Reverse(f[1:-2]) ] : [ f, -Reverse(f[1:-1]) ]
+		
+	;-----------------------------------------------------
+	; Compute FFT \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+
+		;Compute the FFT
+		fftTemp = FFT( Temporary(temp), DIMENSION=1, DOUBLE=tf_double )
+		
+		;Normalize the FFT to account FOR the window
+;		CG = mean(taper)
+;		NG = mean(taper^2)
+;		CASE 1 OF
+;			tf_rms:   fftTemp /= CG
+;			tf_noise: ;Do nothing
+;			tf_power: ;Do nothing
+;			ELSE:     ;Do nothing
+;		ENDCASE
+
+	;-----------------------------------------------------
+	; Outputs \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	;-----------------------------------------------------
+		;Save data
+		IF nMax EQ 1 THEN BEGIN
+			dft   = Temporary(fftTemp)
+		ENDIF ELSE BEGIN
+			CASE ndims OF
+				1: dft[i,*]             = Temporary(fftTemp)
+				2: dft[i,*,*]           = Temporary(fftTemp)
+				3: dft[i,*,*,*]         = Temporary(fftTemp)
+				4: dft[i,*,*,*,*]       = Temporary(fftTemp)
+				5: dft[i,*,*,*,*,*]     = Temporary(fftTemp)
+				6: dft[i,*,*,*,*,*,*]   = Temporary(fftTemp)
+				7: dft[i,*,*,*,*,*,*,*] = Temporary(fftTemp)
+				ELSE: Message, 'Incorrect number of dimensions: SELF.'
+			ENDCASE
+		ENDELSE
+			
+		;Save frequencies and time itnerval
+		;   - Necessary only for I=0 if TF_CALC_DT is false
+		;   - Keep track of all here to simplify logic
+		freqs[i,*]   = f
+		dt_median[i] = SI
+		df_fft[i]    = 1.0 / (N_new * SI)
+		
+		;Record time stamp
+		t_fft[i]  = time[istart] + (nfft * SI) / 2.0
+		dt_fft[i] = nfft * SI / 2.0
+	ENDFOR
+	
+	;Scalar values
+	IF nMax EQ 1 THEN BEGIN
+		freqs     = Reform(freqs)
+		dt_median = dt_median[0]
+		dt_fft    = dt_fft[0]
+		df_fft    = df_fft[0]
+		t_fft     = t_fft[0]
+		dt_fft    = dt_fft[0]
+	ENDIF
+
+;-----------------------------------------------------
+; Finishing Touches \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;Reduce dimensions IF sampling interval never changed
+	;   - fN = 1 / T = 1 / (nfft*dt)
+	;   - NFFT is constant, but DT is permitted to vary
+	;   - If DT changes, then we must keep track OF FN as a function of time
+	;   - If not, then FN and F DO not vary with time, and we can reduce to one copy
+	IF nMax GT 1 && Total( (dt_median - dt_median[0]) GT 0.1*dt_median[0] ) EQ 0 THEN BEGIN
+		freqs     = Reform(freqs[0,*])
+		df_fft    = df_fft[0]
+		dt_median = dt_median[0]
+		dt_fft    = dt_fft[0]
+	ENDIF
+	
+	;Remove negative frequencies
+	;   - TODO: What IF DIMENSION ~= 2
+	IF tf_one_sided THEN BEGIN
+		freqs = freqs[0:nfft/2]
+		CASE ndims OF
+			1: dft = dft[*,0:nfft/2]
+			2: dft = dft[*,0:nfft/2,*]
+			3: dft = dft[*,0:nfft/2,*,*]
+			4: dft = dft[*,0:nfft/2,*,*,*]
+			5: dft = dft[*,0:nfft/2,*,*,*,*]
+			6: dft = dft[*,0:nfft/2,*,*,*,*,*]
+			7: dft = dft[*,0:nfft/2,*,*,*,*,*,*]
+			ELSE: Message, 'Incorrect number OF dimensions: SELF.'
+		ENDCASE
+	ENDIF
+
+;-----------------------------------------------------
+; Output Object \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+
+	;TIME
+	IF nMax EQ 1 $
+		THEN t_fft = MrCDF_Epoch_Encode( MrCDF_ssm2epoch( t_fft, self.oTime['DATA', 0, 'TT2000'] ) ) $
+		ELSE oTime = MrTimeVar( t_fft, 'SSM', /NO_COPY, T_REF=self.oTime['DATA', 0] )
+
+	;FREQUENCY
+	IF Size(freqs, /DIMENSIONS) EQ 2 $
+		THEN oFreq = MrTimeSeries( oTime, freqs, /NO_COPY ) $
+		ELSE oFreq = MrVariable( freqs, /NO_COPY )
+
+	;DFT
+	IF nMax GT 1 $
+		THEN oDFT = MrTimeSeries( oTime, dft ) $
+		ELSE oDFT = MrVariable( dft, /NO_COPY )
+
+;-----------------------------------------------------
+; Attributes \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;DEPEND_# & DELTA_(MINUS|PLUS)
+	IF nMax GT 1 THEN BEGIN
+		;dt - Scalar
+		IF N_Elements(dt_fft) EQ 1 THEN BEGIN
+			oTime['DELTA_PLUS']  = dt_fft
+			oTime['DELTA_MINUS'] = dt_fft
+		
+		;dt(t)
+		ENDIF ELSE BEGIN
+			;Create a time-dependent variation
+			oDT = MrTimeSeries( oTime, dt_fft, /NO_COPY )
+			oDT['TITLE'] = 'Deviation from center time.'
+			oDT['UNITS'] = 'seconds'
+			
+			;Add as attribute to TIME
+			oTime['DELTA_PLUS_VAR']  = oDT
+			oTime['DELTA_MINUS_VAR'] = oDT
+		ENDELSE
+		
+		;Set DFT dependencies
+		oDFT['DEPEND_0']   = oTime
+		oDFT['DEPEND_1']   = oFreq
+		oDFT['PLOT_TITLE'] = string(nfft, nshift, FORMAT='(%"DFT: NFFT=%i, NSHIFT=%i")')
+	
+	;Single DFT
+	ENDIF ELSE BEGIN
+		oDFT['DEPEND_0']   = oFreq
+		oDFT['PLOT_TITLE'] = string(nfft, FORMAT='(%"DFT: NFFT=%i")')
+		oDFT['TIME_STAMP'] = t_fft
+	ENDELSE
+	oDFT['SAMPLE_RATE'] = nMax EQ 1 ? 1.0/SI : 1.0/dt_median
+	oDFT['NFFT']        = N_new
+	oDFT['NZEROPAD']    = nZeros
+	oDFT['NSHIFT']      = nshift
+	oDFT['WINDOW']      = taper[*,0]
+	
+	;TIME
+	IF nMax GT 1 THEN BEGIN
+		oTime -> SetName, 'fft_tcenter'
+		oTime['TITLE'] = 'FFT Center Times'
+	ENDIF
+	
+	;FREQUENCY
+	oFreq -> SetName, 'fft_freq'
+	oFreq['TITLE'] = 'Freq!C(Hz)'
+	oFreq['UNITS'] = 'Hz'
+	IF tf_one_sided THEN BEGIN
+		oFreq['LOG']        = 1B
+		oFreq['AXIS_RANGE'] = [oFreq['DATA',1], oFreq['DATA',-1]]
+	ENDIF
+	
+	;DFT
+	oDFT -> SetName, 'FFT'
+	oDFT['TITLE'] = 'FFT'
+	oDFT['SCALE'] = 1
+	
+	RETURN, oDFT
+END
+
+
+;+
+;   Create a tapering window for spectral analysis.
+;
+; :Params:
+;       N:          in, required, type=integer
+;                   Number of points for the tapering window.
+;       NAME:       in, optional, type=string, default=RECTANGULAR
+;                   Name of the tapering window to use. Options are: {"Bartlett" | "Blackman" | 
+;                       "Gaussian" | "Triangular" | "Rectangular" | "Hanning" | "Hamming" |
+;                       "None" | ""}
+;
+; :Keywords:
+;       WIDTH:      in, optional, type=integer, default=`N`
+;                   If `NAME` is "Gaussian", then WIDTH defines the width of the window.
+;
+; :Returns:
+;       TAPER:      out, required, type=fltarr
+;                   The tapering window.
+;-
+FUNCTION MrTimeSeries::FFT_Window, n, name, $
+WIDTH=width
+	Compile_Opt idl2
+	On_Error, 2
+	
+	IF N_Elements(name)  EQ 0 THEN name = 'RECTANGULAR'
+	IF N_Elements(width) EQ 0 THEN width = Float(n)
+	IF width GT n THEN Message, 'WIDTH must be <= N.'
+	
+	;Name
+	CASE StrUpCase(name) OF
+		'BARTLETT':    taper = 1 - abs(1 - 2*FIndGen(n)/(n-1))
+		'BLACKMAN': BEGIN
+			xx    = FIndGen(n)/(n-1)
+			taper = 0.42 - 0.50 * Cos(2*!pi*xx) + 0.08 * Cos(4*!pi*xx)
+		ENDCASE
+		'GAUSSIAN':    taper = Exp( -( FIndGen(n) - (n - 1)/2 )^2 / (2*width^2) )
+		'TRIANGULAR':  taper = 1 - Abs(1 - 2*FIndGen(n)/(n-1))
+		'SQUARE':      taper = Replicate(1.0, n)
+		'RECTANGULAR': taper = Replicate(1.0, n)
+		'HANNING':     taper = Hanning(n, ALPHA=0.50)
+		'HAMMING':     taper = Hanning(n, ALPHA=0.54)
+		'NONE':        taper = Replicate(1.0, n)
+		'':            taper = Replicate(1.0, n)
+		ELSE: Message, 'Window not recognized: "' + name + '".'
+	ENDCASE
+	
+	RETURN, taper
+END
 
 ;+
 ;   Return the variable's data.
@@ -2516,16 +3567,26 @@ SPLINE=spline
 ;-------------------------------------------------------
 	if IsA(Xout, 'MrVariable') then begin
 		;Get the time variables
-		oT    = self.oTime
+		oT = self.oTime
 		if obj_isa(Xout, 'MrTimeVar') $
 			then oTout = Xout $
 			else oTout = MrVar_Get(Xout['DEPEND_0'])
 		
+		;
+		; Check if the variables are the same
+		;
+		IF oT -> IsIdentical(oTout) THEN BEGIN
+			varOut = self -> Copy()
+			varOut -> SetName, name
+			IF Keyword_Set(cache) THEN varOut -> Cache
+			RETURN, varOut
+		ENDIF
+		
 		;Reference time
-		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
+		!Null = min( [ oT['DATA', 0, 'JULDAY'], oTout['DATA', 0, 'JULDAY'] ], iMin )
 		if iMin eq 0 $
-			then t_ref = oT[[0]] $
-			else t_ref = oTout[[0]]
+			then t_ref = oT['DATA', 0] $
+			else t_ref = oTout['DATA', 0]
 		
 		;Convert to seconds since midnight
 		t     = oT    -> GetData('SSM', t_ref)
@@ -2562,7 +3623,7 @@ SPLINE=spline
 		nOut    = n_elements(t_out)
 		allDims = product( dims[1:*] )
 		y       = reform( *self.data, [dims[0], allDims] )
-		y_out   = make_array( nOut, allDims, TYPE=Xout[0] )
+		y_out   = make_array( nOut, allDims, TYPE=Size(*self.data, /TYPE) )
 		
 		;Interpolate all
 		for i = 0, allDims - 1 do begin
@@ -2578,7 +3639,7 @@ SPLINE=spline
 		t = !Null
 		
 		;Reform back
-		Yout = reform(Yout, [nOut, dims[1:*]], /OVERWRITE)
+		y_out = reform(y_out, [nOut, dims[1:*]], /OVERWRITE)
 	endelse
 
 ;-------------------------------------------------------
@@ -2687,7 +3748,7 @@ NAME=name
 ;-------------------------------------------------------
 	
 	;Allocate memory
-	temp = make_array( tempDims, TYPE=size(self[[0]]*B[[0]], /TYPE) )
+	temp = make_array( tempDims, TYPE=size(self['DATA',0]*B['DATA',0], /TYPE) )
 
 	;Step through each
 	;   - If _B is TxN, we want to keep each time element 1xN so that N is the outer dimension
@@ -2746,7 +3807,7 @@ end
 ;                           one FFT is possible, a MrTimeSeries object is returned.
 ;                           Otherwise, a MrVariable object is returned.
 ;-
-function MrTimeSeries::PSD, $
+function MrTimeSeries::PSD_Old, $
 CACHE=cache, $
 NDETREND=nDetrend, $
 NAME=name, $
@@ -2790,11 +3851,11 @@ WINDOW=win
 ;-----------------------------------------------------
 ; Compute FFT \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	oFFT = oVar -> FFT( nfft, nshift, $
-	                    NOISE  = noise, $
-	                    POWER  = power, $
-	                    RMS    = rms, $
-	                    WINDOW = win )
+	oFFT = oVar -> FFT_Old( nfft, nshift, $
+	                        NOISE  = noise, $
+	                        POWER  = power, $
+	                        RMS    = rms, $
+	                        WINDOW = win )
 	if ~obj_valid(oFFT) then return, !Null
 
 ;-----------------------------------------------------
@@ -2803,21 +3864,20 @@ WINDOW=win
 
 	dims  = size(oFFT, /DIMENSIONS)
 	ndims = size(oFFT, /N_DIMENSIONS)
-	
-	;Positive frequencies
-	oFreq = oFFT['DEPEND_0']
-	oFreq -> SetData, oFreq[0:nfft/2]
-	
+
 	;One-sided
 	case ndims of
-		1: pwr = 2.0 * oFFT[0:nfft/2]               * conj( oFFT[0:nfft/2] )
-		2: pwr = 2.0 * oFFT[0:nfft/2,*]             * conj( oFFT[0:nfft/2,*] )
-		3: pwr = 2.0 * oFFT[0:nfft/2,*,*]           * conj( oFFT[0:nfft/2,*,*] )
-		4: pwr = 2.0 * oFFT[0:nfft/2,*,*,*]         * conj( oFFT[0:nfft/2,*,*,*] )
-		5: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*]       * conj( oFFT[0:nfft/2,*,*,*,*] )
-		6: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*]     * conj( oFFT[0:nfft/2,*,*,*,*,*] )
-		7: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*,*]   * conj( oFFT[0:nfft/2,*,*,*,*,*,*] )
-		8: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*,*,*] * conj( oFFT[0:nfft/2,*,*,*,*,*,*,*] )
+		1: pwr = 2.0 * oFFT['DATA',0:nfft/2]               * conj( oFFT['DATA',0:nfft/2] )
+		2: pwr = 2.0 * oFFT['DATA',0:nfft/2,*]             * conj( oFFT['DATA',0:nfft/2,*] )
+		3: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*]           * conj( oFFT['DATA',0:nfft/2,*,*] )
+		4: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*]         * conj( oFFT['DATA',0:nfft/2,*,*,*] )
+		5: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*]       * conj( oFFT['DATA',0:nfft/2,*,*,*,*] )
+		6: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*,*]     * conj( oFFT['DATA',0:nfft/2,*,*,*,*,*] )
+		7: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*,*,*]   * conj( oFFT['DATA',0:nfft/2,*,*,*,*,*,*] )
+		8: begin
+			fft_data = oFFT -> GetData()
+			pwr      = 2.0 * fft_data[0:nfft/2,*,*,*,*,*,*,*] * conj( fft_data[0:nfft/2,*,*,*,*,*,*,*] )
+		endcase
 		else: message, 'FFT must have <= 8 dimensions.'
 	endcase
 
@@ -2826,15 +3886,17 @@ WINDOW=win
 ;-----------------------------------------------------
 	
 	;PWR attributes
-	oPWR  = oFFT -> Copy()
-	oPWR -> SetName, name
-	oPWR -> SetData, real_part(pwr), /NO_COPY
-	oPWR['TITLE'] = 'PSD'
-	oPWR['LOG']   = 1
+	oPWR = MrVariable( real_part(pwr), CACHE=cache, NAME=name, /NO_COPY )
 	
 	;Frequency attributes
+	oFreq = oFFT['DEPEND_0']
+	oFreq['AXIS_RANGE'] = [oFreq['DATA',1], oFreq['DATA',nfft/2]]
 	oFreq['LOG']        = 1B
-	oFreq['AXIS_RANGE'] = [oFreq[1], oFreq[-1]]
+	oFreq['TITLE']      = 'Freq (' + oFreq['UNITS'] + ')'
+	
+	oPWR['DEPEND_0'] = oFreq[0:nfft/2]
+	oPWR['TITLE']    = 'PSD'
+	oPWR['LOG']      = 1
 
 	;Normalize
 ;	case 1 of
@@ -2852,9 +3914,175 @@ WINDOW=win
 ;		else:   ;Nothing
 ;	endcase
 	
-	if keyword_set(cache) then oPWR -> Cache
 	return, oPWR
 end
+
+
+;+
+;   Compute the PSD
+;
+; :Params:
+;       NFFT:           in, optional, type=int, default=nPts
+;                       Number of points in each FFT. If NFFT is shorter than the
+;                           signal length defined by `RANGE`, then the PSD of each NFFT
+;                           segment that fits within `RANGE` will be averaged together.
+;       NSHIFT:         in, optional, type=integer, default=NFFT/2
+;                       Number of points to shift between consecutive FFTs.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, `RESULT` will be added to the variable cache.
+;       NAME:           in, optional, type=string, default='PSD('+<name>+')'
+;                       Name to be given to `RESULT`.
+;       RANGE:          in, optional, type=intarr(2)/strarr(2), default="[0,nPts-1]"
+;                       A time or index range outlining a subset of the data for which
+;                           the PSD is computed.
+;       WINDOW:         in, optional, type=string, default='Rectangular'
+;                       The name of a tapering window to be applied to the data. See
+;                           the FFT_Window method for valid names.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by the ::FFT2 method is also accepted here.
+;
+; :Returns:
+;       OPSD:           out, required, type=MrVariable object
+;                       The power spectral density of the intrinsic time series signal.
+;-
+FUNCTION MrTimeSeries::PSD, nfft, nshift, $
+CACHE=cache, $
+NAME=name, $
+RANGE=range, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		RETURN, !Null
+	ENDIF
+	
+	;Range
+	IF N_Elements(range)  EQ 0 THEN range  = [0, (self -> GetNPts()) - 1]
+	IF Size(range, /TNAME) EQ 'STRING' $
+		THEN irange = self -> Value_Locate(range) $
+		ELSE irange = range
+	
+	;Other defaults
+	tf_rms    = Keyword_Set(rms)
+	tf_noise  = Keyword_Set(noise)
+	tf_power  = Keyword_Set(power)
+	IF N_Elements(nfft)   EQ 0 THEN nfft   = irange[1] - irange[0] + 1
+	IF N_Elements(nshift) EQ 0 THEN nshift = nfft/2
+	IF N_Elements(name)   EQ 0 THEN name   = 'PSD(' + self.name + ')'
+	
+	;Gain from window
+;	NG = mean(win^2)
+;	CG = mean(win)
+
+;-----------------------------------------------------
+; Compute FFT \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+
+	oFFT = self -> FFT( nfft, nshift, $
+	                    RANGE         = irange, $
+	                    _STRICT_EXTRA = extra )
+
+;-----------------------------------------------------
+; Normalizations \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Zero padding
+	zeroNorm = (oFFT['NZEROPAD'] + nfft)^2.0 / Float(nfft)
+	
+	;Tapering window
+	winNorm = Total(oFFT['WINDOW']^2) / nfft
+
+;-----------------------------------------------------
+; One-Sided PSD \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Time-Series
+	tf_ts = IsA(oFFT, 'MrTimeSeries')
+	
+	;Time-Series
+	IF tf_ts THEN BEGIN
+		;If a time series, minimum # dims = 2: [time, freq]
+		CASE SiZE(oFFT, /N_DIMENSIONS) OF
+			2: temp = oFFT['DATA',*,0:nfft/2]             * Conj( oFFT['DATA',*,0:nfft/2] )
+			3: temp = oFFT['DATA',*,0:nfft/2,*]           * Conj( oFFT['DATA',*,0:nfft/2,*] )
+			4: temp = oFFT['DATA',*,0:nfft/2,*,*]         * Conj( oFFT['DATA',*,0:nfft/2,*,*] )
+			5: temp = oFFT['DATA',*,0:nfft/2,*,*,*]       * Conj( oFFT['DATA',*,0:nfft/2,*,*,*] )
+			6: temp = oFFT['DATA',*,0:nfft/2,*,*,*,*]     * Conj( oFFT['DATA',*,0:nfft/2,*,*,*,*] )
+			7: temp = oFFT['DATA',*,0:nfft/2,*,*,*,*,*]   * Conj( oFFT['DATA',*,0:nfft/2,*,*,*,*,*] )
+			8: BEGIN
+				fft_data = oFFT -> GetData()
+				temp     = fft_data[*,0:nfft/2,*,*,*,*,*,*] * Conj( fft_data[*,0:nfft/2,*,*,*,*,*,*] )
+				fft_data = !Null
+			ENDCASE
+			ELSE: Message, 'FFT must have <= 8 dimensions.'
+		ENDCASE
+	
+	;Single PSD
+	ENDIF ELSE BEGIN
+		;One-sided
+		CASE SiZE(oFFT, /N_DIMENSIONS) OF
+			1: temp = oFFT['DATA',0:nfft/2]             * Conj( oFFT['DATA',0:nfft/2] )
+			2: temp = oFFT['DATA',0:nfft/2,*]           * Conj( oFFT['DATA',0:nfft/2,*] )
+			3: temp = oFFT['DATA',0:nfft/2,*,*]         * Conj( oFFT['DATA',0:nfft/2,*,*] )
+			4: temp = oFFT['DATA',0:nfft/2,*,*,*]       * Conj( oFFT['DATA',0:nfft/2,*,*,*] )
+			5: temp = oFFT['DATA',0:nfft/2,*,*,*,*]     * Conj( oFFT['DATA',0:nfft/2,*,*,*,*] )
+			6: temp = oFFT['DATA',0:nfft/2,*,*,*,*,*]   * Conj( oFFT['DATA',0:nfft/2,*,*,*,*,*] )
+			7: temp = oFFT['DATA',0:nfft/2,*,*,*,*,*,*] * Conj( oFFT['DATA',0:nfft/2,*,*,*,*,*,*] )
+			8: BEGIN
+				fft_data = oFFT -> GetData()
+				temp     = fft_data[0:nfft/2,*,*,*,*,*,*,*] * Conj( fft_data[0:nfft/2,*,*,*,*,*,*,*] )
+				fft_data = !Null
+			ENDCASE
+			ELSE: Message, 'FFT must have <= 8 dimensions.'
+		ENDCASE
+	ENDELSE
+	
+	;Normalize
+	psd = 2.0 * zeroNorm / winNorm / oFFT['SAMPLE_RATE'] * Temporary(temp)
+	
+	;Average over time
+	IF tf_ts THEN psd = Mean(psd, DIMENSION=1)
+
+;-----------------------------------------------------
+; Set Properties \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	
+	;PWR attributes
+	oPSD = MrVariable( Real_Part(psd), CACHE=cache, NAME=name, /NO_COPY )
+	oFFT -> CopyAttrTo, oPSD, ['NFFT', 'NSHIFT', 'NZEROPAD', 'SAMPLE_RATE', 'WINDOW']
+	IF ~tf_ts THEN oFFT -> CopyAttrTo, oPSD, 'TIME_STAMP'
+	
+	;Frequency attributes
+	oFreq = tf_ts ? oFFT['DEPEND_1'] : oFFT['DEPEND_0']
+	oFreq['AXIS_RANGE'] = [oFreq['DATA',1], oFreq['DATA',nfft/2]]
+	oFreq['LOG']        = 1B
+	oFreq['TITLE']      = 'Freq (' + oFreq['UNITS'] + ')'
+	
+	oPSD['DEPEND_0'] = oFreq[0:nfft/2]
+	oPSD['TITLE']    = 'PSD'
+	oPSD['LOG']      = 1
+
+	;Normalize
+;	CASE 1 OF
+;		tf_rms:   pwr = NG * pwr / CG^2
+;		tf_noise: pwr = pwr / (NG * df)
+;		tf_power: pwr = pwr / NG
+;		ELSE:     ;Do nothing
+;	ENDCASE
+	
+	;Normalize
+;	CASE 1 OF
+;		tf_rms:   pwr = NG * pwr / CG^2
+;		tf_noise: pwr = NG * df * pwr / CG^2
+;		tf_power: pwr = NG * pwr / CG^2
+;		ELSE:   ;Nothing
+;	ENDCASE
+	
+	RETURN, oPSD
+END
 
 
 ;+
@@ -2885,6 +4113,45 @@ function MrTimeSeries::IsTimeIdentical, oVar
 	
 	return, tf_same
 end
+
+
+;+
+;   Set the value of a single attribute.
+;
+; :Params:
+;       ATTRNAME:       in, required, type=string
+;                       The name of the attribute for which the value is to be changed.
+;       ATTRVALUE:      in, optional, type=any accepted by ::AttrValue_IsValid
+;                       The value of the attribute.
+;
+; :Keyword:
+;       CREATE:         in, optional, type=boolean, default=0
+;                       If set, the attribute will be created if it does not already exist.
+;       OVERWRITE:      in, optional, type=boolean, default=1
+;                       If set to zero, the attribute value will not be set if `ATTRNAME`
+;                           already exists as an attribute.
+;-
+PRO MrTimeSeries::SetAttributeValue, attrName, attrValue, $
+CREATE=create, $
+OVERWRITE=overwrite
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Check inputs
+	if ~IsA(attrName, 'STRING', /SCALAR) $
+		then message, 'ATTRNAME must be a scalar string.'
+	
+	;Forbidden attributes
+	;   - These are special inputs to ::_OverloadBracketsRightSide
+	;   - These are in addition to the forbidden attributes of MrVariable
+	IF MrIsMember(['TIME', 'TIMEVAR'], attrName) $
+		THEN Message, '"' + attrName + '" cannot be an attribute name.'
+	
+	;Call superclass
+	self -> MrVariable::SetAttributeValue, attrName, attrValue, $
+	                                       CREATE    = create, $
+	                                       OVERWRITE = overwrite
+END
 
 
 ;+
@@ -2933,10 +4200,13 @@ T_REF=t_ref, $
 T_TYPE=t_type
 	Compile_Opt idl2
 	On_Error, 2
-
+	
+	;oVar -> SetDAta, x1, x2
 	IF N_Elements(x2) GT 0 THEN BEGIN
 		time   = x1
 		ts_var = x2
+	
+	;oVar -> SetData, x1
 	ENDIF ELSE BEGIN
 		ts_var = x1
 	ENDELSE
@@ -2957,23 +4227,19 @@ T_TYPE=t_type
 			;MrTimeVar
 			IF Obj_IsA(time, 'MrTimeVar') $
 				THEN oTime = time $
-				ELSE Message, 'X1 must be a MrTimeVar object.' 
+				ELSE Message, 'X1 must be a MrTimeVar object.'
 	
 		;Name
-		ENDIF ELSE IF IsA(time, /SCALAR, 'STRING') THEN BEGIN
+		ENDIF ELSE IF MrIsA(time, 'STRING', /SCALAR) && MrVar_IsCached(time) THEN BEGIN
 			;Cached?
-			IF MrVar_IsCached(time) THEN BEGIN
-				oTime = MrVar_Get(time)
-				IF ~Obj_IsA(oTime, 'MrTimeVar') $
-					THEN Message, 'X1 must be the name of a cached MrTimeVar object.'
-			ENDIF ELSE BEGIN
-				Message, 'X1 must be the name of a cached variable.'
-			ENDELSE
+			oTime = MrVar_Get(time)
+			IF ~Obj_IsA(oTime, 'MrTimeVar') $
+				THEN Message, 'X1 must be the name of a cached MrTimeVar object.'
 	
 		;Data
 		ENDIF ELSE BEGIN
 			oTime = MrTimeVar(time, t_type, NAME=t_name, NO_COPY=no_copy, T_REF=t_ref)
-			IF Obj_Valid(oTime) EQ 0 THEN Message, 'Could not create X1 variable.'
+			IF ~Obj_Valid(oTime) THEN Message, 'Could not create X1 variable.'
 		ENDELSE
 	ENDELSE
 	
@@ -3042,14 +4308,14 @@ T_TYPE=t_type
 ; Store Data \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Store the data as properties
-	;   - Let automatic garbage collection take care OF the OTIME object
+	;   - Let automatic garbage collection take care of the OTIME object
 	;     and DATA pointer (IDL v8.0+)
 	;   - The OTIME property may be shared by another MrTimeSeries object
-	;   - The DATA pointer may be saved by a superclass in CASE additional
-	;     requirements on the dimensionality OF the data is required.
+	;   - The DATA pointer may be saved by a superclass in case additional
+	;     requirements on the dimensionality of the data is required.
 	;       * e.g. pData = self.data
 	;              self  -> MrTimeSeries::SetData, time, newData
-	;              IF [dimension check fails] THEN self.data = pData
+	;              IF [dimension check fails] then self.data = pData
 	self.oTime = oTime
 	self.data  = Ptr_New(data, /NO_COPY)
 	
@@ -3063,7 +4329,7 @@ T_TYPE=t_type
 	
 	;Clear data
 	;   - Do not erase a MrTimeVar object. It may be referenced
-	;     as a DEPEND_0 attribute FOR other objects.
+	;     as a DEPEND_0 attribute for other objects.
 	IF Keyword_Set(no_copy) THEN BEGIN
 		IF N_Elements(x2) EQ 0 THEN BEGIN
 			x1 = !Null
@@ -3096,7 +4362,7 @@ END
 ;                           one FFT is possible, a MrTimeSeries object is returned.
 ;                           Otherwise, a MrVariable object is returned.
 ;-
-function MrTimeSeries::Spectrogram, nfft, nshift, $
+function MrTimeSeries::Spectrogram_Old, nfft, nshift, $
 CACHE=cache, $
 NAME=name, $
 NOISE=noise, $
@@ -3112,6 +4378,8 @@ WINDOW=win
 	if n_elements(nfft) eq 0 then nfft = self -> GetNPts()
 	if n_elements(name) eq 0 then name = 'Spectrogram(' + self.name + ')'
 	
+	if nfft gt self -> GetNPts() then message, 'NFFT > number of records.'
+	
 	;Gain from window
 ;	NG = mean(win^2)
 ;	CG = mean(win)
@@ -3119,11 +4387,11 @@ WINDOW=win
 ;-----------------------------------------------------
 ; Compute FFT \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	oFFT = self -> FFT( nfft, nshift, $
-	                    NOISE  = noise, $
-	                    POWER  = power, $
-	                    RMS    = rms, $
-	                    WINDOW = win )
+	oFFT = self -> FFT_Old( nfft, nshift, $
+	                        NOISE  = noise, $
+	                        POWER  = power, $
+	                        RMS    = rms, $
+	                        WINDOW = win )
 	if ~obj_valid(oFFT) then return, !Null
 
 ;-----------------------------------------------------
@@ -3143,13 +4411,17 @@ WINDOW=win
 		
 		;One-side
 		case ndims of
-			2: pwr = 2.0 * oFFT[*,0:nfft/2]             * conj( oFFT[*,0:nfft/2] )
-			3: pwr = 2.0 * oFFT[*,0:nfft/2,*]           * conj( oFFT[*,0:nfft/2,*] )
-			4: pwr = 2.0 * oFFT[*,0:nfft/2,*,*]         * conj( oFFT[*,0:nfft/2,*,*] )
-			5: pwr = 2.0 * oFFT[*,0:nfft/2,*,*,*]       * conj( oFFT[*,0:nfft/2,*,*,*] )
-			6: pwr = 2.0 * oFFT[*,0:nfft/2,*,*,*,*]     * conj( oFFT[*,0:nfft/2,*,*,*,*] )
-			7: pwr = 2.0 * oFFT[*,0:nfft/2,*,*,*,*,*]   * conj( oFFT[*,0:nfft/2,*,*,*,*,*] )
-			8: pwr = 2.0 * oFFT[*,0:nfft/2,*,*,*,*,*,*] * conj( oFFT[*,0:nfft/2,*,*,*,*,*,*] )
+			2: pwr = 2.0 * oFFT['DATA',*,0:nfft/2]             * conj( oFFT['DATA',*,0:nfft/2] )
+			3: pwr = 2.0 * oFFT['DATA',*,0:nfft/2,*]           * conj( oFFT['DATA',*,0:nfft/2,*] )
+			4: pwr = 2.0 * oFFT['DATA',*,0:nfft/2,*,*]         * conj( oFFT['DATA',*,0:nfft/2,*,*] )
+			5: pwr = 2.0 * oFFT['DATA',*,0:nfft/2,*,*,*]       * conj( oFFT['DATA',*,0:nfft/2,*,*,*] )
+			6: pwr = 2.0 * oFFT['DATA',*,0:nfft/2,*,*,*,*]     * conj( oFFT['DATA',*,0:nfft/2,*,*,*,*] )
+			7: pwr = 2.0 * oFFT['DATA',*,0:nfft/2,*,*,*,*,*]   * conj( oFFT['DATA',*,0:nfft/2,*,*,*,*,*] )
+			8: begin
+				data = oFFT -> GetData()
+				pwr  = 2.0 * data[*,0:nfft/2,*,*,*,*,*,*] * conj( data[*,0:nfft/2,*,*,*,*,*,*] )
+				data = !Null
+			endcase
 			else: message, 'FFT must have <= 8 dimensions.'
 		endcase
 	
@@ -3161,14 +4433,18 @@ WINDOW=win
 		
 		;One-sided
 		case ndims of
-			1: pwr = 2.0 * oFFT[0:nfft/2]               * conj( oFFT[0:nfft/2] )
-			2: pwr = 2.0 * oFFT[0:nfft/2,*]             * conj( oFFT[0:nfft/2,*] )
-			3: pwr = 2.0 * oFFT[0:nfft/2,*,*]           * conj( oFFT[0:nfft/2,*,*] )
-			4: pwr = 2.0 * oFFT[0:nfft/2,*,*,*]         * conj( oFFT[0:nfft/2,*,*,*] )
-			5: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*]       * conj( oFFT[0:nfft/2,*,*,*,*] )
-			6: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*]     * conj( oFFT[0:nfft/2,*,*,*,*,*] )
-			7: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*,*]   * conj( oFFT[0:nfft/2,*,*,*,*,*,*] )
-			8: pwr = 2.0 * oFFT[0:nfft/2,*,*,*,*,*,*,*] * conj( oFFT[0:nfft/2,*,*,*,*,*,*,*] )
+			1: pwr = 2.0 * oFFT['DATA',0:nfft/2]               * conj( oFFT['DATA',0:nfft/2] )
+			2: pwr = 2.0 * oFFT['DATA',0:nfft/2,*]             * conj( oFFT['DATA',0:nfft/2,*] )
+			3: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*]           * conj( oFFT['DATA',0:nfft/2,*,*] )
+			4: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*]         * conj( oFFT['DATA',0:nfft/2,*,*,*] )
+			5: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*]       * conj( oFFT['DATA',0:nfft/2,*,*,*,*] )
+			6: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*,*]     * conj( oFFT['DATA',0:nfft/2,*,*,*,*,*] )
+			7: pwr = 2.0 * oFFT['DATA',0:nfft/2,*,*,*,*,*,*]   * conj( oFFT['DATA',0:nfft/2,*,*,*,*,*,*] )
+			8: begin
+				data = oFFT -> GetData()
+				pwr  = 2.0 * data[0:nfft/2,*,*,*,*,*,*,*] * conj( data[0:nfft/2,*,*,*,*,*,*,*] )
+				data = !Null
+			endcase
 			else: message, 'FFT must have <= 8 dimensions.'
 		endcase
 	endelse
@@ -3182,7 +4458,7 @@ WINDOW=win
 	
 	;Frequency attributes
 	oFreq['LOG']        = 1B
-	oFreq['AXIS_RANGE'] = [oFreq[1], oFreq[-1]]
+	oFreq['AXIS_RANGE'] = [oFreq['DATA',1], oFreq['DATA',-1]]
 
 	;Normalize
 ;	case 1 of
@@ -3204,6 +4480,113 @@ WINDOW=win
 	return, oPWR
 end
 
+
+;+
+;   Create a spectrogram
+;
+; :Params:
+;       TFFT:           in, optional, type=int, default=TFFT/6
+;                       The number of points in each spectral estimate.
+;       TSHIFT:         in, optional, type=integer, default=TFFT/2
+;                       Number of points to shift between each spectral estimate.
+;       NFFT:           in, optional, type=int, default=nPts
+;                       Number of points in each FFT. If NFFT is shorter than the
+;                           `TFFT`, then the PSD of each NFFT segment that fits within
+;                           `TFFT` will be averaged together.
+;       NSHIFT:         in, optional, type=integer, default=NFFT/2
+;                       Number of points to shift between consecutive FFTs.
+;
+; :Params:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, `RESULT` will be added to the variable cache.
+;       NAME:           in, optional, type=string, default='CrossSpectram('+<name>+','+<name>+')'
+;                       Name to be given to `RESULT`.
+;       RANGE:          in, optional, type=intarr(2)/strarr(2), default="[0,nPts-1]"
+;                       A time or index range outlining a subset of the data for which
+;                           the CSD is computed.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by the ::FFT method is also accepted here.
+;
+; :Returns:
+;       RESULT:         out, required, type=objref
+;                       A MrTimeSeries variable containing the Spectrogram.
+;-
+FUNCTION MrTimeSeries::Spectrogram, tfft, tshift, nfft, nshift, $
+CACHE=cache, $
+NAME=name, $
+RANGE=range, $
+_REF_EXTRA=extra
+	Compile_Opt idl2
+	On_Error, 2
+	
+	N = self -> GetNPts()
+	IF N_Elements(tfft)   EQ 0 THEN tfft = N / 6
+	IF N_Elements(nfft)   EQ 0 THEN nfft = tfft
+	IF N_Elements(tshift) EQ 0 THEN tshift = tfft / 2
+	IF N_Elements(nshift) EQ 0 THEN nshift = nfft / 2
+	IF N_Elements(name)   EQ 0 THEN name = 'Spectrogram(' + self.name + ')'
+	IF N_Elements(range)  GT 0 THEN MrPrintF, 'LogWarn', 'RANGE keyword is ignored.'
+	
+	;Restrictions
+	IF tfft GT N THEN Message, 'NFFT > number of records.'
+	
+	;Gain from window
+;	NG = mean(win^2)
+;	CG = mean(win)
+
+;-----------------------------------------------------
+; Compute FFT \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
+	;Total number of FFTs to perform
+	nIter = Floor( (N - tfft) / tshift ) + 1
+	
+	;Initial loop conditions
+	iStart = 0
+	iEnd   = tfft - 1
+	
+	;Begin loop
+	FOR i = 0, nIter - 1 DO BEGIN
+		;Compute the PSD
+		oPSD = self -> PSD( nfft, nshift, $
+		                    RANGE         = [iStart, iEnd], $
+		                    _STRICT_EXTRA = extra )
+		IF ~Obj_Valid(oPSD) THEN RETURN, !Null
+		
+		;Allocate memory
+		IF i EQ 0 THEN BEGIN
+			;Create variables
+			oTime = MrTimeVar( Replicate('0000-00-00T00:00:00', nIter) )
+			oSpec = MrTimeSeries( oTime, FltArr( [nIter, Size(oPSD, /DIMENSIONS)] ), CACHE=cache, NAME=name )
+			oSpec['DEPEND_1'] = oPSD['DEPEND_0']
+			nDims = Size(oPSD, /N_DIMENSIONS)
+		ENDIF
+		
+		;Store the data
+		MrTimeParser, oPSD['TIME_STAMP'], '%d-%c-%Y %H:%m:%S%f', '%Y-%M-%dT%H:%m:%S%f%z', tstamp
+		oTime[i] = tstamp
+		CASE nDims OF
+			1: oSpec[i,*]             = oPSD['DATA']
+			2: oSpec[i,*,*]           = oPSD['DATA']
+			3: oSpec[i,*,*,*]         = oPSD['DATA']
+			4: oSpec[i,*,*,*,*]       = oPSD['DATA']
+			5: oSpec[i,*,*,*,*,*]     = oPSD['DATA']
+			6: oSpec[i,*,*,*,*,*,*]   = oPSD['DATA']
+			7: oSpec[i,*,*,*,*,*,*,*] = oPSD['DATA']
+			ELSE: Message, 'Invalid number of demensions for SELF.'
+		ENDCASE
+		
+		;Advance to next interval
+		iStart += tshift
+		iEnd    = iStart + tfft - 1
+	ENDFOR
+	
+	oSpec['SCALE'] = 1B
+	oSpec['LOG']   = 1B
+	oFreq          = oSpec['DEPEND_1']
+	oFreq['TITLE'] = 'Freq!C(Hz)'
+	
+	RETURN, oSpec
+END
 
 
 ;+

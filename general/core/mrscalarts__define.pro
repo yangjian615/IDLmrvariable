@@ -98,6 +98,8 @@
 ;   Modification History::
 ;       2016/07/01  -   Written by Matthew Argall
 ;       2016/10/23  -   Major rewrite to inherit MrTimeSeries object. - MRA
+;       2017/03/31  -   Testing revealed VAR->GetData() is faster than VAR['DATA'],
+;                           so the change was made in all ::_Overload methods. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -177,118 +179,179 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadAsterisk, left, right
-	compile_opt idl2
-	on_error, 2
-
+FUNCTION MrScalarTS::_OverloadAsterisk, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Two MrTimeSeries Objects /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadAsterisk(left, right)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
-;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-
-		;New name
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
 		name = 'Multiply(' + left.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is LEFT /////////////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data * right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) * (right -> GetData())
+			outClass = 'MrScalarTS'
 			
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) * right['DATA']
-				
-					;As opposed to
-;					temp[*,0] = *self.data * right[*,0]
-;					temp[*,1] = *self.data * right[*,1]
-;					temp[*,2] = *self.data * right[*,2]
-				endcase
-
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) * right['DATA']
-					
-					;As opposed to
-;					for i = 0, dims[1]-1 do begin
-;					for j = 0, dims[2]-1 do begin
-;						temp[*,i,j] = *self.data * right[*,i,j]
-;					endfor
-;					endfor
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-
-	;-------------------------------------------------------
-	; SELF is RIGHT ////////////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] * *self.data
-					outClass = 'MrScalarTS'
-				endcase
-			
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] * rebin(*self.data, outDims)
-				endcase
-
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] * rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) * (right -> GetData()) $
+				ELSE temp = (left -> GetData()) * Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
+	ENDIF ELSE BEGIN
+		result   = self -> MrTimeSeries::_OverloadAsterisk(left, right)
+	ENDELSE
+
+;-------------------------------------------------------
+; Done /////////////////////////////////////////////////
+;-------------------------------------------------------
+	RETURN, result
+END
+
+
+;+
+;   Allow square-bracket array indexing from the right side of an operator.
+;
+;   Calling Sequence
+;       oTSvar    = oTSvar[0]
+;       t0        = oTSvar[[0]]
+;       data      = oTSvar['DATA']
+;       pData     = oTSvar['POINTER']
+;       pData     = oTSvar['PTR']
+;       isoTime   = oTSvar['TIME']
+;       time      = oTSvar['TIME', T_TYPE]
+;       time      = oTSvar['TIME', i2]
+;       time      = oTSvar['TIME', i2, <StrMid>]
+;       time      = oTSvar['TIME', i2, T_TYPE]
+;       oTime     = oTSvar['TIMEVAR']
+;       attrValue = oTSvar[AttrName]
+;       data      = oTSvar[i1 [, i2 [, i3 [, i4 [, i5 [, i6 [, i7 [, i8]]]]]]]]
+;
+; :Params:
+;       ISRANGE:            in, required, type=intarr
+;                           A vector that has one element for each Subscript argument
+;                               supplied by the user; each element contains a zero if the
+;                               corresponding input argument was a scalar index value or
+;                               array of indices, or a one if the corresponding input
+;                               argument was a subscript range.
+;       I1:                 in, required, type=integer/intarr(3)
+;                           Index subscripts. Either a scalar, an index array, or a 
+;                               subscript range in the form [start, stop, step_size]
+;       I2:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I3:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I4:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I5:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I6:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I7:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;       I8:                 in, optional, type=integer/intarr(3)
+;                           Index subscripts.
+;
+; :Returns:
+;       RESULT:             in, required, type=numeric array
+;                           The subarray accessed by the input parameters.
+;-
+FUNCTION MrScalarTS::_OverloadBracketsRightSide, isRange, i1, i2, i3, i4
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Number of subscripts given
+	nSubs = N_Elements(isRange)
+	
+	;String operations
+	IF IsA(i1, /SCALAR, 'STRING') THEN BEGIN
+		RETURN, self -> MrTimeSeries::_OverloadBracketsRightSide(isRange, i1, i2, i3, i4, i5, i6, i7, i8)
+	
+	;Scalar operations
+	;   - 0   returns the self object
+	;   - [0] returns the first data element
+	;   - All other cases return data
+	ENDIF ELSE IF nSubs EQ 1 && isRange[0] EQ 0 && IsA(i1, /SCALAR) && i1 EQ 0 THEN BEGIN
+		RETURN, self
+	ENDIF
+
+;---------------------------------------------------------------------
+; Extract the Subarray ///////////////////////////////////////////////
+;---------------------------------------------------------------------
+	IF nSubs GT 1 THEN Message, 'Too many subscripts given.'
+	
+	;Data
+	data = self -> _OverloadBracketsRightSide_Data(isRange, i1)
+
+	;Attributes
+	outDims = Size(data, /DIMENSIONS)
+	attrs   = self -> _OverloadBracketsRightSide_Attrs(outDims, isRange, i1)
+	
+;---------------------------------------------------------------------
+; Create Output //////////////////////////////////////////////////////
+;---------------------------------------------------------------------
+	;MrScalarTS
+	;   - Scalars have a dimension size of 0 with 1 element.
+	nDep0 = N_Elements( attrs['DEPEND_0'] )
+	IF (outDims[0] EQ nDep0) || (N_Elements(data) EQ 1 && nDep0 EQ 1) THEN BEGIN
+		vOut = MrScalarTS( attrs['DEPEND_0'], data, $
+		                   NAME='OverloadBRS(' + self.name + ')', $
+		                   /NO_COPY )
+	
+	;MrVariable
+	ENDIF ELSE BEGIN
+		;Issue warning
+		MrPrintF, 'LogWarn', 'Unable to create MrScalarTS object. Converting to MrVariable.'
+		
+		;Create variable
+		vOut = MrVariable( data, $
+		                   NAME='OverloadBRS(' + self.name + ')', $
+		                   /NO_COPY )
+	ENDELSE
+	
+	;Copy all attributes
+	self -> CopyAttrTo, vOut
+	
+	;Update attributes
+	vOut -> SetAttrValue, attrs, /OVERWRITE
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
+
+	RETURN, vOut
+END
 
 
 ;+
@@ -310,106 +373,66 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadCaret, left, right
-	compile_opt idl2
-	on_error, 2
-
+FUNCTION MrScalarTS::_OverloadCaret, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Two MrTimeSeries Objects /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadCaret(left, right)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
-;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-		
-		;New name
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
 		name = 'Caret(' + left.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is on LEFT //////////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data ^ right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) ^ (right -> GetData())
+			outClass = 'MrScalarTS'
 			
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) ^ right['DATA']
-				endcase
-
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) ^ right['DATA']
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-
-	;-------------------------------------------------------
-	; SELF is on RIGHT /////////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] ^ *self.data
-					outClass = 'MrScalarTS'
-				endcase
-			
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] ^ rebin(*self.data, outDims)
-				endcase
-
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] ^ rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) ^ (right -> GetData()) $
+				ELSE temp = (left -> GetData()) ^ Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
+	ENDIF ELSE BEGIN
+		result   = self -> MrTimeSeries::_OverloadCaret(left, right)
+	ENDELSE
+
+;-------------------------------------------------------
+; Done /////////////////////////////////////////////////
+;-------------------------------------------------------
+	RETURN, result
+END
 
 
 ;+
@@ -469,106 +492,66 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadMinus, left, right
-	compile_opt idl2
-	on_error, 2
-
+FUNCTION MrScalarTS::_OverloadMinus, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Two MrTimeSeries Objects /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadMinus(left, right)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
-;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-		
-		;New name
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
 		name = 'Minus(' + left.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is on LEFT //////////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data - right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
-				
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) - right['DATA']
-				endcase
-	
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) - right['DATA']
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-
-	;-------------------------------------------------------
-	; SELF is on RIGHT /////////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] - *self.data
-					outClass = 'MrScalarTS'
-				endcase
-				
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] - rebin(*self.data, outDims)
-				endcase
-	
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] - rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) - (right -> GetData())
+			outClass = 'MrScalarTS'
+			
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) - (right -> GetData()) $
+				ELSE temp = (left -> GetData()) - Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
+	ENDIF ELSE BEGIN
+		result = self -> MrTimeSeries::_OverloadMinus(left, right)
+	ENDELSE
+
+;-------------------------------------------------------
+; Done /////////////////////////////////////////////////
+;-------------------------------------------------------
+	RETURN, result
+END
 
 
 ;+
@@ -590,106 +573,66 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadMOD, left, right
-	compile_opt idl2
-	on_error, 2
-
+FUNCTION MrScalarTS::_OverloadMOD, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Two MrTimeSeries Objects /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadMOD(left, right)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
-;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-		
-		;New name
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
 		name = 'Mod(' + left.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is on the LEFT //////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data mod right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
-				
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) mod right['DATA']
-				endcase
-	
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) mod right['DATA']
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-
-	;-------------------------------------------------------
-	; SELF is on the RIGHT //////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] mod *self.data
-					outClass = 'MrScalarTS'
-				endcase
-				
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] mod rebin(*self.data, outDims)
-				endcase
-	
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] mod rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) MOD (right -> GetData())
+			outClass = 'MrScalarTS'
+			
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) MOD (right -> GetData()) $
+				ELSE temp = (left -> GetData()) MOD Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
+	ENDIF ELSE BEGIN
+		result = self -> MrTimeSeries::_OverloadMOD(left, right)
+	ENDELSE
+
+;-------------------------------------------------------
+; Done /////////////////////////////////////////////////
+;-------------------------------------------------------
+	RETURN, result
+END
 
 
 ;+
@@ -711,106 +654,66 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadPlus, left, right
-	compile_opt idl2
-	on_error, 2
-
+FUNCTION MrScalarTS::_OverloadPlus, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Two MrTimeSeries Objects /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
-		result = self -> MrTimeSeries::_OverloadPlus(left, right)
-
-;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
-;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-
-		;New name
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
 		name = 'Plus(' + left.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is LEFT /////////////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data + right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) + (right -> GetData())
+			outClass = 'MrScalarTS'
 			
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) + right['DATA']
-				endcase
-
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) + right['DATA']
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-
-	;-------------------------------------------------------
-	; SELF is RIGHT ////////////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] + *self.data
-					outClass = 'MrScalarTS'
-				endcase
-			
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] + rebin(*self.data, outDims)
-				endcase
-
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] + rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) + (right -> GetData()) $
+				ELSE temp = (left -> GetData()) + Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	return, result
-end
+	ENDIF ELSE BEGIN
+		result = self -> MrTimeSeries::_OverloadPlus(left, right)
+	ENDELSE
+
+;-------------------------------------------------------
+; Done /////////////////////////////////////////////////
+;-------------------------------------------------------
+	RETURN, result
+END
 
 
 ;+
@@ -956,109 +859,66 @@ end
 ; :Returns:
 ;       RESULT:             The result of multiplying `LEFT` by `RIGHT`.
 ;-
-function MrScalarTS::_OverloadSlash, left, right
-	compile_opt idl2
-	on_error, 2
+FUNCTION MrScalarTS::_OverloadSlash, left, right
+	Compile_Opt idl2
+	On_Error, 2
+	
+;-------------------------------------------------------
+; Two MrTimeSeries Objects /////////////////////////////
+;-------------------------------------------------------
+	IF IsA(left, 'MrTimeSeries') && IsA(right, 'MrTimeSeries') THEN BEGIN
+		;Pick a name and a side
+		name = 'Divide(' + left.name + ',' + right.name + ')'
+		side = self -> _LeftOrRight(left, right)
+		
+		;Distinguish between the SELF object and the OTHER object
+		oOther = side EQ 'LEFT' ? right : left
+		dims   = Size(oOther, /DIMENSIONS)
+		type   = Obj_Class(oOther)
+		
+		;Number of points
+		;   - If times are different, output will be truncated to fewer number of points
+		;   - TODO: Check if time stamps are equal?
+		;           If different: Interpolate? Error?
+		nSelf  = self   -> GetNPts()
+		nOther = oOther -> GetNPts()
+		oTime  = nSelf LT nOther ? self['TIMEVAR'] : oOther['TIMEVAR']
+		nPts   = nSelf < nOther
+		
+		;SCALAR
+		IF Obj_IsA(type, 'MrScalarTS') THEN BEGIN
+			temp     = (left -> GetData()) / (right -> GetData())
+			outClass = 'MrScalarTS'
+			
+		;VECTOR, MATRIX, OTHER
+		ENDIF ELSE BEGIN
+			;Output dimensions
+			dims[0]  = nSelf
+			outClass = type
+		
+			;Operate
+			IF side EQ 'LEFT' $
+				THEN temp = Rebin(*self.data, dims) / (right -> GetData()) $
+				ELSE temp = (left -> GetData()) / Rebin(*self.data, dims)
+		ENDELSE
+		
+		;Create a new variable
+		result = Obj_New( outClass, oTime, temp, $
+		                  NAME = name, $
+		                  /NO_COPY )
 
 ;-------------------------------------------------------
-; Superclass ///////////////////////////////////////////
+; Expression or MrVariable /////////////////////////////
 ;-------------------------------------------------------
-	if ~isa(left, 'MrTimeSeries') || ~isa(right, 'MrTimeSeries') then begin
+	ENDIF ELSE BEGIN
 		result = self -> MrTimeSeries::_OverloadSlash(left, right)
+	ENDELSE
 
 ;-------------------------------------------------------
-; MrTimeSeries with MrTimeSeries ///////////////////////
+; Done /////////////////////////////////////////////////
 ;-------------------------------------------------------
-	endif else begin
-
-		;Is SELF on the left or right?
-		;   - Are both LEFT and RIGHT GDA data objects?
-		side = self -> _LeftOrRight(left, right, ISMRVARIABLE=IsMrVariable)
-
-	;-------------------------------------------------------
-	; SELF is on LEFT //////////////////////////////////////
-	;-------------------------------------------------------
-		if side eq 'LEFT' then begin
-			case 1 of
-				obj_isa(right, 'MRSCALARTS'): begin
-					temp     = *self.data / right['DATA']
-					outClass = 'MrScalarTS'
-				endcase
-			
-				obj_isa(right, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) / right['DATA']
-				endcase
-
-				obj_isa(right, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = rebin(*self.data, outDims) / right['DATA']
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(right) + '".'
-			endcase
-		
-			;New name
-			name = 'Divide(' + self.name + ',' + right.name + ')'
-
-	;-------------------------------------------------------
-	; SELF is on RIGHT /////////////////////////////////////
-	;-------------------------------------------------------
-		endif else begin
-			case 1 of
-				obj_isa(left, 'MRSCALARTS'): begin
-					temp     = left['DATA'] / *self.data
-					outClass = 'MrScalarTS'
-				endcase
-			
-				obj_isa(left, 'MRVECTORTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					outDims  = [nPts, 3]
-					outClass = 'MrVectorTS'
-				
-					;Operate
-					temp = left['DATA'] / rebin(*self.data, outDims)
-				endcase
-
-				obj_isa(left, 'MRMATRIXTS'): begin
-					;Output dimensions
-					nPts     = self -> GetNPts()
-					dims     = size( right, /DIMENSIONS )
-					outDims  = [nPts, dims[1], dims[2]]
-					outClass = 'MrMatrixTS'
-				
-					;Operate
-					temp = left['DATA'] / rebin(*self.data, outDims)
-				endcase
-				else: message, 'Unrecognized object class: "' + obj_class(left) + '".'
-			endcase
-		
-			;New name
-			name = 'Divide(' + left.name + ',' + self.name + ')'
-		endelse
-
-	;-------------------------------------------------------
-	; Create Result ////////////////////////////////////////
-	;-------------------------------------------------------
-		result = obj_new(outClass, self.oTime, temp, NAME=name, /NO_COPY)
-	endelse
-
-;-------------------------------------------------------
-; Output Object ////////////////////////////////////////
-;-------------------------------------------------------
-	return, result
-end
+	RETURN, result
+END
 
 
 ;+
@@ -1096,60 +956,6 @@ NO_COPY=no_copy
 	self -> MrTimeSeries::Append, time, data, type, $
 	                              BEFORE  = before, $
 	                              NO_COPY = no_copy
-end
-
-
-;+
-;   High-pass, low-pass, band-pass, or band-stop filter data. The filter is created
-;   using IDL's DIGITAL_FILTER function and applied using IDL's CONVOL function.
-;
-; :Params:
-;       FLOW:           in, required, type=Numeric array
-;                       Lower frequency of the filter as a fraction of the nyquist.
-;       FHIGH:          in, required, type=Numeric array
-;                       Upper frequency of the filter as a fraction of the nyquist.
-;       A:              in, required, type=Numeric array
-;                       The filter power relative to the Gibbs phenomenon wiggles in
-;                           decibels. 50 is a good choice.
-;       NTERMS:         in, required, type=Numeric array
-;                       The number of terms used to construct the filter.
-;
-; :Keywords:
-;       CACHE:          in, optional, type=boolean, default=0
-;                       If set, the result will be added to the cache.
-;       DOUBLE:         in, optional, type=boolean, default=0
-;                       If set, computations are performed in double-precision.
-;       NAME:           in, optional, type=string, default='Digital_Filter(<name>)'
-;                       A name to be given to the variable.
-;
-; :Returns:
-;       VAROUT:         out, required, type=object
-;                       A MrScalarTS object containing the filtered data.
-;-
-function MrScalarTS::Digital_Filter, fLow, fHigh, A, nTerms, $
-CACHE=cache, $
-DOUBLE=double, $
-NAME=name
-	compile_opt idl2
-	on_error, 2
-	
-	if n_elements(name) eq 0 then name = 'Digital_Filter(' + self.name + ')'
-	
-	;Create the filter
-	coeff = digital_filter(fLow, fHigh, A, nTerms, DOUBLE=double)
-	
-	;Apply the filter
-	dTemp = convol(self['DATA'], coeff)
-
-	;Create the output variable
-	varOut = MrScalarTS( self.oTime, dTemp, $
-	                     CACHE     = cache, $
-	                     DIMENSION = 1, $
-	                     NAME      = name, $
-	                     /NO_COPY )
-	
-	;Return the new variable
-	return, varOut
 end
 
 
@@ -1204,10 +1010,10 @@ SPLINE=spline
 			else oTout = MrVar_Get(Xout['DEPEND_0'])
 		
 		;Reference time
-		!Null = min( [ oT[0, 'JULDAY'], oTout[0, 'JULDAY'] ], iMin )
+		!Null = min( [ oT['DATA', 0, 'JULDAY'], oTout['DATA', 0, 'JULDAY'] ], iMin )
 		if iMin eq 0 $
-			then t_ref = oT[[0]] $
-			else t_ref = oTout[[0]]
+			then t_ref = oT['DATA', 0] $
+			else t_ref = oTout['DATA', 0]
 		
 		;Convert to seconds since midnight
 		t     = oT    -> GetData('SSM', t_ref)
@@ -1283,13 +1089,14 @@ _REF_EXTRA=extra
 	self -> MrTimeSeries::SetData, time, data, _STRICT_EXTRA=extra
 
 	;Check the results
-	if size(self, /N_DIMENSIONS) ne 1 then begin
+	;   - Scalar values have dimension size of 0
+	if size(self, /N_DIMENSIONS) eq 1 || n_elements(*self.data) eq 1 then begin
+		ptr_free, pData
+	endif else begin
 		ptr_free, self.data
 		self.data  = pData
 		self.oTime = oTime
 		message, 'Invalid dimensions: Data must be an Nx1 scalar time series.'
-	endif else begin
-		ptr_free, pData
 	endelse
 end
 

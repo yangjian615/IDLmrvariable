@@ -59,10 +59,15 @@
 ;                   FGM instrument to use. Options are: { 'afg' | 'dfg' | 'fgm' }
 ;       LEVEL:      in, optional, type=string, default='l2'
 ;                   Data quality level. Options are: {'l1a' | 'l1b' | 'ql' | 'l2pre' | 'l2'}
-;       OPTDESC:    in, optional, type=string, default=''
-;                   Optional filename descriptor.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -82,8 +87,9 @@
 FUNCTION MrMMS_Plot_DES, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
-OPTDESC=optdesc, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -103,9 +109,13 @@ TRANGE=trange
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
-	species = 'e'
-	instr   = 'd' + species + 's'
-	optdesc = instr + '-moms'
+	;FPI
+	species     = 'e'
+	fpi_instr   = 'd' + species + 's'
+	fpi_mode    = mode EQ 'brst' ? mode : 'fast'
+	fpi_optdesc = fpi_instr + '-moms'
+	
+	;FGM
 	IF N_Elements(fgm_instr) EQ 0 THEN BEGIN
 		CASE level OF
 			'l2': fgm_instr = 'fgm'
@@ -125,17 +135,17 @@ TRANGE=trange
 	b_vname      = StrJoin( [sc, fgm_instr, 'b',     fgm_coords, fgm_mode, level], '_' )
 	bvec_vname   = StrJoin( [sc, fgm_instr, 'bvec',  fgm_coords, fgm_mode, level], '_' )
 	bmag_vname   = StrJoin( [sc, fgm_instr, 'bmag',  fgm_coords, fgm_mode, level], '_' )
-	eanti_vname  = StrJoin( [sc, instr,     'energyspectr', 'anti',   mode], '_' )
-	epar_vname   = StrJoin( [sc, instr,     'energyspectr', 'par',    mode], '_' )
-	eperp_vname  = StrJoin( [sc, instr,     'energyspectr', 'perp',   mode], '_' )
-	palow_vname  = StrJoin( [sc, instr,     'pitchangdist', 'lowen',  mode], '_' )
-	pamid_vname  = StrJoin( [sc, instr,     'pitchangdist', 'miden',  mode], '_' )
-	pahigh_vname = StrJoin( [sc, instr,     'pitchangdist', 'highen', mode], '_' )
-	n_vname      = StrJoin( [sc, instr,     'numberdensity', mode], '_' )
-	v_vname      = StrJoin( [sc, instr,     'bulkv', coords, mode], '_' )
-	tpara_vname  = StrJoin( [sc, instr,     'temppara', mode], '_' )
-	tperp_vname  = StrJoin( [sc, instr,     'tempperp', mode], '_' )
-
+	eanti_vname  = StrJoin( [sc, fpi_instr,     'energyspectr', 'anti',   fpi_mode], '_' )
+	epar_vname   = StrJoin( [sc, fpi_instr,     'energyspectr', 'par',    fpi_mode], '_' )
+	eperp_vname  = StrJoin( [sc, fpi_instr,     'energyspectr', 'perp',   fpi_mode], '_' )
+	palow_vname  = StrJoin( [sc, fpi_instr,     'pitchangdist', 'lowen',  fpi_mode], '_' )
+	pamid_vname  = StrJoin( [sc, fpi_instr,     'pitchangdist', 'miden',  fpi_mode], '_' )
+	pahigh_vname = StrJoin( [sc, fpi_instr,     'pitchangdist', 'highen', fpi_mode], '_' )
+	n_vname      = StrJoin( [sc, fpi_instr,     'numberdensity', fpi_mode], '_' )
+	v_vname      = StrJoin( [sc, fpi_instr,     'bulkv', coords, fpi_mode], '_' )
+	tpara_vname  = StrJoin( [sc, fpi_instr,     'temppara', fpi_mode], '_' )
+	tperp_vname  = StrJoin( [sc, fpi_instr,     'tempperp', fpi_mode], '_' )
+	
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
 ;-------------------------------------------
@@ -147,8 +157,8 @@ TRANGE=trange
 		                     VARFORMAT = b_vname
 
 		;DIS
-		MrMMS_FPI_Load_Data, sc, mode, $
-		                     OPTDESC   = optdesc, $
+		MrMMS_FPI_Load_Data, sc, fpi_mode, $
+		                     OPTDESC   = fpi_optdesc, $
 		                     VARFORMAT = [eanti_vname, epar_vname, eperp_vname, $
 		                                  palow_vname, pamid_vname, pahigh_vname, $
 		                                  n_vname, v_vname, tpara_vname, tperp_vname]
@@ -159,7 +169,7 @@ TRANGE=trange
 ;-------------------------------------------
 	;BMAG
 	oB = MrVar_Get(b_vname)
-	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, mode, level, optdesc], ' ' ) )
+	oB['PLOT_TITLE'] = StrUpCase( StrJoin( [sc, fpi_mode, level, fpi_optdesc], ' ' ) )
 	
 	;Epar
 	oEpar = MrVar_Get(epar_vname)
@@ -226,5 +236,26 @@ TRANGE=trange
 	win    -> SetProperty, OXMARGIN=[13, 14]
 	win    -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+			MrPrintF, 'LogText', 'Saving file to: "' + output_dir + '".'
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, fpi_instr, fpi_mode, level], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END

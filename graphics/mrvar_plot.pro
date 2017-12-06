@@ -83,6 +83,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/06/08  -   Written by Matthew Argall
+;       2017/07/26  -   A time interval does not need to be defined (MrVar_Get/SetTRange) - MRA
 ;-
 function MrVar_Plot, x, y, $
 CURRENT=current, $
@@ -109,8 +110,7 @@ _REF_EXTRA=extra
 	if n_elements(y) eq 0 then begin
 		if oX -> HasAttr('DEPEND_0') then begin
 			oY = oX
-			xname = oY -> GetAttrValue('DEPEND_0')
-			oX = MrVar_Get(xname)
+			oX = oY['DEPEND_0']
 		endif
 	endif else begin
 		oY = size(y, /TNAME) eq 'OBJREF' ? y : MrVar_Get(y)
@@ -141,20 +141,22 @@ _REF_EXTRA=extra
 	;Use seconds since midnight, formatted as HH:MM:SS
 	if obj_isa(oX, 'MrTimeVar') then begin
 		trange = MrVar_GetTRange()
-		tr_ssm = MrVar_GetTRange('SSM')
 		x_data = oX -> GetData('SSM')
-		dt     = tr_ssm[1] - tr_ssm[0]
+		if array_equal(trange, '') $
+			then tr_ssm = [x_data[0], x_data[-1]] $
+			else tr_ssm = MrVar_GetTRange('SSM')
+		dt = tr_ssm[1] - tr_ssm[0]
 
-		;Less than 2 seconds
-		if dt lt 5.0 then begin
+		;Less than 60 seconds
+		if dt le 60.0 then begin
 			xrange      = tr_ssm - floor(tr_ssm[0])
-			xtitle      = 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
+			xtitle      = trange[0] eq '' ? 'Time (s)' : 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
 			xtickformat = ''
 			x_data      -= floor(tr_ssm[0])
 
-		;More than two seconds
+		;More than 60 seconds
 		endif else begin
-			xtitle      = 'Time from ' + oX[0, 0:9]
+			xtitle      = 'Time from ' + oX['DATA', 0, 0:9]
 			xtickformat = 'time_labels'
 		endelse
 	endif else begin

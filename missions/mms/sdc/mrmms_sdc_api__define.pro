@@ -141,16 +141,25 @@ END
 ; :Returns:
 ;       FILES_OUT:      Files that pass the filter.
 ;-
-function MrMMS_SDC_API::Anc_FilterTime, filenames, tstart, tend, $
+function MrMMS_SDC_API::Anc_FilterTime, filenames, $
 COUNT=count
 	compile_opt idl2
 	on_error, 2
 	
+	;Get current file parameters
+	self.oWeb -> GetProperty, FPATTERN  = fPattern, $
+	                          TPATTERN  = tpattern
+
+	;Set ancillary file parameters
+	self.oWeb -> SetProperty, FPATTERN  = 'MMS*_%Y%D_%Y%D.V*'
+	
 	;Filter using superclass
-	files_out = self -> MrURI::FilterTime( 'MMS*_%Y%D_%Y%D.V*', filenames, $
-	                                       COUNT     = count, $
-	                                       TIMEORDER = '%Y%D', $
-	                                       TPATTERN  = '%Y%D_%Y%D' )
+	files_out = self.oWeb -> FilterTime( filenames, $
+	                                     COUNT = count )
+	
+	;Return to normal
+	self.oWeb -> SetProperty, FPATTERN  = fPattern, $
+	                          TPATTERN  = tpattern
 	
 	return, files_out
 end
@@ -379,6 +388,7 @@ STRING=str
 
 	;Get data.
 	;   - Cookies (credentials) are stored in HEADER, which is reset by GET.
+	;   - 
 	fileOut = self.oWeb -> IDLnetURL::Get( FILENAME = filename, $
 	                                       STRING   = str )
 	
@@ -437,10 +447,14 @@ TT2000=tt2000
 		MrPrintF, 'LogErr'
 		
 		;Return to the previous setting
-		IF info_type NE 'file_info' THEN self -> SetProperty, INFO_TYPE=info_type
+		IF N_Elements(info_type) GT 0 && info_type NE 'file_info' $
+			THEN self -> SetProperty, INFO_TYPE=info_type
 		
 		RETURN
 	ENDIF
+	
+	;Offline mode
+	IF self.offline THEN Message, 'OFFLINE=1: Cannot obtain file info.'
 	
 ;-----------------------------------------------------
 ; Download File Info \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -569,6 +583,8 @@ COUNT=count
 	Compile_Opt idl2
 	On_Error, 2
 	
+	IF self.oWeb.offline THEN Message, 'OFFLINE=1: Cannot search for files.'
+	
 ;-----------------------------------------------------
 ; Download Filenames \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
@@ -591,7 +607,7 @@ COUNT=count
 	fnames = StrSplit(fnames, ',', /EXTRACT, COUNT=count)
 	
 	;Filter the results
-	IF count GT 0 THEN fnames = self -> FilterTime(fnames, COUNT=count)
+	IF count GT 0 THEN fnames = self -> FilterFiles(fnames, COUNT=count, /TIME)
 	
 	;Return
 	RETURN, fnames
@@ -610,18 +626,38 @@ END
 ; :Keywords:
 ;       COUNT:          out, optional, type=integer
 ;                       Number of files that pass the filter.
+;       TIME:           in, optional, type=boolean
+;                       If set, files will be filtered by start (and end) times. If
+;                           neither TIME nor `VERSION` are set, then the default is to
+;                           filter by both time and version.
+;       VERSION:        in, optional, type=boolean
+;                       If set, files will be filtered by file version number. If
+;                           neither `TIME` nor VERSION are set, then the default is to
+;                           filter by both time and version.
 ;
 ; :Returns:
 ;       FILES:          Files that pass the filter.
 ;-
 FUNCTION MrMMS_SDC_API::FilterFiles, filenames, $
-COUNT=count
+COUNT=count, $
+TIME=time, $
+VERSION=version
 	Compile_Opt idl2
 	On_Error, 2
 	
+	tf_time    = Keyword_Set(time)
+	tf_version = Keyword_Set(version)
+	IF tf_time EQ 0 && tf_version EQ 0 THEN BEGIN
+		tf_time    = 1B
+		tf_version = 1B
+	ENDIF
+
 ;---------------------------------------------------------------------
 ; Find Unique File Types /////////////////////////////////////////////
 ;---------------------------------------------------------------------
+	;Start and end time
+	self.oWeb -> GetProperty, DATE_START=tstart, DATE_END=tend
+	
 	;File's base name
 	MrMMS_Parse_Filename, filenames, SC=sc, INSTR=instr, MODE=mode, LEVEL=level, OPTDESC=optdesc
 	fbase = sc + '_' + instr + '_' + mode + '_' + level
@@ -632,30 +668,57 @@ COUNT=count
 	iUniq = Uniq(fbase, Sort(fbase))
 	nUniq = N_Elements(iUniq)
 	
+;---------------------------------------------------------------------
+; Filter Each File Type //////////////////////////////////////////////
+;---------------------------------------------------------------------
 	count = 0
 	FOR i = 0, nUniq - 1 DO BEGIN
 		;Get files of similar type
 		fType = fbase[iUniq[i]]
-		idx   = Where( fbase eq fType )
-		
-		;ANCILLARY Files
+		idx   = Where( fbase eq fType, nIdx )
+	
+	;---------------------------------------------------------------------
+	; Ancillary Files ////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
+		nTemp = 0
+		fTemp = ''
 		IF StRegEx(fType, '(DEF|PRED|ATTVAL|NAV|TIMEBIAS)', /BOOLEAN) THEN BEGIN
 			;Time filter
-			fTemp = self -> Anc_FilterTime(filenames[idx], self.tstart, self.tend, COUNT=nTemp)
-			IF nTemp EQ 0 THEN CONTINUE
+			IF tf_time THEN BEGIN
+				fTemp = self -> Anc_FilterTime( filenames[idx], $
+				                                COUNT = nTemp)
+			ENDIF ELSE BEGIN
+				fTemp = filenames[idx]
+				nTemp = nIdx
+			ENDELSE
 			
 			;Version filter
-			fTemp = self -> Anc_FilterTime(fTemp[iAnc], self.tstart, self.tend, COUNT=nTemp)
-		
-		;OTHER
+			IF nTemp GT 0 && tf_version THEN BEGIN
+				fTemp = self -> Anc_FilterVersion( fTemp, COUNT=nTemp )
+			ENDIF
+	
+	;---------------------------------------------------------------------
+	; Normal Files ///////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
 		ENDIF ELSE BEGIN
 			;Time filter
-			fTemp = self -> FilterTime(filenames[idx], self.tstart, self.tend, COUNT=nTemp)
-			IF nTemp EQ 0 THEN CONTINUE
+			IF tf_time THEN BEGIN
+				fTemp = self -> FilterTime( filenames[idx], $
+				                            COUNT = nTemp)
+			ENDIF ELSE BEGIN
+				fTemp = filenames[idx]
+				nTemp = nIdx
+			ENDELSE
 			
 			;Version filter
-			fTemp = self -> FilterVersion(fTemp, COUNT=nTemp)
+			IF nTemp GT 0 && tf_version THEN BEGIN
+				fTemp = self -> FilterVersion(fTemp, COUNT=nTemp)
+			ENDIF
 		ENDELSE
+	
+	;---------------------------------------------------------------------
+	; Record Results /////////////////////////////////////////////////////
+	;---------------------------------------------------------------------
 		
 		;Skip if no files pass filter
 		IF nTemp EQ 0 THEN CONTINUE
@@ -666,6 +729,7 @@ COUNT=count
 	ENDFOR
 	
 	;Return
+	IF COUNT EQ 0 THEN files = ''
 	RETURN, files
 END
 
@@ -705,8 +769,8 @@ COUNT=count
 
 	;Parse the start times
 	;   - Convert to TT2000
-	MrMMS_Parse_Time, fstart, year, month, day, hour, minute, second, /INTEGER
-	CDF_TT2000, tt2000, year, month, day, hour, minute, second, /COMPUTE_EPOCH
+	MrMMS_Parse_Time, Temporary(fstart), TT2000=tt2000
+;	CDF_TT2000, tt2000, year, month, day, hour, minute, second, /COMPUTE_EPOCH
 
 	;Sort by time
 	nfiles    = N_Elements(filenames)
@@ -718,13 +782,11 @@ COUNT=count
 ; Filter Time                        ;
 ;------------------------------------;
 
-	;TT2000 values FOR the start and END times
-	MrMMS_Parse_Time, StrJoin(StrSplit(tstart, '-T:', /EXTRACT)), syr, smo, sday, shr, smnt, ssec, /INTEGER
-	MrMMS_Parse_Time, StrJoin(StrSplit(tend, '-T:', /EXTRACT)),   eyr, emo, eday, ehr, emnt, esec, /INTEGER
-	CDF_TT2000, tt2000_start, syr, smo, sday, shr, smnt, ssec, /COMPUTE_EPOCH
-	CDF_TT2000, tt2000_end,   eyr, emo, eday, ehr, emnt, esec, /COMPUTE_EPOCH
+	;TT2000 values for the start and end times
+	MrMMS_Parse_Time, StrJoin(StrSplit(tstart, '-T:', /EXTRACT)), TT2000=tt2000_start
+	MrMMS_Parse_Time, StrJoin(StrSplit(tend, '-T:', /EXTRACT)),   TT2000=tt2000_end
 
-	;Filter files by END time
+	;Filter files by end time
 	;   - Any files that start after TEND can be discarded
 	iend = where( tt2000 LE tt2000_end[0], count )
 	IF count GT 0 THEN BEGIN
@@ -734,11 +796,11 @@ COUNT=count
 
 	;Filter files by BEGIN time
 	;   - Any file with TSTART < TRANGE[0] can potentially have data
-	;     in our time interval OF interest.
-	;   - Assume the start time OF one file marks the END time OF the previous file.
-	;   - With this, we look FOR the file that begins just prior to TRANGE[0] and
+	;     in our time interval of interest.
+	;   - Assume the start time of one file marks the end time of the previous file.
+	;   - With this, we look for the file that begins just prior to TRANGE[0] and
 	;     throw away any files that start before it.
-	istart = Where( tt2000 LT tt2000_start[0], nstart )
+	istart = Where( tt2000 LE tt2000_start[0], nstart )
 	IF nstart GT 0 THEN BEGIN
 		;Select the file time that starts closest to the given time without
 		;going over.
@@ -752,33 +814,28 @@ COUNT=count
 		ENDIF
 	ENDIF
 
-	;Number OF files kept
-	;   - If TRANGE[0] < TSTART OF first file, COUNT will be zero
+	;Number of files kept
+	;   - If TRANGE[0] < TSTART of first file, COUNT will be zero
 	;   - However, there still may be files with TRANGE[0] < TSTART < TRANGE[1]
-	IF count EQ 0 THEN BEGIN
-		MrPrintF, 'LogWarn', 'No files in time interval.'
-		RETURN, ''
-	ENDIF
+	IF count EQ 0 THEN RETURN, ''
 
 	;The last caveat:
 	;   - Our filter may be too lenient. The first file may or may not contain
 	;     data within our interval.
-	;   - Check IF it starts on the same day. If not, toss it
+	;   - Check if it starts on the same day. If not, toss it
 	;   - There may be many files with the same start time, but different
 	;     version numbers. Make sure we get all copies OF the first start
 	;     time.
+	CDF_TT2000, tt2000_start, syr, smo, sday, /BREAKDOWN, /TOINTEGER
 	CDF_TT2000, tt2000[0], year, month, day, hour, /BREAKDOWN, /TOINTEGER
 	IF year NE syr || month NE smo || day NE sday THEN BEGIN
 		;Filter out all files matching the first starting date
 		ibad = Where( tt2000 EQ tt2000[0], nbad, COMPLEMENT=igood, NCOMPLEMENT=count)
 	
 		;Extract files
-		IF count GT 0 THEN BEGIN
-			files_out = files_out[igood]
-		ENDIF ELSE BEGIN
-			MrPrintF, 'LogWarn', 'No files in time interval.'
-			files_out = ''
-		ENDELSE
+		IF count GT 0 $
+			THEN files_out = files_out[igood] $
+			ELSE files_out = ''
 	ENDIF
 	
 	RETURN, files_out
@@ -986,15 +1043,26 @@ COUNT=count
 
 	;Do not download
 	IF nRemote EQ 0 || no_download THEN BEGIN
+		
 		;Information
-		IF verbose THEN MrPrintF, 'LogText', count-nLocal, FORMAT='(%"%i remote files not downloaded.")'
+		IF verbose THEN BEGIN
+			nSkip = count-nLocal
+			IF nSkip GT 0 THEN MrPrintF, 'LogText', nSkip, FORMAT='(%"%i remote files not downloaded.")'
+			MrPrintF, 'LogText', 'Local files:'
+			MrPrintF, 'LogText', '    ' + fout[0:nLocal-1]
+		ENDIF
+		
+		;Trim results
+		count = nLocal
+		fout  = count EQ 0 ? '' : fout[0:count-1]
 
 ;-----------------------------------------------------
 ; Download \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	ENDIF ELSE BEGIN 
 		IF verbose THEN BEGIN
-			MrPrintF, 'LogText', nLocal, count, FORMAT='(%"%i OF %i files found locally.")'
+			MrPrintF, 'LogText', nLocal, count, FORMAT='(%"%i of %i files found locally.")'
+			MrPrintF, 'LogText', '    ' + fout[0:nLocal-1]
 			MrPrintF, 'LogText', nRemote, FORMAT='(%"Downloading %i files.")'
 		ENDIF
 	
@@ -1003,8 +1071,9 @@ COUNT=count
 	;-----------------------------------------------------
 
 		;theText = string(FORMAT='(%"File %i OF %i.")', i+1, nFiles)    ;Another choice FOR the text string.
-		progressBar = Obj_New('cgProgressBar', TEXT=fileOut, TITLE='Downloading...', $
-		                      /CANCEL, /START)
+		progressBar = Obj_New()
+;		progressBar = Obj_New('cgProgressBar', TEXT=fileOut, TITLE='Downloading...', $
+;		                      /CANCEL, /START)
 	
 		;Create and set the callback structure
 		callbackData = { bar:          progressBar, $
@@ -1015,7 +1084,7 @@ COUNT=count
 		                 total_size:   0LL $
 		               }
 		
-		self.oWeb -> SetProperty, CALLBACK_FUNCTION='MrWebURI_Callback_Download'
+		self.oWeb -> SetProperty, CALLBACK_FUNCTION='MrWebURI_Callback_QuietDL' ;'MrWebURI_Callback_Download'
 	
 	;-----------------------------------------------------
 	; Download \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -1033,8 +1102,10 @@ COUNT=count
 		;   - Only the latest version are downloaded. If an older version
 		;     is specified, no file will be returned.
 		FOR i = 0, nRemote-1 DO BEGIN
+			IF verbose THEN MrPrintF, 'LogText', 'Downloading "' + temp_fname[i] + '".'
+			
 			;Reset the progress bar and callback data
-			progressBar -> Update, 0.0
+;			progressBar -> Update, 0.0
 			self.oWeb -> SetProperty, CALLBACK_DATA=callbackData
 			
 			;Prep for download
@@ -1044,9 +1115,11 @@ COUNT=count
 			IF ~File_Test(local_dest[i], /DIRECTORY) THEN File_MKDir, local_dest[i]
 
 			;Download the file.
-			;   - TODO: If ::Download failes, remove element from FILES_OUT.
-			;           Alos, IF operation is cancelled, let MrMMS_Load_Data know
+			;   - TODO: If ::Download fails, remove element from FILES_OUT.
+			;           Also, if operation is cancelled, let MrMMS_Load_Data know
 			fout[nLocal+i] = self -> Download(temp_local[i])
+			print, ''
+			
 			IF verbose THEN MrPrintF, 'LogText', temp_local[i], FORMAT='(%"File downloaded to \"%s\".")'
 		ENDFOR
 	
@@ -1059,7 +1132,8 @@ COUNT=count
 			obj_destroy, progressBar
 			
 			;Reset the callback FUNCTION
-			self.oWeb -> SetProperty, CALLBACK_FUNCTION='MrWebURI_Callback'
+			self.oWeb -> SetProperty, CALLBACK_DATA     = 0B, $
+			                          CALLBACK_FUNCTION = 'MrWebURI_Callback'
 		ENDIF
 	ENDELSE
 
@@ -1550,9 +1624,10 @@ COUNT=count
 	
 	;Build the file names
 	;   - Search for all versions.
-	fpattern = MrMMS_Build_Filename( self.sc, self.instr, self.mode, self.level, $
+	self -> GetProperty, SC_ID=sc, INSTR=instr, MODE=mode, LEVEL=level, OPTDESC=optdesc
+	fpattern = MrMMS_Build_Filename( sc, instr, mode, level, $
 	                                 COUNT     = nPatterns, $
-	                                 OPTDESC   = self.optdesc, $
+	                                 OPTDESC   = optdesc, $
 	                                 DIRECTORY = dir, $
 	                                 SDC_ROOT  = root )
 	
@@ -1811,19 +1886,12 @@ NREMOTE=nRemote
 ; Search Offline \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	IF offline THEN BEGIN
-		;MIRROR
-		IF mirror_root NE '' THEN BEGIN
-			;Full search of mirror
-			files = self -> Local_FileNames(COUNT=count, /MIRROR)
-
-			;Filter by time before any additional searches
-			IF count GT 0 $
-				THEN files = self -> FilterTime(files, COUNT=count)
-			
-		;LOCAL
-		ENDIF ELSE BEGIN
-			files = self -> Local_FileNames(COUNT=count)
-		ENDELSE
+		;Search the local or mirror directory
+		files = self -> Local_FileNames( COUNT=count, MIRROR=(mirror_root NE '') )
+		
+		;Filter by time before any additional searches
+		IF count GT 0 $
+			THEN files = self -> FilterFiles(files, COUNT=count, /TIME)
 
 ;-----------------------------------------------------
 ; Search Online \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -1832,7 +1900,9 @@ NREMOTE=nRemote
 		;Search remote
 		files = self -> FileNames(COUNT=count)
 		
-		IF count GT 0 THEN BEGIn
+		;REMOTE is the authority on files
+		;   - Assume its files are the most recent, correct version
+		IF count GT 0 THEN BEGIN
 			;Search locally for equivalent files
 			;   - Remove remote files that are found locally
 			local_files = MrMMS_Build_Filename(files, SDC_ROOT=local_root)
@@ -1842,7 +1912,7 @@ NREMOTE=nRemote
 		
 			;Search mirror for equivalent files
 			;   - Remove remote files that are found on the mirror
-			IF mirror_root NE '' THEN BEGIN
+			IF count GT 0 && mirror_root NE '' THEN BEGIN
 				mirror_files = MrMMS_Build_Filename(files, SDC_ROOT=mirror_root)
 				iMirror      = Where( File_Test( mirror_files ), nMirror, COMPLEMENT=iRemote, NCOMPLEMENT=count )
 				IF nMirror GT 0 THEN mirror_files = mirror_files[iMirror]
@@ -1858,7 +1928,7 @@ NREMOTE=nRemote
 	dropbox_files = self -> Local_FileNames(COUNT=nDropbox, /DROPBOX)
 	IF nDropbox GT 0 THEN BEGIN
 		;Filter by time
-		dropbox_files = self -> FilterTime(dropbox_files, COUNT=nDropbox)
+		dropbox_files = self -> FilterFiles(dropbox_files, COUNT=nDropbox, /TIME)
 		
 		;We want to compare the file names, not paths
 		dropboxBase = File_Basename(dropbox_files)
@@ -1908,7 +1978,12 @@ NREMOTE=nRemote
 	ENDIF
 	
 	;Filter by version
-	IF count GT 0 THEN files = self -> FilterVersion(files, COUNT=count)
+	IF count GT 0 THEN files = self -> FilterFiles(files, COUNT=count, /VERSION)
+	
+	;Filter by time
+	;   - Individual searches return files with FTIME <= TSTART
+	;   - Try to remove as many files with FTIME < TSTART as possible
+	IF count GT 0 THEN files = self -> FilterFiles(files, COUNT=count, /TIME)
 
 ;-----------------------------------------------------
 ; Copy DROPBOX and MIRROR Files to LOCAL \\\\\\\\\\\\\
@@ -2069,6 +2144,8 @@ END
 ;       VERSION:        in, optional, type=string/strarr
 ;                       File name version number, formatted as X.Y.Z, where X, Y, and Z
 ;                           are integers.
+;       _REF_EXTRA:     in, optional, type=any
+;                       Any keyword accepted by MrWebURI::SetProperty is also accepted here.
 ;-
 PRO MrMMS_SDC_API::SetProperty, $
 ANC_PRODUCT=ancprod, $
@@ -2277,7 +2354,7 @@ _REF_EXTRA=extra
 		
 		;LEVEL
 		IF N_Elements(level) GT 0 THEN BEGIN
-			IF ~Array_Equal( MrIsMember(['', 'l1a', 'l1b', 'ql', 'sitl', 'l2pre', 'l2', 'l2plus'], level), 1 ) $
+			IF ~Array_Equal( MrIsMember(['', 'l1a', 'l1b', 'ql', 'sitl', 'l2pre', 'l2', 'l2plus', 'l3', 'acr'], level), 1 ) $
 				THEN Message, 'Invalid value(s) for LEVEL.'
 			new_level = StrJoin(level, ',')
 		ENDIF
@@ -2345,7 +2422,7 @@ _REF_EXTRA=extra
 			year  = fix(strmid(date_end, 0, 4))
 			
 			;Bump the END date up by one day
-			cdf_tt2000, tt_end, year, month, day+1, /COMPUTE_EPOCH
+			cdf_tt2000, tt_end, year, month, day, 24, 0, 0, /COMPUTE_EPOCH
 			date_end = strmid(cdf_encode_tt2000(tt_end), 0, 10)
 		ENDIF
 	ENDIF
@@ -2471,9 +2548,14 @@ COUNT=nVersions
 		MrPrintF, 'LogErr'
 		
 		;Return to the previous setting
-		IF info_type NE 'version_info' THEN self -> SetProperty, INFO_TYPE=info_type
+		IF N_Elements(info_type) && info_type NE 'version_info' $
+			THEN self -> SetProperty, INFO_TYPE=info_type
+		
 		RETURN
 	ENDIF
+	
+	;Offline mode
+	IF self.offline THEN Message, 'OFFLINE=1: Cannot obtain version info.'
 	
 	;CD to the Versions service
 	info_type = self.info_type

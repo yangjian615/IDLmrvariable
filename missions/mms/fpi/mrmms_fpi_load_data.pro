@@ -84,6 +84,7 @@
 ;   Modification History::
 ;       2016/08/20  -   Written by Matthew Argall
 ;       2016/10/07  -   Added the SUFFIX keyword. - MRA
+;       2017/10/23  -   Added the RAGER keyword to load 7.5ms moments data.
 ;-
 ;*****************************************************************************************
 ;+
@@ -395,6 +396,7 @@ end
 pro MrMMS_FPI_Load_Data, sc, mode, $
 LEVEL=level, $
 OPTDESC=optdesc, $
+RAGER=rager, $
 SUFFIX=suffix, $
 SUPPORT_DATA=support_data, $
 TEAM_SITE=team_site, $
@@ -411,12 +413,20 @@ VARNAMES=varnames
 	endif
 	
 	;Defaults
-	instr = 'fpi'
+	instr    = 'fpi'
+	tf_rager = Keyword_Set(rager)
 	if n_elements(level)   eq 0 then level   = 'l2'
 	if n_elements(optdesc) eq 0 then optdesc = 'des-moms'
 	
+	dist_level = level
+	IF tf_rager THEN BEGIN
+		!MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
+		!MrMMS -> SetProperty, OFFLINE=1B,      DROPBOX_ROOT='/home/argall/data/rager/'
+		dist_level = 'acr'
+	ENDIF
+	
 	;Get the data
-	MrMMS_Load_Data, sc, instr, mode, level, $
+	MrMMS_Load_Data, sc, instr, mode, dist_level, $
 	                 OPTDESC      = optdesc, $
 	                 SUFFIX       = suffix, $
 	                 SUPPORT_DATA = support_data, $
@@ -424,6 +434,8 @@ VARNAMES=varnames
 	                 TRANGE       = trange, $
 	                 VARFORMAT    = varformat, $
 	                 VARNAMES     = varnames
+	
+	IF tf_rager THEN !MrMMS -> SetProperty, OFFLINE=offline, DROPBOX_ROOT=dropbox_root
 
 ;-----------------------------------------------------
 ; Center the Time Tags \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\

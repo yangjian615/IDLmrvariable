@@ -77,19 +77,19 @@ pro MrVar_Grid_Cart2FAC, T, x, y, z, oN, oP, oQ
 		z_temp = rebin(reform(oZ['DATA'], 1, nPhi, nTheta), nTime, nPhi, nTheta)
 		
 		;Perp-1
-		n = rebin(oT[*,0,0], nTime, nPhi, nTheta) * x_temp + $
-		    rebin(oT[*,1,0], nTime, nPhi, nTheta) * y_temp + $
-		    rebin(oT[*,2,0], nTime, nPhi, nTheta) * z_temp
+		n = rebin(oT['DATA',*,0,0], nTime, nPhi, nTheta) * x_temp + $
+		    rebin(oT['DATA',*,1,0], nTime, nPhi, nTheta) * y_temp + $
+		    rebin(oT['DATA',*,2,0], nTime, nPhi, nTheta) * z_temp
 		
 		;Perp-2
-		p = rebin(oT[*,0,1], nTime, nPhi, nTheta) * x_temp + $
-		    rebin(oT[*,1,1], nTime, nPhi, nTheta) * y_temp + $
-		    rebin(oT[*,2,1], nTime, nPhi, nTheta) * z_temp
+		p = rebin(oT['DATA',*,0,1], nTime, nPhi, nTheta) * x_temp + $
+		    rebin(oT['DATA',*,1,1], nTime, nPhi, nTheta) * y_temp + $
+		    rebin(oT['DATA',*,2,1], nTime, nPhi, nTheta) * z_temp
 		
 		;Par
-		q = rebin(oT[*,0,2], nTime, nPhi, nTheta) * temporary(x_temp) + $
-		    rebin(oT[*,1,2], nTime, nPhi, nTheta) * temporary(y_temp) + $
-		    rebin(oT[*,2,2], nTime, nPhi, nTheta) * temporary(z_temp)
+		q = rebin(oT['DATA',*,0,2], nTime, nPhi, nTheta) * temporary(x_temp) + $
+		    rebin(oT['DATA',*,1,2], nTime, nPhi, nTheta) * temporary(y_temp) + $
+		    rebin(oT['DATA',*,2,2], nTime, nPhi, nTheta) * temporary(z_temp)
 
 		;Turn into time-series variables
 		oN = MrTimeSeries( oT['TIMEVAR'], n, /NO_COPY )
@@ -102,19 +102,19 @@ pro MrVar_Grid_Cart2FAC, T, x, y, z, oN, oP, oQ
 		nTheta = dims[2]
 		
 		;Perp-1
-		oN = rebin( oT[*,0,0], nTime, nPhi, nTheta) * oX + $
-		     rebin( oT[*,1,0], nTime, nPhi, nTheta) * oY + $
-		     rebin( oT[*,2,0], nTime, nPhi, nTheta) * oZ
+		oN = rebin( oT['DATA',*,0,0], nTime, nPhi, nTheta) * oX + $
+		     rebin( oT['DATA',*,1,0], nTime, nPhi, nTheta) * oY + $
+		     rebin( oT['DATA',*,2,0], nTime, nPhi, nTheta) * oZ
 		
 		;Perp-2
-		oP = rebin( oT[*,0,1], nTime, nPhi, nTheta) * oX + $
-		     rebin( oT[*,1,1], nTime, nPhi, nTheta) * oY + $
-		     rebin( oT[*,2,1], nTime, nPhi, nTheta) * oZ
+		oP = rebin( oT['DATA',*,0,1], nTime, nPhi, nTheta) * oX + $
+		     rebin( oT['DATA',*,1,1], nTime, nPhi, nTheta) * oY + $
+		     rebin( oT['DATA',*,2,1], nTime, nPhi, nTheta) * oZ
 		
 		;Field-aligned
-		oQ = rebin( oT[*,0,2], nTime, nPhi, nTheta) * oX + $
-		     rebin( oT[*,1,2], nTime, nPhi, nTheta) * oY + $
-		     rebin( oT[*,2,2], nTime, nPhi, nTheta) * oZ
+		oQ = rebin( oT['DATA',*,0,2], nTime, nPhi, nTheta) * oX + $
+		     rebin( oT['DATA',*,1,2], nTime, nPhi, nTheta) * oY + $
+		     rebin( oT['DATA',*,2,2], nTime, nPhi, nTheta) * oZ
 	endelse
 
 	;Renormalize

@@ -72,6 +72,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/07/06  -   Written by Matthew Argall
+;       2017/07/26  -   A time interval does not need to be defined (MrVar_Get/SetTRange) - MRA
 ;-
 function MrVar_Image, z, x, y, $
 CURRENT=current, $
@@ -107,9 +108,9 @@ _REF_EXTRA=extra
 		;Time series variable
 		if obj_isa(oZ, 'MrTimeSeries') $
 			then oX = oZ['TIMEVAR'] $
-			else oX = MrVar_Get(oZ['DEPEND_0'])
+			else oX = oZ['DEPEND_0']
 		
-		oY = MrVar_Get(oZ['DEPEND_1'])
+		oY = oZ['DEPEND_1']
 	endif else begin
 		message, 'Incorrect number of defined input parameters.'
 	endelse
@@ -137,20 +138,22 @@ _REF_EXTRA=extra
 	;Use seconds since midnight, formatted as HH:MM:SS
 	if obj_isa(oX, 'MrTimeVar') then begin
 		trange = MrVar_GetTRange()
-		tr_ssm = MrVar_GetTRange('SSM')
 		x_data = oX -> GetData('SSM')
-		dt     = tr_ssm[1] - tr_ssm[0]
+		if array_equal(trange, '') $
+			then tr_ssm = [x_data[0], x_data[-1]] $
+			else tr_ssm = MrVar_GetTRange('SSM')
+		dt = tr_ssm[1] - tr_ssm[0]
 
-		;Less than 2 seconds
-		if dt lt 5.0 then begin
+		;Less than 60 seconds
+		if dt lt 60.0 then begin
 			xrange      = tr_ssm - floor(tr_ssm[0])
-			xtitle      = 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
+			xtitle      = trange[0] eq '' ? 'Time (s)' : 'Seconds past ' + strmid(trange[0], 0, 10) + ' ' + strmid(trange[0], 11, 8)
 			xtickformat = ''
 			x_data      -= floor(tr_ssm[0])
 
-		;More than two seconds
+		;More than 60 seconds
 		endif else begin
-			xtitle      = 'Time from ' + oX[0, 0:9]
+			xtitle      = 'Time from ' + oX['DATA', 0, 0:9]
 			xtickformat = 'time_labels'
 		endelse
 	endif else begin
@@ -209,10 +212,10 @@ _REF_EXTRA=extra
 		MrPrintF, 'LogWarn', 'No DELTA_(PLUS|MINUS) given for Y.'
 		dym = 0
 		if size(oY, /N_DIMENSIONS) eq 2 then begin
-			dyp = oY[*,1:*] - oY['DATA']
+			dyp = oY['DATA',*,1:*] - oY['DATA']
 			dyp = [ [dyp], [dyp[*,-1]] ]
 		endif else begin
-			dyp = oY[1:*] - oY['DATA']
+			dyp = oY['DATA',1:*] - oY['DATA']
 			dyp = [dyp, dyp[-1]]
 		endelse
 	endif
@@ -270,11 +273,38 @@ _REF_EXTRA=extra
 		              /CURRENT, $, $
 		              NAME          = oZ.name, $
 		              OVERPLOT      = overplot, $
+		              
+		              ;MrImage Keywords
+		              HIDE        = oZ -> GetAttrValue('HIDE',        /NULL), $
+		              KEEP_ASPECT = oZ -> GetAttrValue('KEEP_ASPECT', /NULL), $
+		              LAYOUT      = oZ -> GetAttrValue('LAYOUT',      /NULL), $
+		              POSITION    = oZ -> GetAttrValue('POSITION',    /NULL), $
+
+		              ;POLAR Plot Options
+		              POLAR          = oZ -> GetAttrValue('POLAR',          /NULL), $
+		              POL_AXSTYLE    = oZ -> GetAttrValue('POL_AXSTYLE',    /NULL), $
+		              POL_RCOLOR     = oZ -> GetAttrValue('POL_RCOLOR',     /NULL), $
+		              POL_RLINESTYLE = oZ -> GetAttrValue('POL_RLINESTYLE', /NULL), $
+		              POL_TCOLOR     = oZ -> GetAttrValue('POL_TCOLOR',     /NULL), $
+		              POL_TLINESTYLE = oZ -> GetAttrValue('POL_TLINESTYLE', /NULL), $
+		              POL_THICK      = oZ -> GetAttrValue('POL_THICK',      /NULL), $
+
+		              ;IMAGE_PLOTS Keywords
+		              AXISCOLOR     = oZ -> GetAttrValue('AXISCOLOR',     /NULL), $
+		              BOTTOM        = oZ -> GetAttrValue('BOTTOM',        /NULL), $
+		              CENTER        = oZ -> GetAttrValue('CENTER',        /NULL), $
+		              DATA_POS      = oZ -> GetAttrValue('DATA_POS',      /NULL), $
 		              LOG           = oZ -> GetAttrValue('LOG',           /NULL), $
+		              MISSING_VALUE = oZ -> GetAttrValue('MISSING_VALUE', /NULL), $
 		              MISSING_COLOR = oZ -> GetAttrValue('MISSING_COLOR', /NULL), $
 		              MISSING_INDEX = oZ -> GetAttrValue('MISSING_INDEX', /NULL), $
-		              MISSING_VALUE = oZ -> GetAttrValue('MISSING_VALUE', /NULL), $
-		              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL) )
+		              NAN           = oZ -> GetAttrValue('NAN',           /NULL), $
+		              PAINT         = oZ -> GetAttrValue('PAINT',         /NULL), $
+		              RGB_TABLE     = oZ -> GetAttrValue('RGB_TABLE',     /NULL), $
+		              RANGE         = oZ -> GetAttrValue('AXIS_RANGE',    /NULL), $
+		              SCALE         = oZ -> GetAttrValue('SCALE',         /NULL), $
+		              TITLE         = oZ -> GetAttrValue('PLOT_TITLE',    /NULL), $
+		              TOP           = oZ -> GetAttrValue('TOP',           /NULL) )
 	endelse
 
 ;-------------------------------------------

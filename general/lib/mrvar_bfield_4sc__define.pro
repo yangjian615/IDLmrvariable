@@ -67,6 +67,7 @@
 ; :History:
 ;   Modification History::
 ;       2016/11/24  -   Written by Matthew Argall
+;       2017/08/30  -   Added the ::FOTE method.
 ;-
 ;*****************************************************************************************
 ;+
@@ -319,8 +320,8 @@ NAME=name
 	;Set attributes
 	J -> AddAttr, 'CATDESC',    'Current denstiy from the curlometer technique.'
 	J -> AddAttr, 'PLOT_TITLE', 'Current Density'
-	J -> AddAttr, 'UNITS',      'nA/m^2'
 	J -> AddAttr, 'TITLE',      'J!C(nA/m^2)'
+	J -> AddAttr, 'UNITS',      'nA/m^2'
 
 	return, J
 end
@@ -382,7 +383,7 @@ end
 
 
 ;+
-;   Compute the current desnity using the reciprocal vector method.
+;   Compute the radius of curvature.
 ;
 ;   References
 ;       Shen, C., X. Li, M. Dunlop, Z. X. Liu, A. Balogh, D. N. Baker, M. Hapgood,
@@ -447,6 +448,341 @@ CACHE=cache
 
 	return, oCurv
 end
+
+
+;+
+;   First-order Taylor Expansion method for finding magnetic nulls.
+;       B(r) = ∂\vec{B}_{i}/∂\vec{R}_{j} \cdot \vec{r}
+;
+;   where
+;       B(r) = Magnetic field at the position of the spacecraft
+;       r    = Position vector of the spacecraft with respect to the Null
+;       R    = Position vector of the spacecraft
+;
+;   and we want to solve for "r".
+;
+;   References
+;       Fu, H. S., A. Vaivads, Y. V Khotyaintsev, V. Olshevsky, M. André, J. B. Cao,
+;           S. Y. Huang, A. Retinò, and G. Lapenta (2015), How to find magnetic nulls
+;           and reconstruct field topology with MMS data?, J. Geophys. Res. Sp. Phys.,
+;           120(5), 3758–3782, doi:10.1002/2015JA021082.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the reciprocal vectors will be added to the cache.
+;       NAME:           in, optional, type=string, default='RecipCurl'
+;                       A name to be given to the variable.
+;
+; :Returns:
+;       OFOTE:          out, required, type=MrVectorTS objref
+;                       The curvature radius.
+;-
+FUNCTION MrVar_BField_4sc::Poincare, $
+CACHE=cache, $
+NAME=name
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		RETURN, !Null
+	END
+	
+	;Defaults
+	nTri = 4
+	nPts = self.oB1 -> GetNPts()
+	IF N_Elements(name) EQ 0 THEN name = 'Poincare_Index'
+
+;-------------------------------------------
+; Poincaré Index ///////////////////////////
+;-------------------------------------------
+	;Normalize the fields so that the triangles are the same size
+	ob1 = self.oB1 -> Normalize()
+	ob2 = self.oB2 -> Normalize()
+	ob3 = self.oB3 -> Normalize()
+	ob4 = self.oB4 -> Normalize()
+	
+	;Get the magnetitudes
+	ob1m = self.oB1 -> Magnitude()
+	ob2m = self.oB2 -> Magnitude()
+	ob3m = self.oB3 -> Magnitude()
+	ob4m = self.oB4 -> Magnitude()
+	
+	;Is it possible for a null to exist in the box?
+	;   - It is not if the sign of >= 1 component is the same at all vertices
+	sign1 = ob1['DATA']/Abs(ob1['DATA'])
+	sign2 = ob2['DATA']/Abs(ob2['DATA'])
+	sign3 = ob3['DATA']/Abs(ob3['DATA'])
+	sign4 = ob4['DATA']/Abs(ob4['DATA'])
+	tf_null = ( sign1[*,0] EQ sign2[*,0] AND sign1[*,0] EQ sign3[*,0] AND sign1[*,0] EQ sign3[*,0] ) OR $
+	          ( sign1[*,1] EQ sign2[*,1] AND sign1[*,1] EQ sign3[*,1] AND sign1[*,1] EQ sign3[*,1] ) OR $
+	          ( sign1[*,2] EQ sign2[*,2] AND sign1[*,2] EQ sign3[*,2] AND sign1[*,2] EQ sign3[*,2] )
+	tf_null = ~tf_null
+	
+	;There are four triangles in the tetrahedron
+	A = FltArr(nPts)
+	FOR i = 0, nTri - 1 DO BEGIN
+		;Compute the angle between edges
+		oCosTheta1 = ob2 -> Dot(ob3) < 1.0
+		oCosTheta2 = ob3 -> Dot(ob4) < 1.0
+		oCosTheta3 = ob4 -> Dot(ob1) < 1.0
+		
+		;Angles
+		th1 = ACos(oCosTheta1['DATA'])
+		th2 = ACos(oCosTheta2['DATA'])
+		th3 = ACos(oCosTheta3['DATA'])
+		
+		;Area
+		;   - Tan throws floating point underlow errors if theta terms ~1e-8
+		A = A + 4 * ATan( Sqrt( Tan(th1 + th2 + th3) / 4.0 * $
+		                        Tan(th1 + th2 - th3) / 4.0 * $
+		                        Tan(th2 + th3 - th1) / 4.0 * $
+		                        Tan(th3 + th1 - th2) / 4.0 ) )
+	ENDFOR
+	
+	;Toplological Degree
+	;   - Number of time the area covers the unit sphere
+	;   - Determined by dividing the area by the solid angle of a sphere: 4*pi
+	oTD = MrScalarTS( self.oB1['TIMEVAR'], tf_null * A / (4*!pi), $
+	                  CACHE = cache, $
+	                  NAME  = name )
+	
+	;Attributes
+	oTD['AXIS_RANGE']   = [-1.5, 1.5]
+	oTD['CATDESC']      = 'Poincare Index or topological degree. The number of Nulls within ' + $
+	                      'the tetrahedron volume.'
+	oTD['PLOT_TITLE']   = 'Poincare Index'
+	oTD['TICKINTERVAL'] = 1.0
+	oTD['TICKMINOR']    = 1
+	oTD['TITLE']        = 'PI'
+
+;-------------------------------------------
+; Null Classification //////////////////////
+;-------------------------------------------
+	;Requires eigenvalues of Grad(B), but this is not a symmetric
+	;matrix so IDL does not have the tools to determine this.
+	
+
+;-------------------------------------------
+; Done /////////////////////////////////////
+;-------------------------------------------
+	RETURN, oTD
+END
+
+
+;+
+;   First-order Taylor Expansion method for finding magnetic nulls.
+;       B(r) = ∂\vec{B}_{i}/∂\vec{R}_{j} \cdot \vec{r}
+;
+;   where
+;       B(r) = Magnetic field at the position of the spacecraft
+;       r    = Position vector of the spacecraft with respect to the Null
+;       R    = Position vector of the spacecraft
+;
+;   and we want to solve for "r".
+;
+;   References
+;       Fu, H. S., A. Vaivads, Y. V Khotyaintsev, V. Olshevsky, M. André, J. B. Cao,
+;           S. Y. Huang, A. Retinò, and G. Lapenta (2015), How to find magnetic nulls
+;           and reconstruct field topology with MMS data?, J. Geophys. Res. Sp. Phys.,
+;           120(5), 3758–3782, doi:10.1002/2015JA021082.
+;
+; :Keywords:
+;       CACHE:          in, optional, type=boolean, default=0
+;                       If set, the reciprocal vectors will be added to the cache.
+;       ERR:            out, optional, type=objref
+;                       A MrScalarTS object containing the uncertainty associated with
+;                           the location of the null.
+;       RMAG:           out, optional, type=objref
+;                       A MrTimeSeries object containing the distance from the null to
+;                           each of the four spacecraft.
+;       RNS:            out, optional, type=objarr(4)
+;                       An array of MrVectorTS objects containing the location of the null
+;                           with respect to each of the four spacecraft.
+;       NAME:           in, optional, type=string, default='RecipCurl'
+;                       A name to be given to the variable.
+;       TYPE:           out, optional, type=objarr(4)
+;                       An array of MrVectorTS objects containing the location of the null
+;                           with respect to each of the four spacecraft.
+;
+; :Returns:
+;       ORNULL:         out, required, type=MrVectorTS objref
+;                       Location of the null with respect to the coordinate system origin.
+;-
+FUNCTION MrVar_BField_4sc::FOTE, $
+CACHE=cache, $
+ERR=oErr, $
+NAME=name, $
+RMAG=oRmag, $
+RNS=oRns, $
+TYPE=oType
+	Compile_Opt idl2
+	
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		MrPrintF, 'LogErr'
+		RETURN, !Null
+	END
+	
+	;Defaults
+	nSC  = 4
+	nPts = self.oB1 -> GetNPts()
+	tf_cache = Keyword_Set(cache)
+	IF N_Elements(name) EQ 0 THEN name = 'FOTE_location_of_null'
+
+;-------------------------------------------
+; Distance from SC "i" to Null /////////////
+;-------------------------------------------
+	
+	;Compute the gradient
+	oGradB  = self.oRecipVec -> Gradient( self.oB1, self.oB2, self.oB3, self.oB4 )
+	
+	;Solve for R
+	r      = FltArr(nPts,3,nSC)
+	err    = FltArr(nPts)
+	type   = StrArr(nPts)
+	sym    = BytArr(nPts)
+	FOR i = 0, nPts - 1 DO BEGIN
+		ltemp = Reform( oGradB['DATA',i,*,*] )
+			
+		;Compute the eigenvalues
+		uh     = ElmHes(ltemp)
+		eigval = HQR(uh)
+			
+		;Uncertainty
+		;   - The trace of the gradient of B represents Div(B)
+		;   - Can be normalized by Curl(B), which is equivalent how much Total(eigvals) NE 0
+		err[i] = Abs( Total(eigval) ) / Max( Abs(eigval) )
+		
+		;Determine Null type
+		;   - Radial nulls A and B are both real
+		;       + A has one positive and two negative eigenvalues
+		;       + B has two positive and one netative eigenvalue
+		;   - Spiral nulls As and Bs have one real eigenvalue. The other two are complex conjugates
+		;       + As real eigenvalue is positive
+		;       + Bs real eigenvalue is negative
+		IF Array_Equal(Imaginary(eigval), 0) THEN BEGIN
+			IF Total( Real_Part(eigval) GT 0 ) EQ 1 THEN BEGIN
+				type[i] = 'A'
+				sym[i]  = 5
+			ENDIF ELSE BEGIN
+				type[i] = 'B'
+				sym[i]  = 12
+			ENDELSE
+		ENDIF ELSE BEGIN
+			void = Min( Imaginary(eigval), iMin )
+			IF Real_Part(eigval[iMin]) GT 0 THEN BEGIN
+				type[i] = 'As'
+				sym[i]  = 17
+			ENDIF ELSE BEGIN
+				type[i] = 'Bs'
+				sym[i]  = 19
+			ENDELSE
+		ENDELSE
+		
+		;Distance from spacecraft to null
+		LA_LUDC, ltemp, index
+		r[i,*,0] = LA_LUSol(ltemp, index, Reform( self.oB1['DATA',i,*] ))
+		r[i,*,1] = LA_LUSol(ltemp, index, Reform( self.oB2['DATA',i,*] ))
+		r[i,*,2] = LA_LUSol(ltemp, index, Reform( self.oB3['DATA',i,*] ))
+		r[i,*,3] = LA_LUSol(ltemp, index, Reform( self.oB4['DATA',i,*] ))
+	ENDFOR
+	
+	;Scalar Error
+	oErr = MrScalarTS( self.oB1['TIMEVAR'], err, CACHE=cache, NAME=name+'_uncertainty', /NO_COPY )
+	oErr['CATDESC'] = 'Error associated with FOTE method determination of Null. ' + $
+	                       'Computed as Abs( e1 + e2 + e3 ) / Max(Abs([e1, e2, e3])), ' + $
+	                       'where e1, e2, and e3 are the three eigenvalues of the ' + $
+	                       'Grad(B) matrix.'
+	oErr['TITLE']   = '$\xi$'
+	
+	;Position of the null with respect to spacecraft "i"
+	oRns    = ObjArr(nSC)
+	oRns[0] = MrVectorTS( self.oB1['TIMEVAR'], r[*,*,0], CACHE=cache, NAME=name+'_Rn1' )
+	oRns[1] = MrVectorTS( self.oB1['TIMEVAR'], r[*,*,1], CACHE=cache, NAME=name+'_Rn2' )
+	oRns[2] = MrVectorTS( self.oB1['TIMEVAR'], r[*,*,2], CACHE=cache, NAME=name+'_Rn3' )
+	oRns[3] = MrVectorTS( self.oB1['TIMEVAR'], r[*,*,3], CACHE=cache, NAME=name+'_Rn4' )
+	(oRns[0])['CATCESC']    = 'Position of null with respect to spacecraft 1.'
+	(oRns[0])['LABEL']      = ['X', 'Y', 'Z']
+	(oRns[0])['LABL_PTR_1'] = ['X', 'Y', 'Z']
+	(oRns[0])['TITLE']      = 'Rns!C(km)'
+	(oRns[0])['UNITS']      = 'km'
+	oRns[0] -> CopyAttrTo, oRns[1]
+	oRns[0] -> CopyAttrTo, oRns[2]
+	oRns[0] -> CopyAttrTo, oRns[3]
+	(oRns[0])['CATCESC']    = 'Position of null with respect to spacecraft 1.'
+	(oRns[1])['CATCESC']    = 'Position of null with respect to spacecraft 2.'
+	(oRns[2])['CATCESC']    = 'Position of null with respect to spacecraft 3.'
+	(oRns[3])['CATCESC']    = 'Position of null with respect to spacecraft 4.'
+	
+	;Type of null
+	oType = MrScalarTS( self.oB1['TIMEVAR'], type, CACHE=cache, NAME=name+'_null_type', /NO_COPY )
+	oType['CATDESC'] = 'Type of null determined from the eigenvalues of the gradient ' + $
+	                   'of the magnetic field. The eigenvalues of radial nulls of types ' + $
+	                   'A and B are all real. A nulls have two positive eigenvalues while ' + $
+	                   'B nulls have two negative eigenvalues. Spiral nulls have one real ' + $
+	                   'eigenvalue while the other two are complex conjugates. The real ' + $
+	                   'eigenvalue of As (Bs) spiral nulls is positive (negative).'
+	oType['TITLE']   = 'Null Type'
+
+;-------------------------------------------
+; Check Results ////////////////////////////
+;-------------------------------------------
+	;Position of the null with respect to coordinate system origin
+	;   - These should all be the same!
+	self.oRecipVec -> GetData, oR1;, oR2, oR3, oR4
+	oRnull1 = oR1 - oRns[0]
+;	oRnull2 = oR2 - oRns[1]
+;	oRnull3 = oR3 - oRns[2]
+;	oRnull4 = oR4 - oRns[3]
+
+	;Convert to units of RE
+	oRnull = oRnull1 / (MrConstants('RE') * 1e-3)
+	oRnull['CATDESC']    = 'Position of nulls'
+	oRnull['PLOT_TITLE'] = 'Position of Nulls'
+	oRnull['UNITS']      = 'RE'
+	oRnull['TITLE']      = 'R!C(RE)'
+	oRnull -> SetName, name
+	IF Keyword_Set(cache) THEN oRnull -> Cache
+	
+	;Free memroy
+	Obj_Destroy, oRnull1
+
+;-------------------------------------------
+; Spacecraft-Null Separation ///////////////
+;-------------------------------------------
+	
+	;Total distance from null to each spacecraft
+	oRmag1 = oRns[0] -> Magnitude()
+	oRmag2 = oRns[1] -> Magnitude()
+	oRmag3 = oRns[2] -> Magnitude()
+	oRmag4 = oRns[3] -> Magnitude()
+	
+	;Variable
+	oRmag  = MrTimeSeries( oRmag1['DEPEND_0'], [ [oRmag1['DATA']], [oRmag2['DATA']], [oRmag3['DATA']], [oRmag4['DATA']] ], $
+	                       CACHE = cache, $
+	                       NAME  = 'FOTE_spacecraft_null_distance' )
+	
+	;Attributes
+	oRmag['CATDESC'] = 'Distance from each spacecraft to the null.'
+	oRmag['COLOR']   = ['Black', 'Red', 'Green', 'Blue']
+	oRmag['LABEL']   = ['SC1', 'SC2', 'SC3', 'SC4']
+	oRmag['SYMBOL']  = sym
+	oRmag['TITLE']   = 'R!C(km)'
+	oRmag['UNITS']   = 'km'
+	oRmag -> SetName, name + '_magnitude'
+	IF tf_cache THEN oRmag -> Cache
+	
+	;Free memory
+	Obj_Destroy, [oRns, oRmag1, oRmag2, oRmag3, oRmag4]
+
+;-------------------------------------------
+; Done /////////////////////////////////////
+;-------------------------------------------
+	RETURN, oRnull
+END
 
 
 ;+
@@ -717,21 +1053,21 @@ end
 ;                       to the time tags of the magnetic field from SC 1. This requires
 ;                       data to be set via the ::SetData method.
 ;-
-pro MrVar_BField_4sc::SetPosition, r1, r2, r3, r4, $
+PRO MrVar_BField_4sc::SetPosition, r1, r2, r3, r4, $
 TIME=time
-	compile_opt idl2
-	on_error, 2
+	Compile_Opt idl2
+	On_Error, 2
 	
 	;Interpolate to the magnetic field from SC 1
-	if n_elements(time) eq 0 then begin
-		if obj_valid(self.oB1) $
-			then time = self.oB1['TIMEVAR'] $
-			else message, 'B-Field has not been set. Cannot inteprolate R1-4.'
-	endif
+	IF N_Elements(time) EQ 0 THEN BEGIN
+		IF obj_valid(self.oB1) $
+			THEN time = self.oB1['TIMEVAR'] $
+			ELSE Message, 'B-Field has not been set. Cannot inteprolate R1-4.'
+	ENDIF
 	
 	;Set data
 	self.oRecipVec -> SetData, r1, r2, r3, r4, TIME=time
-end
+END
 
 
 ;+

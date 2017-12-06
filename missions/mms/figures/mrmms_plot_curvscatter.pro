@@ -73,6 +73,7 @@
 ;-
 function MrMMS_Plot_CurvScatter, sc, mode, species, $
 ENERGIES=energies, $
+LEVEL=level, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	compile_opt idl2
@@ -88,6 +89,7 @@ TRANGE=trange
 	Bmirror  = [65]                   ;nT
 	tf_load = ~keyword_set(no_load)
 	if n_elements(energies) eq 0 then energies = [20, 100, 200, 500]       ;eV
+	if n_elements(level)    eq 0 then level    = 'l2'
 	if n_elements(species)  eq 0 then species  = 'e'
 	if n_elements(trange)   gt 0 then MrVar_SetTRange, trange
 	

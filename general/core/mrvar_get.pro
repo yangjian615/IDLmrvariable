@@ -71,6 +71,7 @@
 ;       2016-08-21  -   If object references are given, veryify that they are MrVariable
 ;                           objects. - MRA
 ;       2016-08-28  -   Use the (new) MrVariable_Cache::Get method. - MRA
+;       2017-08-02  -   MrVariable objects pass through even if the cache has not been created. - MRA
 ;-
 ;*****************************************************************************************
 function MrVar_Get, var, $
@@ -92,8 +93,20 @@ ISA=isa
 	
 	;The cache has not been created yet
 	endif else begin
-		variables = !Null
-		count     = 0
+		;Object
+		if IsA(var, 'MrVariable') then begin
+			variables = var
+			count     = TypeName(var) EQ 'OBJREF' ? N_Elements(var) : 1
+		
+		;String or Number
+		endif else if MrIsA(var, 'STRING') || MrIsA(var, /NUMBER) then begin
+			variables = !Null
+			count     = 0
+		
+		;Invalid
+		endif else begin
+			Message, 'VAR must be a MrVariable name, number, or object reference.'
+		endelse
 	endelse
 
 	;Get the variable

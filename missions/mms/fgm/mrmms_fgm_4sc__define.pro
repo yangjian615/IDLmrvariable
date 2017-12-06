@@ -268,7 +268,7 @@ VARNAMES=varnames
 		                     INSTR     = instr, $
 		                     LEVEL     = level, $
 		                     VARFORMAT = ['*_b_' + coord_sys + '_*', $
-		                                  '*' + instr + '_' + mode + '_*_' + coord_sys], $
+		                                  '*' + instr + '_' + mode + '_' + coord_sys], $
 		                     VARNAMES  = temp_names
 
 		;Pull the vector magnetic field
@@ -322,7 +322,7 @@ PRO MrMMS_FGM_4sc::LoadPosition, ephdesc
 		sc = 'mms' + String(i+1, FORMAT='(i1)')
 		
 		;Definitive ephemeris
-		IF ephdesc EQ 'defeph' THEN BEGIN
+		IF ephdesc EQ 'defeph' || ephdesc EQ 'predeph' THEN BEGIN
 			MrMMS_Load_data, sc, $
 			                 ANC_PRODUCT = ephdesc, $
 			                 /ANCILLARY, $
@@ -336,7 +336,7 @@ PRO MrMMS_FGM_4sc::LoadPosition, ephdesc
 			                 VARFORMAT = '*_r_' + self.coord_sys, $
 			                 VARNAMES  = temp_names
 		ENDELSE
-
+		
 		;Retrieve the variable
 		iPos        = Where( StRegEx(temp_names, '(_r_|_R$)', /BOOLEAN) )
 		oPos[i]     = MrVar_Get( (Temporary(temp_names))[iPos] )

@@ -57,6 +57,9 @@
 ;   Modification History::
 ;       2016-02-13  -   Written by Matthew Argall
 ;       2016-09-27  -   Added SEARCHSTR and REGEX to ::GetNames. - MRA
+;       2017-08-29  -   ::FindByNames returns objects in the order of the input names. - MRA
+;       2017-10-30  -   Catch scalars when determining number of objects returned by
+;                           ::Get; prevent call to ::_OverloadSize by N_Elements. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -361,7 +364,8 @@ COUNT=count
 				then message, 'VAR must be an (array of) MrVariable objects.'
 			
 			;Outputs
-			count = n_elements(var)
+			;   - Arrays of objects have TYPENAME='OBJREF'; for scalars TYPENAME=<obj_class()>
+			count = typename(var) eq 'OBJREF' ? n_elements(var) : 1
 			variables = var
 		endcase
 		
@@ -493,7 +497,7 @@ end
 ;   Find a variable by its name.
 ;
 ; :Params:
-;       NAME:           in, required, type=string
+;       NAMES:          in, required, type=string/strarr
 ;                       Name of the variable to be retrieved. May contain any wildcard
 ;                           recognized by IDL's StrMatch function
 ;
@@ -510,7 +514,7 @@ end
 ; :Returns:
 ;       VARIABLE:       Variable with name `NAME`.
 ;-
-function MrVariable_Cache::FindByName, name, $
+function MrVariable_Cache::FindByName_v1, names, $
 COUNT=count, $
 POSITION=varIndex, $
 REGEX=regex
@@ -519,16 +523,16 @@ REGEX=regex
 	
 	;Regex or strmatch?
 	count    = 0
-	tf_regex = keyword_set(regex)
+	tf_regex = Keyword_Set(regex)
 
 	;Get all of the variables
 	allVars   = self -> Get(/ALL, COUNT=nVars)
-	if nVars eq 0 then return, obj_new()
+	IF nVars EQ 0 THEN RETURN, Obj_New()
 
 	;Allocate memory
 	varsFound = objarr(nVars)
 	varIndex  = lonarr(nVars)
-
+	
 	;Loop through variables
 	for i = 0, nVars-1 do begin
 		varname = allVars[i] -> GetName()
@@ -554,7 +558,78 @@ REGEX=regex
 
 	;Return matches
 	return, varsFound
-end
+END
+
+
+;+
+;   Find a variable by its name.
+;
+; :Params:
+;       NAMES:          in, required, type=string/strarr
+;                       Name of the variable to be retrieved. May contain any wildcard
+;                           recognized by IDL's StrMatch function
+;
+; :Keywords:
+;       COUNT:          out, required, type=integer
+;                       Number of variables found with name `NAMES`.
+;       POSITION:       out, required, type=int/intarr
+;                       The cache index of each variable found.
+;       REGEX:          in, required, type=boolean, default=0
+;                       If set, IDL's StRegEx function will be used to find variables
+;                           instead of StrMatch. In this case, `NAMES` may have any
+;                           wildcard accepted by StRegEx.
+;
+; :Returns:
+;       VARIABLE:       Variable with name `NAMES`.
+;-
+FUNCTION MrVariable_Cache::FindByName, names, $
+COUNT=count, $
+POSITION=varIndex, $
+REGEX=regex
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Regex or strmatch?
+	count    = 0
+	tf_regex = Keyword_Set(regex)
+
+	;Get all of the variables
+	allVars   = self -> Get(/ALL, COUNT=nVars)
+	IF nVars EQ 0 THEN RETURN, Obj_New()
+
+	;Allocate memory
+	nNames    = N_Elements(names)
+	varsFound = ObjArr(nNames)
+	varIndex  = LonArr(nNames)
+	
+	;Get all of the variable names
+	varnames = StrArr(nVars)
+	FOR i = 0, nVars - 1 DO varnames[i] = allVars[i] -> GetName()
+	
+	;Step through each name
+	FOR i = 0, nNames - 1 DO BEGIN
+		;Check for match
+		;   - This works because variable names within the cache are forced to be unique
+		IF tf_regex $
+			THEN tf_match = Max( StRegEx(varnames, names[i], /BOOLEAN), iMax ) $
+			ELSE tf_match = Max( StrMatch(varnames, names[i]), iMax )
+		
+		;Keep matches
+		IF tf_match THEN BEGIN
+			varsFound[count] = allVars[iMax]
+			varIndex[count]  = iMax
+			count           += 1
+		ENDIF
+	ENDFOR
+	
+	;Trim results
+	;   - If no variables were found, return a single null object
+	IF count LE 1 $
+		THEN varsFound = varsFound[0] $
+		ELSE varsFound = varsFound[0:count-1]
+	
+	RETURN, varsFound
+END
 
 
 ;+

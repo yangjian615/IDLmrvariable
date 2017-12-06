@@ -58,6 +58,13 @@
 ;                   Data quality level. Options are: {'l1a' | 'l1b' | 'ql' | 'l2pre' | 'l2'}
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional filename descriptor.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
@@ -75,11 +82,14 @@
 ; :History:
 ;   Modification History::
 ;       2017/01/13  -   Written by Matthew Argall
+;       2017/11/01  -   Added the OUTPUT_DIR and OUTPUT_EXT keywords. - MRA
 ;-
 FUNCTION MrMMS_Plot_SCM, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 OPTDESC=optdesc, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 NO_LOAD=no_load, $
 TRANGE=trange
 	Compile_Opt idl2
@@ -175,6 +185,17 @@ TRANGE=trange
 	oBx_psd = oBx -> Spectrogram(nfft, nshift, NAME=bxpsd_vname, /CACHE, WINDOW='hanning')
 	oBy_psd = oBy -> Spectrogram(nfft, nshift, NAME=bypsd_vname, /CACHE, WINDOW='hanning')
 	oBz_psd = oBz -> Spectrogram(nfft, nshift, NAME=bzpsd_vname, /CACHE, WINDOW='hanning')
+	
+	;Pick the color range so that it cuts out 1% of the low range and 0.2% of the high range
+	psd_range = ALog10( [ Min( [oBx_psd.min, oBy_psd.min, oBz_psd.min] ), $
+	                      Max( [oBx_psd.max, oBy_psd.max, oBz_psd.max] ) ] )
+	h         = Histogram( Reform( ALog10(oBx_psd['DATA']), N_Elements(oBx_psd) ), $
+	                       MIN     = psd_range[0], $
+	                       MAX     = psd_range[1], $
+	                       BINSIZE = 0.2 )
+	hpct      = 100.0 * Total(h, /CUMULATIVE) / Total(h)
+	bins      = 10.0^LinSpace(psd_range[0], psd_range[1], 0.2, /INTERVAL)
+	range     = bins[ Value_Locate(hpct, [1.7, 99.85]) ]
 
 ;-------------------------------------------
 ; Gyrofrequency Lines //////////////////////
@@ -182,7 +203,7 @@ TRANGE=trange
 	oBmag  = MrVar_Get(fgm_bmag_vname)
 	
 	;Electron cyclotron frequency
-	IF mode EQ 'BRST' THEN BEGIN
+	IF mode EQ 'brst' THEN BEGIN
 		;fce
 		of1 = MrVar_Freq_Cyclotron(oBmag, 'm_e', /CACHE, NAME=f1_vname)
 		
@@ -238,16 +259,16 @@ TRANGE=trange
 	;Bx PSD
 	oFreq = oBx_PSD['DEPEND_1']
 	oFreq['AXIS_RANGE']   = mode eq 'brst' ? [1.0, oFreq.max] : [0.5, oFreq.max]
-	oBx_psd['AXIS_RANGE'] = [1e-7, 1e-1]
+	oBx_psd['AXIS_RANGE'] = range
 	oBx_psd['TITLE']      = 'Bx PSD!C(nT$\up2$/Hz)'
 	
 	;By PSD
-	oBy_psd['AXIS_RANGE'] = [1e-7, 1e-1]
+	oBy_psd['AXIS_RANGE'] = range
 	oBy_psd['DEPEND_1']   = oFreq
 	oBy_psd['TITLE']      = 'By PSD!C(nT$\up2$/Hz)'
 	
 	;Bz PSD
-	oBz_psd['AXIS_RANGE'] = [1e-7, 1e-1]
+	oBz_psd['AXIS_RANGE'] = range
 	oBz_psd['DEPEND_1']   = oFreq
 	oBz_psd['TITLE']      = 'Bz PSD!C(nT$\up2$/Hz)'
 
@@ -276,6 +297,30 @@ TRANGE=trange
 	win    -> TrimLayout
 	win    -> SetProperty, OXMARGIN=[13, 14]
 	win    -> Refresh
+
+;-------------------------------------------
+; Save Results /////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+		ENDIF ELSE IF ~File_Test(output_dir, /DIRECTORY) THEN BEGIN
+			MrPrintF, 'LogText', 'Creating directory: "' + output_dir + '".'
+			File_MKDir, output_dir
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, instr, mode, level, optdesc], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
 
 	RETURN, win
 END

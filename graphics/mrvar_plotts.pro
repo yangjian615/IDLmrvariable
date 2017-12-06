@@ -1,7 +1,7 @@
 ; docformat = 'rst'
 ;
 ; NAME:
-;       MrVar_Plot
+;       MrVar_PlotTS
 ;
 ;*****************************************************************************************
 ;   Copyright (c) 2016, Matthew Argall                                                   ;
@@ -82,8 +82,11 @@
 ;   Modification History::
 ;       2016/08/13  -   Written by Matthew Argall
 ;       2016/10/03  -   Added the LAYOUT and NO_REFRESH keywords. - MRA
+;       2017/03/09  -   Added the CURRENT keyword. - MRA
+;       2017/08/02  -   VARIABLES can be MrTimeSeries objects. - MRA
 ;-
 function MrVar_PlotTS, variables, $
+CURRENT=current, $
 LAYOUT=layout, $
 NO_REFRESH=no_refresh, $
 XSIZE=xsize, $
@@ -110,21 +113,20 @@ YSIZE=ysize
 		if n_elements(vars) eq 0 $
 			then message, 'Specify the variables to be plotted.' $
 			else variables = vars
-			
-	;New set of variables to be plotted
-	endif else begin
-		;Must be variable names or numbers
-		if ~MrIsA(variables, /INTEGER) && ~MrIsA(variables, 'STRING') $
-			then message, 'VARIABLES must be variable names or indices.'
-	endelse
+	endif
+	
+	;Get all of the variables
+	allVars = MrVar_Get(variables, COUNT=nVars)
 
 ;-------------------------------------------
 ; Check Inputs /////////////////////////////
 ;-------------------------------------------
 	
 	;Number of variables to plot
-	nVars      = n_elements(variables)
-	tf_refresh = ~keyword_set(no_refresh)
+	tf_current = keyword_set(current)
+	if n_elements(no_refresh) gt 0 $
+		then tf_refresh = ~keyword_set(no_refresh) $
+		else tf_refresh = 1B
 	
 	;Plot layout
 	if n_elements(layout) eq 0 then begin
@@ -136,23 +138,36 @@ YSIZE=ysize
 ;-------------------------------------------
 ; Create the Window ////////////////////////
 ;-------------------------------------------
-	win = MrWindow(LAYOUT=layout, XSIZE=xsize, YGAP=0.5, YSIZE=ysize, REFRESH=0)
+	;Get the window
+	if keyword_set(current) then begin
+		win        = GetMrWindows(/CURRENT)
+		tf_refresh = win -> GetRefresh()
+		win       -> Refresh, /DISABLE
+	endif else begin
+		win = MrWindow( LAYOUT  = layout, $
+		                XSIZE   = xsize, $
+		                YGAP    = 0.5, $
+		                YSIZE   = ysize, $
+		                REFRESH = 0 )
+	endelse
 
 ;-------------------------------------------
 ; Step Through Each Variable ///////////////
 ;-------------------------------------------
+	
+	;Plot each variable
 	for i = 0, nVars - 1 do begin
 		iCol = i mod layout[0]
 		iRow = i  /  layout[0]
 
 		;Get the variable
-		oVar = MrVar_Get(variables[i], COUNT=count)
+		oVar = nVars eq 1 ? allVars : allVars[i]
 
 		;Skip the variable if it is not in the cache
-		if count eq 0 then begin
-			MrPrintF, 'LogWarn', 'Variable not found: "' + variables[i] + '".'
-			continue
-		endif
+;		if count eq 0 then begin
+;			MrPrintF, 'LogWarn', 'Variable not found: "' + variables[i] + '".'
+;			continue
+;		endif
 
 	;-------------------------------------------
 	; Unknown Types ////////////////////////////
@@ -192,7 +207,7 @@ YSIZE=ysize
 ; Finish ///////////////////////////////////
 ;-------------------------------------------
 	;Put the variables into the common block
-	vars = variables
+	vars = allVars
 
 	;Time range
 	;   - If the time interval is too short, MrVar_Plot will change units from

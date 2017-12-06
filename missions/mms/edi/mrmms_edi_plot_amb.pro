@@ -90,35 +90,43 @@ NO_LOAD=no_load, $
 TRANGE=trange
 	compile_opt idl2
 
-	catch, the_error
-	if the_error ne 0 then begin
-		catch, /CANCEL
-		if n_elements(win) gt 0 then obj_destroy, win
+	Catch, the_error
+	IF the_error NE 0 THEN BEGIN
+		Catch, /CANCEL
+		IF N_Elements(win) GT 0 THEN Obj_Destroy, win
 		MrPrintF, 'LogErr'
-		return, obj_new()
-	endif
+		RETURN, Obj_New()
+	ENDIF
 	
 	;Defaults
-	tf_load = ~keyword_set(no_load)
-	if n_elements(trange) gt 0 then MrVar_SetTRange, trange
-	if n_elements(coords) eq 0 then coords = 'dbcs'
-	if n_elements(level)  eq 0 then level  = 'l2'
-	if n_elements(fac)    eq 0 then fac    = ''
+	tf_load = ~Keyword_Set(no_load)
+	IF N_Elements(trange) GT 0 THEN MrVar_SetTRange, trange
+	IF N_Elements(coords) EQ 0 THEN coords = 'dbcs'
+	IF N_Elements(level)  EQ 0 THEN level  = 'l2'
+	IF N_Elements(fac)    EQ 0 THEN fac    = ''
 	
 	;Variable type
-	type = level eq 'l2' ? 'flux' : 'counts'
+	type = level EQ 'l2' ? 'flux' : 'counts'
 
 ;-------------------------------------------
 ; EDI Data /////////////////////////////////
 ;-------------------------------------------
+	IF N_Elements(fgm_instr) EQ 0 THEN fgm_instr = 'fgm'
+	fgm_coords = coords EQ 'dbcs' ? 'dmpa' : coords
+
 	;Get EDI data
-	if tf_load then begin
+	IF tf_load THEN BEGIN
 		;Load EDI data
 		MrMMS_Load_Data, sc, 'edi', mode, level, $
 		                 OPTDESC   = optdesc, $
 		                 VARFORMAT = '*traj?_' + coords + '*'
 ;		                 VARFORMAT = ['*' + type + '*', '*traj?_' + coords + '*']
-	endif
+		
+		;FGM
+		MrMMS_FGM_Load_Data, sc, mode, $
+		                     INSTR     = fgm_instr, $
+		                     VARFORMAT = '*_b_'+fgm_coords+'_*'
+	ENDIF
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
@@ -126,9 +134,12 @@ TRANGE=trange
 	;Parts
 	prefix = sc + '_edi_'
 	suffix = '_' + mode + '_' + level
-	ch     = mode eq 'brst' ? ['1', '2', '3', '4'] : '1'
+	ch     = mode EQ 'brst' ? ['1', '2', '3', '4'] : '1'
 	
 	;Names
+	b_vname    = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, mode, level], '_' )
+	bmag_vname = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, mode, level], '_' )
+	bvec_vname = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, mode, level], '_' )
 	flux_vname = [ prefix + type   + ch +                '_0'   + suffix, $
 	               prefix + type   + ch +                '_180' + suffix ]
 	traj_vname = [ prefix + 'traj' + ch + '_' + coords + '_0'   + suffix, $
@@ -141,73 +152,62 @@ TRANGE=trange
 ;-------------------------------------------
 ; Transform Trajectories to FAC ////////////
 ;-------------------------------------------
-
 	;Create the transformation matrix
-	oT = MrMMS_FGM_Get_TFAC( sc, mode, fac, traj_vname[0], $
-	                         COORDS  = coords, $
-	                         LEVEL   = level, $
-	                         NO_LOAD = no_load, $
-	                         TRANGE  = trange )
+	oT = MrVar_Fac(bvec_vname, TIME=traj_vname[0])
 	
 	;Step through each trajectory variable
-	for i = 0, n_elements(traj_vname) - 1 do begin
+	FOR i = 0, N_Elements(traj_vname) - 1 DO BEGIN
 		;Get the trajectories
 		oTemp = MrVar_Get(traj_vname[i])
 		oTraj = oTemp * !dtor
-		oTraj -> AddAttr, 'DEPEND_0', oTemp['DEPEND_0']
 
 		;Convert to a vector
-		x    = sin(oTraj[1,*]) * cos(oTraj[0,*])
-		y    = sin(oTraj[1,*]) * sin(oTraj[0,*])
-		z    = cos(oTraj[1,*])
-		oVec = MrVectorTS( [temporary(x), temporary(y), temporary(z)] )
-		oVec -> AddAttr, 'DEPEND_0', oTraj['DEPEND_0']
+		x    = Sin(oTraj['DATA',*,1]) * Cos(oTraj['DATA',*,0])
+		y    = Sin(oTraj['DATA',*,1]) * Sin(oTraj['DATA',*,0])
+		z    = Cos(oTraj['DATA',*,1])
+		oVec = MrVectorTS( oTraj['TIMEVAR'], [ [Temporary(x)], [Temporary(y)], [Temporary(z)] ] )
 		
 		;Rotate to field-aligned coordinates
 		oVec_fac = oT -> Rotate_Vector(oVec) ;oT # oVec
-		obj_destroy, oVec
+		Obj_Destroy, oVec
 		
 		;Convert back to spherical coordinates
-		phi        = atan( oVec_fac[*,1], oVec_fac[*,0] ) * !radeg
-		theta      = acos( oVec_fac[*,2] )                * !radeg
-		oTraj_sphr = MrVariable( [[temporary(phi)], [temporary(theta)]] )
+		phi        = ATan( oVec_fac['DATA',*,1], oVec_fac['DATA',*,0] ) * !radeg
+		theta      = ACos( oVec_fac['DATA',*,2] )                       * !radeg
+		oTraj_sphr = MrTimeSeries( oTraj['TIMEVAR'], [[Temporary(phi)], [Temporary(theta)]] )
 		
 		;Set properties
 		oTraj_sphr -> SetName, traj_fac_vname[i]
-		oTraj_sphr -> AddAttr, 'AXIS_RANGE',   [-200, 200]
-		oTraj_sphr -> AddAttr, 'CATDESC',      'Electron incident trajectories in field-aligned coordinates.'
-		oTraj_sphr -> AddAttr, 'COLOR',        ['Red', 'Blue']
-		oTraj_sphr -> AddAttr, 'DEPEND_0',     oTraj['DEPEND_0']
-		oTraj_sphr -> AddAttr, 'DIMENSION',    1
-		oTraj_sphr -> AddAttr, 'LABEL',        ['Phi', 'Theta']
-		oTraj_sphr -> AddAttr, 'TICKINTERVAL', 90.0
-		oTraj_sphr -> AddAttr, 'TITLE',        'Traj!C(deg)'
-		oTraj_sphr -> AddAttr, 'UNITS',        'degrees'
+		oTraj_sphr ['AXIS_RANGE']   = [-200, 200]
+		oTraj_sphr ['CATDESC']      = 'Electron incident trajectories in field-aligned coordinates.'
+		oTraj_sphr ['COLOR']        = ['Red', 'Blue']
+		oTraj_sphr ['DEPEND_0']     = oTraj['DEPEND_0']
+		oTraj_sphr ['DIMENSION']    = 1
+		oTraj_sphr ['LABEL']        = ['Phi', 'Theta']
+		oTraj_sphr ['TICKINTERVAL'] = 90.0
+		oTraj_sphr ['TITLE']        = 'Traj!C(deg)'
+		oTraj_sphr ['UNITS']        = 'degrees'
 		oTraj_sphr -> Cache
-	endfor
+	ENDFOR
 
 ;-------------------------------------------
 ; Set Properties ///////////////////////////
 ;-------------------------------------------
-	if tf_load then begin
-		foreach vname, traj_vname, idx do begin
-			oVar = MrVar_Get(vname)
-			oVar -> AddAttr,      'AXIS_RANGE',   [-200,200]
-			oVar -> AddAttr,      'DIMENSION',    2
-			oVar -> AddAttr,      'COLOR',        ['Red', 'Blue']
-			oVar -> AddAttr,      'TICKINTERVAL', 90.0
-			oVar -> SetAttrValue, 'TITLE',        '-Look!C(DBCS)'
-			oVar -> RemoveAttr,   ['MIN_VALUE', 'MAX_VALUE']
-		endforeach
+	oVar = MrVar_Get(vname)
+	oVar['AXIS_RANGE']   = [-200,200]
+	oVar['DIMENSION']    = 2
+	oVar['COLOR']        = ['Red', 'Blue']
+	oVar['TICKINTERVAL'] = 90.0
+	oVar['TITLE']        = '-Look!C(DBCS)'
+	oVar -> RemoveAttr, ['MIN_VALUE', 'MAX_VALUE']
 	
-		foreach vname, flux_vname, idx do begin
-			oVar = MrVar_Get(vname)
-			oVar -> AddAttr, 'AXIS_RANGE', [1e2, oVar.max*1.3]
-		endforeach
-	endif
+	FOREACH vname, flux_vname, idx DO BEGIN
+		oVar = MrVar_Get(vname)
+		oVar['AXIS_RANGE'] = [1e2, oVar.max*1.3]
+	ENDFOREACH
 	
 	;Magnetic Field
-	b_vname = strjoin([sc, 'fgm', 'bvec', 'dmpa', mode, level], '_')
+	b_vname = StrJoin([sc, 'fgm', 'bvec', 'dmpa', mode, level], '_')
 	
 
 ;-------------------------------------------
@@ -229,5 +229,5 @@ TRANGE=trange
 	                TEXT_COLOR   = ['Red', 'Blue'] )
 	
 	win -> Refresh
-	return, win
-end
+	RETURN, win
+END

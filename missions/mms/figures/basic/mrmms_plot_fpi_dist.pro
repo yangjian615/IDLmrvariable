@@ -60,6 +60,13 @@
 ;                   Optional filename descriptor.
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -76,12 +83,18 @@
 ;   Modification History::
 ;       2017/02/10  -   Written by Matthew Argall
 ;-
-FUNCTION MrMMS_Plot_FPI_Dist, sc, mode, species, $
+FUNCTION MrMMS_Plot_FPI_Dist, sc, mode, species, time, $
 FGM_INSTR=fgm_instr, $
+FRANGE=frange, $
 LEVEL=level, $
-OPTDESC=optdesc, $
 NO_LOAD=no_load, $
-TRANGE=trange
+OPTDESC=optdesc, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
+RAGER=rager, $
+TAIL=tail, $
+TRANGE=trange, $
+VRANGE=vrange
 	Compile_Opt idl2
 	
 	Catch, the_error
@@ -93,12 +106,30 @@ TRANGE=trange
 	ENDIF
 	
 	tf_load = ~Keyword_Set(no_load)
+	tf_tail = Keyword_Set(tail)
 	theta_range = [-90.0,  90.0]
 	phi_range   = [  0.0, 360.0]
 	IF N_Elements(level)   EQ 0 THEN level   = 'l2'
 	IF N_Elements(mode)    EQ 0 THEN mode    = 'fast'
 	IF N_Elements(species) EQ 0 THEN species = 'e'
 	IF N_Elements(trange)  GT 0 THEN MrVar_SetTRange, trange
+	IF N_Elements(time)    EQ 0 THEN time    = (MrVar_GetTRange())[0]
+	
+	IF N_Elements(vrange) EQ 0 THEN BEGIN
+		IF species EQ 'e' THEN BEGIN
+			vrange = tf_tail ? [-4e4,  4e4] : [-1.5e4,  1.5e4]
+		ENDIF ELSE BEGIN
+			vrange = !Null
+		ENDELSE
+	ENDIF
+	
+	IF N_Elements(frange) EQ 0 THEN BEGIN
+		IF species EQ 'e' THEN BEGIN
+			frange = tf_tail ? [1e-32,1e-29] : [1e-30, 1e-25]
+		ENDIF ELSE BEGIN
+			frange = !Null
+		ENDELSE
+	ENDIF
 	
 ;-------------------------------------------
 ; Variable Names ///////////////////////////
@@ -139,18 +170,16 @@ TRANGE=trange
 	par_perp_anti_vname = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'vspace', mode], '_' )
 	
 	;2D Distributions
-	pp1_vname           = StrJoin( [sc, instr, 'dist', 'par_perp1',     'vspace', mode], '_' )
-	pp2_vname           = StrJoin( [sc, instr, 'dist', 'par_perp2',     'vspace', mode], '_' )
-	p1p2_vname          = StrJoin( [sc, instr, 'dist', 'perp1_perp2',   'vspace', mode], '_' )
-	ppa_vname           = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'espace', mode], '_' )
+	pp1_vname  = StrJoin( [sc, instr, 'dist', 'par_perp1',     'vspace', mode], '_' )
+	pp2_vname  = StrJoin( [sc, instr, 'dist', 'par_perp2',     'vspace', mode], '_' )
+	p1p2_vname = StrJoin( [sc, instr, 'dist', 'perp1_perp2',   'vspace', mode], '_' )
+	ppa_vname  = StrJoin( [sc, instr, 'dist', 'par_perp_anti', 'espace', mode], '_' )
 	
 	;1D Distributions
-	par_vname           = pp1_vname  + '_x'
-	perp1_vname         = p1p2_vname + '_x'
-	perp2_vname         = p1p2_vname + '_y'
-	ppa_0_vname         = ppa_vname  + '_0'
-	ppa_90_vname        = ppa_vname  + '_90'
-	ppa_180_vname       = ppa_vname  + '_180'
+	par_1d_vname  = pp1_vname  + '_par_cut'
+	p1p2_1d_vname = p1p2_vname + '_cuts'
+	ppa_1d_vname  = ppa_vname  + '_cuts'
+	ephi_1d_vname = p1p2_vname + '_ephi_cuts'
 
 ;-------------------------------------------
 ; Get Data /////////////////////////////////
@@ -166,12 +195,14 @@ TRANGE=trange
 		;   - The distribution is corrected for internally
 		;     generated photoelectrons.
 		MrMMS_FPI_Load_Dist3d, sc, mode, species, $
-		                       APPLY_MODEL=0, $
+		                       /APPLY_MODEL, $
 		                       COORD_SYS = coords, $
-		                       LEVEL     = level
+		                       LEVEL     = level, $
+		                       RAGER     = rager
 		
 		;MOMENTS
 		MrMMS_FPI_Load_Data, sc, mode, $
+		                     RAGER     = rager, $
 		                     OPTDESC   = instr+'-moms', $
 		                     VARFORMAT = '*bulkv_'+coords+'*'
 	ENDIF
@@ -233,7 +264,7 @@ TRANGE=trange
 	;   - X = PERP1 = (B x V) x B
 	;   - Y = PERP2 = B x V
 	;   - Z = PAR   = B
-	;   - ORIENTATION = 4
+	;   - ORIENTATION = 12
 	;       THETA = Elevation angle from yz-plane
 	;       PHI   = Positive from z-axis
 	orientation = 12
@@ -291,7 +322,7 @@ TRANGE=trange
 	;   - X = PERP1 = (B x V) x B
 	;   - Y = PERP2 = B x V
 	;   - Z = PAR   = B
-	;   - ORIENTATION = 3
+	;   - ORIENTATION = 1
 	;       THETA - Polar angle from z-axis
 	;       PHI   - Positive from x-axis
 	orientation = 1
@@ -315,11 +346,10 @@ TRANGE=trange
 ;-------------------------------------------
 ; Velocity-Space Distributions /////////////
 ;-------------------------------------------
-	;Determine which distribution to plot
-	t0    = MrCDF_Epoch_Compute(2015, 10, 16, 13, 07, 02, 165, /TT2000)
+	;Select the time to display
 	oTime = oParPerp1['TIMEVAR']
-	idx   = oTime -> Value_Locate(t0, 'TT2000') + 1
-	
+	idx   = oTime -> Nearest_Neighbor(time)
+
 	;2D Distributions
 	oPP1  = MrVar_Dist2D_Prep(oParPerp1,    theMass, idx, /CACHE, NAME=pp1_vname)
 	oPP2  = MrVar_Dist2D_Prep(oParPerp2,    theMass, idx, /CACHE, NAME=pp2_vname)
@@ -327,23 +357,28 @@ TRANGE=trange
 	oPPA  = MrVar_Dist2D_Prep(oParPerpAnti, theMass, idx, /CACHE, NAME=ppa_vname)
 
 	;1D Distributions
-	MrVar_Dist1D_Prep, oPar, !Null,       oParPerp1,    theMass, idx, /CACHE
-	MrVar_Dist1D_Prep, oP1,  oP2,         oPerp1Perp2,  theMass, idx, /CACHE
-	MrVar_Dist1D_Prep, oE0,  oE90, oE180, oParPerpAnti, theMass, idx, /CACHE, /POLAR
+	energies = [60,250,500,1000]
+	oPP1_1D  = MrVar_Dist1D_Prep( oParPerp1,    theMass, idx, /CACHE )
+	oP1P2_1D = MrVar_Dist1D_Prep( oPerp1Perp2,  theMass, idx, /CACHE )
+	oPPA_1D  = MrVar_Dist1D_Prep( oParPerpAnti, theMass, idx, /CACHE, /POLAR )
+	oEPhi_1D = MrVar_Dist1D_Prep( oPerp1Perp2, energies, theMass, idx, /CACHE, /CIRCULAR )
+	
+	;Remove the Per1 distribution from oPP1
+	oPar_1D = oPP1_1D[*,0]
+	oPar_1D['COLOR'] = 'Black'
+	oPar_1D -> RemoveAttr, 'LABEL'
+	oPar_1D -> Cache
+	Obj_Destroy, oPP1_1D
 
 	;Set Names
-	oPar  -> SetName, par_vname
-	oP1   -> SetName, perp1_vname
-	oP2   -> SetName, perp2_vname
-	oE0   -> SetName, ppa_0_vname
-	oE90  -> SetName, ppa_90_vname
-	oE180 -> SetName, ppa_180_vname
-	
+	oPar_1D  -> SetName, par_1d_vname
+	oP1P2_1D -> SetName, p1p2_1d_vname
+	oPPA_1D  -> SetName, ppa_1d_vname
+	oEPhi_1D -> SetName, ephi_1d_vname
+
 ;-------------------------------------------
 ; Properties ///////////////////////////////
 ;-------------------------------------------
-	vrange = [-1.5e4,  1.5e4]
-	frange = [1e-30, 1e-25]
 	
 	;Pick out the distribution of interest
 	time  = oParPerp1['TIME']
@@ -380,36 +415,30 @@ TRANGE=trange
 	oP1P2['MISSING_VALUE'] = 0B
 	oP1P2['MISSING_COLOR'] = 'Grey'
 	oP1P2['TITLE']         = 'PSD'
-	oPhi['TITLE']          = 'V$\downperp1$!C(km/s)'
+	oPhi['TITLE']          = 'V$\downperp2$!C(km/s)'
 	oV['AXIS_RANGE']       = vrange
-	oV['TITLE']            = 'V$\downperp2$(km/s)'
+	oV['TITLE']            = 'V$\downperp1$(km/s)'
 	
 	;PAR
-	oV = oPar['DEPEND_0']
-	oPar['AXIS_RANGE'] = frange
-	oPar['LABEL']      = 'Par'
-	oPar['TITLE']      = 'PSD!C(' + oPar['UNITS'] + ')'
-	oV['AXIS_RANGE']   = vrange
+	oV = oPar_1D['DEPEND_0']
+	oPar_1D['AXIS_RANGE'] = frange
+	oPar_1D['LABEL']      = 'Par'
+	oPar_1D['TITLE']      = 'PSD!C(' + oPar_1D['UNITS'] + ')'
+	oV['AXIS_RANGE']      = vrange
 	
-	;PERP1
-	oP1['COLOR']  = 'Blue'
-	oP1['LABEL']  = 'Perp1'
+	;P1P2
+	oP1P2_1D['LABEL'] = ['Perp1', 'Perp2']
 	
-	;PERP2
-	oP2['COLOR'] = 'Red'
-	oP2['LABEL'] = 'Perp2'
+	;PPA
+	oPPA_1D['AXIS_RANGE'] = [1e-32, 1e-25]
+	oPPA_1D['TITLE']      = 'PSD!C(' + oPPA_1D['UNITS'] + ')'
 	
-	;E0
-	oE0['COLOR'] = 'Black'
-	oE0['LABEL'] = '0'
-	
-	;E90
-	oE90['COLOR'] = 'Red'
-	oE90['LABEL'] = '90'
-	
-	;E180
-	oE180['COLOR'] = 'Blue'
-	oE180['LABEL'] = '180'
+	;E-PHI
+	oPhi = oEPhi_1D['DEPEND_0']
+	oPhi['AXIS_RANGE']     = [-180, 180]
+	oPhi['TICKINTERVAL']   = 90
+	oEPhi_1D['PLOT_TITLE'] = ''
+	oEPhi_1D['TITLE']      = 'PSD!C(' + oEPhi_1D['UNITS'] + ')'
 
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
@@ -421,23 +450,27 @@ TRANGE=trange
 	im1 = MrVar_Image( pp1_vname,    /CURRENT, LAYOUT=[1,1] )
 	im2 = MrVar_Image( pp2_vname,    /CURRENT, LAYOUT=[1,2] )
 	im3 = MrVar_Image( p1p2_vname,   /CURRENT, LAYOUT=[1,3] )
-	p1  = MrVar_Plot( par_vname,     /CURRENT, LAYOUT=[2,1] )
-	p2  = MrVar_Plot( perp1_vname,   /CURRENT, OVERPLOT=p1 )
-	p3  = MrVar_Plot( perp2_vname,   /CURRENT, OVERPLOT=p1 )
-	p4  = MrVar_Plot( ppa_0_vname,   /CURRENT, LAYOUT=[2,2] )
-	p5  = MrVar_Plot( ppa_90_vname,  /CURRENT, OVERPLOT=p4 )
-	p6  = MrVar_Plot( ppa_180_vname, /CURRENT, OVERPLOT=p4 )
+
+	p1 = MrVar_Plot( par_1d_vname,  /CURRENT, LAYOUT=[2,1] )
+	p2 = MrVar_Plot( p1p2_1d_vname, /CURRENT, OVERPLOT=p1 )
+	p3 = MrVar_Plot( ppa_1d_vname,  /CURRENT, LAYOUT=[2,2] )
+	p4 = MrVar_Plot( ephi_1d_vname, /CURRENT, LAYOUT=[2,3] )
 	
+	;Fix Axes
+	im1 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
+	im2 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
+	im3 -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
+	p1  -> SetProperty, XTICKS=2, XMINOR=3, XTICKLEN=-0.05
 	
 	;Velocity of 500eV electron
 	;   - 1e-3 converts m/s -> km/s
 	v500 = 1e-3 * Sqrt( 2.0 * 500 * MrConstants('eV2J') / MrConstants('m_e') )
 
 	;Plot a vertical line at 500eV
-	l1 = MrPlotS( [500, 500], p4.yrange, $
+	l1 = MrPlotS( [500, 500], p3.yrange, $
 	              LINESTYLE = '--', $
 	              NAME      = 'Line: 500eV', $
-	              TARGET    = p4 )
+	              TARGET    = p3 )
 	l2 = MrPlotS( [-v500, -v500], p1.yrange, $
 	              LINESTYLE = '--', $
 	              NAME      = 'Line: -v500', $
@@ -447,15 +480,58 @@ TRANGE=trange
 	              NAME      = 'Line: +v500', $
 	              TARGET    = p1 )
 	
+	;Draw circles at 250eV, 500eV, and 1keV
+	nCircles = N_Elements(energies)
+	nVerts      = 200
+	theta_verts = 2*!pi*FIndGen(nVerts)/(nVerts-1)
+	colors      = oEPhi_1D['COLOR']
+	FOR i = 0, nCircles - 1 DO BEGIN
+		;Vertices
+		velocity = 1e-3 * Sqrt( 2.0 * energies[i] * MrConstants('eV2J') / MrConstants('m_e') )
+		x_verts = velocity * Cos(theta_verts)
+		y_verts = velocity * Sin(theta_verts)
+		
+		;Draw the circle
+		circ = MrPlotS( x_verts, y_verts, $
+		                LINESTYLE = '--', $
+		                COLOR     = colors[i], $
+		                NAME      = 'Circle: ' + String(energies[i], FORMAT='(i0)') + 'eV', $
+		                NOCLIP    = 0, $
+		                TARGET    = im3, $
+		                THICK     = 1 )
+	ENDFOR
+	
 	;Pretty-up the window
 	win[0]  -> SetLayout, [1,1]
 	win[2]  -> SetLayout, [1,2]
 	win[4]  -> SetLayout, [1,3]
 	win[6]  -> SetLayout, [2,1]
-	win[10] -> SetLayout, [2,2]
-	win    -> TrimLayout
-	win    -> SetProperty, OXMARGIN=[12,5]
-	win    -> Refresh
+	win[9]  -> SetLayout, [2,2]
+	win[11] -> SetLayout, [2,3]
+	win     -> TrimLayout
+	win     -> SetProperty, OXMARGIN=[12,5]
 
+;-------------------------------------------
+; Save the File ////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_ext) GT 0 || N_Elements(output_dir) GT 0 THEN BEGIN
+		IF N_Elements(output_dir) EQ 0 THEN output_dir = File_Search('~', /TEST_DIRECTORY)
+		IF N_Elements(output_ext) EQ 0 THEN output_ext = 'png'
+		
+		;Time stamp of file
+		ftime = StrJoin(StrSplit(oTime['DATA',idx], '-:T', /EXTRACT))
+		ftime = StrMid(ftime, 0, 8) + '_' + StrMid(ftime, 8, 6) + 'p' + StrMid(ftime, 15, 3)
+		
+		;Save the file
+		sres  = Keyword_Set(rager) ? '-rager' : ''
+		fname = StrJoin([sc, instr, mode, level, 'dist-2D-1D'+sres, ftime + '.' + output_ext], '_')
+		fname = FilePath(fname, ROOT_DIR=output_dir)
+		win -> Save, fname
+	ENDIF
+
+;-------------------------------------------
+; Done! ////////////////////////////////////
+;-------------------------------------------
+	win -> Refresh
 	RETURN, win
 END

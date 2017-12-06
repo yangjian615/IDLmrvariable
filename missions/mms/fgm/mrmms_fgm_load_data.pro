@@ -79,8 +79,8 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	oT = oB['TIMEVAR']
 
 	;Separate magnitude from vector
-	Bxyz  = MrVectorTS( oT, oB[*,0:2], NAME=bvec_name, /CACHE )
-	Bmag  = MrScalarTS( oT, oB[*,3],   NAME=bmag_name, /CACHE )
+	Bxyz  = MrVectorTS( oT, oB['DATA',*,0:2], NAME=bvec_name, /CACHE )
+	Bmag  = MrScalarTS( oT, oB['DATA',*,3],   NAME=bmag_name, /CACHE )
 	
 	;Copy over all attributes
 	oB -> CopyAttrTo, Bxyz
@@ -111,7 +111,6 @@ pro MrMMS_FGM_Load_Data_SplitB, b_name, bvec_name, bmag_name
 	Bmag['TITLE']     = '|B|!C(nT)'
 	Bmag             -> RemoveAttr, 'LABEL'
 end
-
 
 
 ;+

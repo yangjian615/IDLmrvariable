@@ -73,6 +73,8 @@
 ;       2016/01/18  -   Written by Matthew Argall
 ;       2016/01/24  -   Extract information from moments files. - MRA
 ;       2016/01/25  -   Substitute angle and energy table indices for their targets. - MRA
+;       2016/05/01  -   Do not assume moments files are already saved locally. - MRA
+;       2017/09/13  -   Updated to work with survey data. - MRA
 ;-
 PRO MrMMS_FPI_Load_Models, sc, mode, species, $
 LEVEL=level, $
@@ -95,10 +97,9 @@ VARNAMES=varnames
 ; Extract Metadata from Moments File \\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Get the local file name
-	fmoms = MrMMS_Get_Filenames(sc, 'fpi', mode, level, $
-	                            COUNT   = nMoms, $
-	                            OPTDESC = 'd' + species + 's-moms')
-	fmoms = MrMMS_Build_Filename( fmoms, SDC_ROOT=!MrMMS.local_root )
+	fmoms = MrMMS_Get_Data( sc, 'fpi', mode, level, $
+	                        COUNT   = nMoms, $
+	                        OPTDESC = 'd' + species + 's-moms' )
 	
 	;Read the photoelectron model global attributes
 	IF N_Elements(nMoms) GT 0 THEN MrPrintF, 'LogWarn', 'More than one moments file. Taking model from first.'
@@ -151,22 +152,33 @@ VARNAMES=varnames
 	;Load the data
 	MrVar_ReadCDF, files, $
 	               SUFFIX    = suffix, $
-	               VARFORMAT = ['*bgdist*', '*phi*', '*theta*', '*energy?*'], $
+	               VARFORMAT = ['*bgdist*', '*phi*', '*theta*', '*energy?_'+mode+'*'], $
 	               VARNAMES  = varnames
 	
 	;Attach the proper tables
 	;   - Energy tables will have to be adjusted when fphoto is built.
 	;   - See MrMMS_FPI_Dist_Photo.pro
-	f0_vname    = StrJoin( ['mms', 'd'+species+'s', 'bgdist', 'p0',   mode], '_' ) + suffix
-	f1_vname    = StrJoin( ['mms', 'd'+species+'s', 'bgdist', 'p1',   mode], '_' ) + suffix
 	phi_vname   = StrJoin( ['mms', 'd'+species+'s', 'phi',            mode], '_' ) + suffix
 	theta_vname = StrJoin( ['mms', 'd'+species+'s', 'theta',          mode], '_' ) + suffix
-	of0             = MrVar_Get(f0_vname)
-	of0['DEPEND_1'] = phi_vname
-	of0['DEPEND_2'] = theta_vname
-	of1             = MrVar_Get(f1_vname)
-	of1['DEPEND_1'] = phi_vname
-	of1['DEPEND_2'] = theta_vname
+	
+	IF mode EQ 'brst' THEN BEGIN
+		;One distribution per polarity is given
+		f0_vname    = StrJoin( ['mms', 'd'+species+'s', 'bgdist', 'p0',   mode], '_' ) + suffix
+		f1_vname    = StrJoin( ['mms', 'd'+species+'s', 'bgdist', 'p1',   mode], '_' ) + suffix
+		
+		;Set the dependent variables
+		of0             = MrVar_Get(f0_vname)
+		of0['DEPEND_1'] = phi_vname
+		of0['DEPEND_2'] = theta_vname
+		of1             = MrVar_Get(f1_vname)
+		of1['DEPEND_1'] = phi_vname
+		of1['DEPEND_2'] = theta_vname
+	ENDIF ELSE BEGIN
+		f_vname = StrJoin( ['mms', 'd'+species+'s', 'bgdist', mode], '_' ) + suffix
+		of0 = MrVar_Get(f_vname)
+		of0['DEPEND_1'] = phi_vname
+		of0['DEPEND_2'] = theta_vname
+	ENDELSE
 	
 	;Add the scaling factor to the variable names
 	varnames = [varnames, scl_vname]

@@ -92,9 +92,9 @@ NO_CLOBBER=no_clobber
 	
 	;Tensor invariants
 	;   - Trace and sum of principle minors
-	I1 = Reform( oP[*,0,0] + oP[*,1,1] + oP[*,2,2] )
-	I2 = Reform( oP[*,0,0]*oP[*,1,1] + oP[*,0,0]*oP[*,2,2] + oP[*,1,1]*oP[*,2,2] - $
-	             oP[*,0,1]*oP[*,1,0] - oP[*,0,2]*oP[*,2,0] - oP[*,1,2]*oP[*,2,1] )
+	I1 = oP[*,0,0] + oP[*,1,1] + oP[*,2,2]
+	I2 = oP[*,0,0]*oP[*,1,1] + oP[*,0,0]*oP[*,2,2] + oP[*,1,1]*oP[*,2,2] - $
+	     oP[*,0,1]*oP[*,1,0] - oP[*,0,2]*oP[*,2,0] - oP[*,1,2]*oP[*,2,1] 
 
 	;Get the parallel component of P
 	;   - P-par = b.P.b

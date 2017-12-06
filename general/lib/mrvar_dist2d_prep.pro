@@ -117,7 +117,7 @@
 ;       oDist:      out, required, type=object
 ;                   A MrVariable object containing the 2D velocity-space distribution.
 ;-
-FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
+FUNCTION MrVar_Dist2D_Prep_Pick, oDistIn, idx
 	Compile_Opt idl2
 	On_Error, 2
 	
@@ -129,8 +129,11 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 	IF Obj_IsA(oDistIn, 'MrTimeSeries') THEN BEGIN
 		
 		;Extract one time
+		;   - oDist = oDistIn[idx,*,*] will do all of this work automatically,
+		;     but will leave MrTimeSeries variables as time-dependent.
+		;   - Our goal is to get time-independent MrVariable objects.
 		IF N_Elements(idx) EQ 0 THEN idx = 0
-		oDist = MrVariable( Reform(oDistIn[idx,*,*]) )
+		oDist = MrVariable( Reform(oDistIn['DATA',idx,*,*]) )
 
 	;-------------------------------------------
 	; PHI: Single Element //////////////////////
@@ -138,7 +141,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 		oDep1 = MrVar_Get(oDistIn['DEPEND_1'])
 		IF Obj_IsA(oDep1, 'MrTimeSeries') THEN BEGIN
 			;Extract single time
-			oPhi   = MrVariable( Reform(oDep1[idx,*]) )
+			oPhi   = MrVariable( Reform(oDep1['DATA',idx,*]) )
 			oDep1 -> CopyAttrTo, oPhi
 			oPhi  -> RemoveAttr, 'DEPEND_0'
 			
@@ -146,7 +149,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 			IF oPhi -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
 				;Extract single time
 				oDelta     = MrVar_Get(oPhi['DELTA_PLUS_VAR'])
-				oPhi_dPlus = MrVariable( Reform(oDelta[idx,*]) )
+				oPhi_dPlus = MrVariable( Reform(oDelta['DATA',idx,*]) )
 				
 				;Copy attributes
 				oDelta     -> CopyAttrTo, oPhi_dPlus
@@ -160,7 +163,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 			IF oPhi -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
 				;Extract single time
 				oDelta      = MrVar_Get(oPhi['DELTA_MINUS_VAR'])
-				oPhi_dMinus = MrVariable( Reform(oDelta[idx,*]) )
+				oPhi_dMinus = MrVariable( Reform(oDelta['DATA',idx,*]) )
 				
 				;Copy attributes
 				oDelta      -> CopyAttrTo, oPhi_dMinus
@@ -179,7 +182,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 		oDep2 = MrVar_Get(oDistIn['DEPEND_2'])
 		IF Obj_IsA(oDep2, 'MrTimeSeries') THEN BEGIN
 			;Extract single time
-			oEnergy  = MrVariable( Reform(oDep2[idx,*]) )
+			oEnergy  = MrVariable( Reform(oDep2['DATA',idx,*]) )
 			oDep2   -> CopyAttrTo, oEnergy
 			oEnergy -> RemoveAttr, 'DEPEND_0'
 			
@@ -187,7 +190,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 			IF oEnergy -> HasAttr('DELTA_PLUS_VAR') THEN BEGIN
 				;Extract single time
 				oDelta    = MrVar_Get(oEnergy['DELTA_PLUS_VAR'])
-				oE_dPlus  = MrVariable( Reform(oDelta[idx,*]) )
+				oE_dPlus  = MrVariable( Reform(oDelta['DATA',idx,*]) )
 				
 				;Copy attributes
 				oDelta   -> CopyAttrTo, oE_dPlus
@@ -201,7 +204,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 			IF oEnergy -> HasAttr('DELTA_MINUS_VAR') THEN BEGIN
 				;Extract single time
 				oDelta    = MrVar_Get(oEnergy['DELTA_MINUS_VAR'])
-				oE_dMinus = MrVariable( Reform(oDelta[idx,*]) )
+				oE_dMinus = MrVariable( Reform(oDelta['DATA',idx,*]) )
 				
 				;Copy attributes
 				oDelta   -> CopyAttrTo, oE_dMinus
@@ -216,6 +219,7 @@ FUNCTION MrVar_Dist2D_Pick, oDistIn, idx
 		
 		;Add attributes
 		;   - Want to make polar plot, so order as (v,phi)
+		;Add attributes
 		oDistIn -> CopyAttrTo, oDist
 		oDist   -> RemoveAttr, 'DEPEND_' + ['0', '1', '2']
 		oDist   -> SetData, Transpose(oDist['DATA'])
@@ -245,7 +249,7 @@ END
 ;       ODIST:      in, required, type=string/integer/objref
 ;                   Convert the energy variable to velocity.
 ;-
-PRO MrVar_Dist2D_E2V, oDist, mass
+PRO MrVar_Dist2D_Prep_E2V, oDist, mass
 	Compile_Opt idl2
 	On_Error, 2
 	
@@ -362,7 +366,7 @@ END
 ;       ODIST:      in, required, type=string/integer/objref
 ;                   Convert the angle variable from degrees to radians.
 ;-
-PRO MrVar_Dist2D_Deg2Rad, oDist
+PRO MrVar_Dist2D_Prep_Deg2Rad, oDist
 	Compile_Opt idl2
 	On_Error, 2
 	
@@ -474,6 +478,10 @@ END
 ;                       The default is to convert energy to velocity.
 ;       NAME:       in, optional, type=boolean, default=`THEDIST`.Name + '_vspace'
 ;                   Name to be given to the output variable.
+;       POLAR:      in, optional, type=boolean, default=1
+;                   If set, the distribution will be configure to be displayed in polar
+;                       coordinates. This is the default. Set explicitly to 0 to display
+;                       an energy-angle spectrogram.
 ;       _REF_EXTRA: in, optional, type=any
 ;                   Any keyword accepted by MrVar_Image.pro
 ;
@@ -482,9 +490,10 @@ END
 ;                   A MrVariable object containing the 2D velocity-space distribution.
 ;-
 FUNCTION MrVar_Dist2D_Prep, theDist, mass, idx, $
-ENERGY=energy, $
 CACHE=cache, $
-NAME=name
+ENERGY=energy, $
+NAME=name, $
+POLAR=polar
 	Compile_Opt strictarr
 
 	;Catch errors
@@ -496,8 +505,9 @@ NAME=name
 	ENDIF
 	
 	;Constants & Defaults
-	tf_cache  = Keyword_Set(cache)
-	tf_energy = Keyword_Set(energy)
+	tf_cache    = Keyword_Set(cache)
+	tf_velocity = ~Keyword_Set(energy)
+	tf_polar    = N_Elements(polar) EQ 0 ? 1B : Keyword_Set(polar)
 	
 	;Grab the distribution. Pick a name
 	oDistIn = MrVar_Get(theDist)
@@ -508,13 +518,13 @@ NAME=name
 ;-------------------------------------------
 	
 	;Pick the desired distribution
-	oDist = MrVar_Dist2D_Pick(oDistIn, idx)
+	oDist = MrVar_Dist2D_Prep_Pick(oDistIn, idx)
 	
 	;Convert E to V
-	IF tf_energy THEN MrVar_Dist2D_E2V, oDist, mass
+	IF tf_velocity THEN MrVar_Dist2D_Prep_E2V, oDist, mass
 
 	;Conver Degrees to Radians
-	MrVar_Dist2D_Deg2Rad, oDist
+	MrVar_Dist2D_Prep_Deg2Rad, oDist
 
 ;-------------------------------------------
 ; Create the Image /////////////////////////
@@ -524,7 +534,7 @@ NAME=name
 	IF tf_cache THEN oDist -> Cache
 	
 	;Set Attributes
-	oDist['POLAR'] = 1B
+	oDist['POLAR'] = tf_polar
 	
 	;Done
 	RETURN, oDist

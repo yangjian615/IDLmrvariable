@@ -31,6 +31,7 @@
 ;       2015/03/31  -   Written by Matthew Argall
 ;       2017/02/02  -   Accept file names as input. Accepts dates with and without
 ;                           delimiters. - MRA
+;       2017/07/12  -   Accept inputs for ancillary file names. - MRA
 ;-
 ;*****************************************************************************************
 ;+
@@ -50,7 +51,7 @@
 ;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional descriptor.
 ;-
-FUNCTION MrMMS_Build_Filename_Dir, root, sc, instr, mode, level, optdesc, tstart
+FUNCTION MrMMS_Build_Filename_DataDir, root, sc, instr, mode, level, optdesc, tstart
 	Compile_Opt idl2
 	On_Error, 2
 
@@ -103,19 +104,19 @@ END
 ;                   Data telemetry mode.
 ;       LEVEL:      in, required, type=string/strarr
 ;                   Data quality level.
-;       OPTDESC:    in, required, type=string, default=''
+;       OPTDESC:    in, optional, type=string, default=''
 ;                   Optional descriptor.
-;       TSTART:     in, required, type=string, default=''
+;       TSTART:     in, optional, type=string, default='%Y%M%d' or '%Y%M%d%H%m%S'
 ;                   Start time of the data file to be created, formatted as an ISO-8601
 ;                       string: 'YYYY-MM-DDThh:mm:ssZ'. If the empty string is given,
 ;                       MrTokens will be used.
 ;       VERSION:    in, required, type=string, default=''
 ;                   File version number.
 ;-
-FUNCTION MrMMS_Build_Filename_Join, sc, instr, mode, level, optdesc, tstart, version
+FUNCTION MrMMS_Build_Filename_Data, sc, instr, mode, level, optdesc, tstart, version
 	Compile_Opt idl2
 	On_Error, 2
-
+	
 	;Use tokens if the start time was not given
 	IF tstart EQ '' THEN BEGIN
 		IF mode EQ 'brst' THEN BEGIN
@@ -157,7 +158,7 @@ FUNCTION MrMMS_Build_Filename_Join, sc, instr, mode, level, optdesc, tstart, ver
 	ENDELSE
 
 	;Separate an optional descriptor form the start time.
-	fdesc = optdesc EQ '' ? '' : optdesc + '_'
+	fdesc = optdesc[0] EQ '' ? '' : optdesc + '_'
 
 	;Build the file name
 	filename = sc     + '_' + $
@@ -170,6 +171,72 @@ FUNCTION MrMMS_Build_Filename_Join, sc, instr, mode, level, optdesc, tstart, ver
 	           '.cdf'
 	
 	RETURN, filename
+END
+
+
+;+
+;   Create an MMS ancillary file name
+;
+; :Params:
+;       SC:         in, required, type=string/strarr
+;                   Spacecraft identifier. Options are 'mms1', 'mms2', 'mms3', and 'mms4'
+;       INSTR:      in, required, type=string/strarr
+;                   Instrument identifier.
+;       TSTART:     in, required, type=string, default='%Y%D'
+;                   Start time of the data file to be created, formatted as an ISO-8601
+;                       string: 'YYYY-MM-DDThh:mm:ssZ'. If the empty string is given,
+;                       MrTokens will be used.
+;       TEND:       in, optional, type=string, default='%Y%D'
+;                   End time of the data file to be created, formatted as an ISO-8601
+;                       string: 'YYYY-MM-DDThh:mm:ssZ'. If the empty string is given,
+;                       MrTokens will be used.
+;       VERSION:    in, required, type=string, default=''
+;                   File version number.
+;-
+FUNCTION MrMMS_Build_Filename_Anc, sc, instr, tstart, tend, version
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Use tokens if the start time was not given
+	fstart = tstart EQ '' ? '%Y%D' : tstart
+	fend   = tend   EQ '' ? '%Y%D' : tend
+
+	;Build the file name
+	filename = sc     + '_' + $
+	           instr  + '_' + $
+	           fstart + '_' + $
+	           fend + '.' + $
+	           'V'    + version
+	
+	RETURN, filename
+END
+
+
+;+
+;   Create an MMS ancillary directory
+;
+; :Params:
+;       ROOT:       in, optional, type=string, default=''
+;                   Root of an SDC-like directory structure.
+;       SC:         in, required, type=string/strarr
+;                   Spacecraft identifier. Options are 'mms1', 'mms2', 'mms3', and 'mms4'
+;       INSTR:      in, required, type=string/strarr
+;                   Instrument identifier.
+;-
+FUNCTION MrMMS_Build_Filename_AncDir, root, sc, instr
+	Compile_Opt idl2
+	On_Error, 2
+	
+	;Append the SDC directory structure to the file name.
+	dirname = FilePath('', $
+	                   ROOT_DIR     = root,          $
+	                   SUBDIRECTORY = [ 'ancillary', $
+	                                    sc,          $
+	                                    instr        $
+	                                  ]              $
+	                  )
+	
+	RETURN, dirname
 END
 
 
@@ -211,12 +278,34 @@ END
 FUNCTION MrMMS_Build_Filename, sc, instr, mode, level, $
 COUNT=count, $
 TSTART=tstart, $
+TEND=tend, $
 OPTDESC=optdesc, $
 DIRECTORY=directory, $
 SDC_ROOT=sdc_root, $
 VERSION=version
 	Compile_Opt idl2
 	On_Error, 2
+	
+	;USAGE:
+	;   - MrMMS_Build_Filename, filename
+	IF N_Elements(instr) EQ 0 THEN BEGIN
+		;Parse the file names
+		tf_uniform = 1B
+		MrMMS_Parse_Filename, sc, $
+		                      SC      = sc_id, $
+		                      INSTR   = instr, $
+		                      MODE    = mode, $
+		                      LEVEL   = level, $
+		                      OPTDESC = optdesc, $
+		                      TSTART  = tstart, $
+		                      TEND    = tend, $
+		                      VERSION = version
+	;USAGE:
+	;   - MrMMS_Build_Filename, sc, instr, mode, level
+	ENDIF ELSE BEGIN
+		tf_uniform = 0B
+		sc_id      = sc
+	ENDELSE
 	
 	;Defaults
 	IF N_Elements(sdc_root)  EQ 0 THEN sdc_root  = ''
@@ -226,47 +315,50 @@ VERSION=version
 	IF N_Elements(version)   EQ 0 THEN version   = '*'
 	
 	;Number OF values given
-	nSC      = N_Elements(sc)
+	nSC      = N_Elements(sc_id)
 	nInstr   = N_Elements(instr)
 	nMode    = N_Elements(mode)
 	nLevel   = N_Elements(level)
 	nDesc    = N_Elements(optdesc)
 	nTStart  = N_Elements(tstart)
+	nTEnd    = N_Elements(tend)
 	nVersion = N_Elements(version)
 	
 	;Conflicts
-	IF sdc_root NE '' && directory NE '' THEN $
-		Message, 'SDC_ROOT and DIRECTORY are mutually exclusive.'
-	IF nTStart  GT 1 THEN Message, 'TSTART must be scalar.'
-	IF nVersion GT 1 THEN Message, 'VERSION must be scalar.'
+	IF sdc_root NE '' && directory NE '' $
+		THEN Message, 'SDC_ROOT and DIRECTORY are mutually exclusive.'
 
 ;-----------------------------------------------------
 ; File Names \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
-	IF nInstr EQ 0 THEN BEGIN
-		;Parse the file names
-		MrMMS_Parse_Filename, sc, $
-		                      SC      = sc_id, $
-		                      INSTR   = instr, $
-		                      MODE    = mode, $
-		                      LEVEL   = level, $
-		                      OPTDESC = optdesc, $
-		                      TSTART  = tstart, $
-		                      VERSION = version
-
+	IF tf_uniform THEN BEGIN
 		;Allocate memory
 		nFiles = N_Elements(sc)
 		fname  = StrArr(nFiles)
 		
 		;Loop through file names
 		FOR i = 0, nFiles - 1 DO BEGIN
-			;Filename
-			fname[i] = MrMMS_Build_Filename_Join(sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i], version[i])
+		
+			;ANCILLARY
+			IF StRegEx(instr[i], '(DEFEPH|DEFATT|PREDEPH|PREDATT)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
+				;Filename
+				fname[i] = MrMMS_Build_Filename_Anc(sc_id[i], instr[i], tstart[i], tend[i], version[i])
+				
+				;Path
+				IF directory EQ '' $
+					THEN dir = MrMMS_Build_Filename_AncDir(sdc_root, StrLowCase(sc_id[i]), StrLowCase(instr[i])) $
+					ELSE dir = directory
 			
-			;Path
-			IF directory EQ '' $
-				THEN dir = MrMMS_Build_Filename_Dir(sdc_root, sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i]) $
-				ELSE dir = directory
+			;DATA
+			ENDIF ELSE BEGIN
+				;Filename
+				fname[i] = MrMMS_Build_Filename_Data(sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i], version[i])
+			
+				;Path
+				IF directory EQ '' $
+					THEN dir = MrMMS_Build_Filename_DataDir(sdc_root, sc_id[i], instr[i], mode[i], level[i], optdesc[i], tstart[i]) $
+					ELSE dir = directory
+			ENDELSE
 			
 			;Append path to file name
 			IF dir NE '' THEN fname[i] = FilePath(fname[i], ROOT_DIR=dir)
@@ -280,27 +372,38 @@ VERSION=version
 ; Non-Uniform Output \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Allocate memory to output
-	fname = StrArr(nSC*nInstr*nMode*nLevel*nDesc)
+	fname = StrArr(nSC*nInstr*nMode*nLevel*nDesc*nTStart*nVersion)
 	count = 0
 
 	;Create the MMS filename
 	;   - Must use loops because:
 	;   - Replicate does not work with arrays.
 	;   - Rebin does not work with strings.
-	FOR i = 0, nSC    - 1 DO $
-	FOR j = 0, nInstr - 1 DO $
-	FOR k = 0, nMode  - 1 DO $
-	FOR l = 0, nLevel - 1 DO $
-	FOR m = 0, nDesc  - 1 DO BEGIN
+	FOR i = 0, nSC      - 1 DO $
+	FOR j = 0, nInstr   - 1 DO $
+	FOR k = 0, nMode    - 1 DO $
+	FOR l = 0, nLevel   - 1 DO $
+	FOR m = 0, nDesc    - 1 DO $
+	FOR n = 0, nTStart  - 1 DO $
+	FOR p = 0, nVersion - 1 DO BEGIN
 		
-		;Filename
-		fname[count] = MrMMS_Build_Filename_Join(sc[i], instr[j], mode[k], level[l], optdesc[m], $
-		                                         tstart, version)
+		;ANCILLARY
+		IF StRegEx(instr[j], '(DEFEPH|DEFATT|PREDEPH|PREDATT)', /BOOLEAN, /FOLD_CASE) THEN BEGIN
+			fname[count] = MrMMS_Build_Filename_Anc(sc[i], instr[j], tstart[n], tend[n], version[p])
+			
+			IF directory EQ '' $
+				THEN dir = MrMMS_Build_Filename_AncDir(sdc_root, StrUpCase(sc_id[i]), StrUpCase(instr[j])) $
+				ELSE dir = directory
 		
-		;Directory
-		IF directory EQ '' $
-			THEN dir = MrMMS_Build_Filename_Dir(sdc_root, sc[i], instr[j], mode[k], level[l], optdesc[m], tstart) $
-			ELSE dir = directory
+		;DATA
+		ENDIF ELSE BEGIN
+			fname[count] = MrMMS_Build_Filename_Data(sc_id[i], instr[j], mode[k], level[l], optdesc[m], tstart[n], version[p])
+		
+			;Directory
+			IF directory EQ '' $
+				THEN dir = MrMMS_Build_Filename_DataDir(sdc_root, sc_id[i], instr[j], mode[k], level[l], optdesc[m], tstart[n]) $
+				ELSE dir = directory
+		ENDELSE
 
 		;Append the directory name
 		IF dir NE '' THEN fname[count] = FilePath(fname[count], ROOT_DIR=dir)

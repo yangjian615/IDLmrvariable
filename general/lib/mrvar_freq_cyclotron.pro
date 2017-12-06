@@ -73,6 +73,7 @@
 ;   Modification History::
 ;       2016/12/08  -   Written by Matthew Argall
 ;       2017/02/23  -   CACHE keyword was not being checked. Fixed. - MRA
+;       2017/05/11  -   Check BMAG for units or SI conversion. - MRA
 ;-
 function MrVar_Freq_Cyclotron, Bmag, mass, $
 CACHE=cache, $
@@ -88,14 +89,36 @@ NO_CLOBBER=no_clobber
 	if n_elements(name) eq 0 then name = 'Cyclotron_Frequency'
 	
 ;-----------------------------------------------------
-; Cyclotron Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+; Units \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 ;-----------------------------------------------------
 	;Get the variables
 	oBmag = MrVar_Get(Bmag)
+	IF ~Obj_IsA(oBmag, 'MrScalarTS') THEN Message, 'BMAG must be a MrScalarTS variable.'
+	
+	;B UNITS
+	IF oBmag -> HasAttr('SI_CONVERSION') THEN BEGIN
+		b_si = StrSplit(oBmag['SI_CONVERSION'], '>', /EXTRACT)
+		b_si = b_si[0] EQ '' ? 1.0 : Float(b_si[0])
+	ENDIF ELSE IF oBmag -> HasAttr('UNITS') THEN BEGIN
+		CASE StrLowCase(oBmag['UNITS']) OF
+			'nt': b_si = 1e-9
+			't':  b_si = 1.0
+			ELSE: BEGIN
+				MrPrintF, 'LogWarn', 'Unrecognized unis for BMAG: "' + oBmag['UNITS'] + '". Assuming nT.'
+				b_si = 1e-9
+			ENDCASE
+		ENDCASE
+	ENDIF ELSE BEGIN
+		MrPrintF, 'LogWarn', 'BMAG has no SI_CONVERSION or UNITS attribute. Assuming nT.'
+		b_si = 1e-9
+	ENDELSE
+	
+;-----------------------------------------------------
+; Cyclotron Frequency \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+;-----------------------------------------------------
 
 	;Cyclotron frequency
-	;   - 1e-9 comes from converting nT to T
-	fc = (1e-9*q/(m*2*!pi)) * oBmag ;Hz
+	fc = (b_si*q/(m*2*!pi)) * oBmag ;Hz
 	
 ;-----------------------------------------------------
 ; Finish Up \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
@@ -103,13 +126,14 @@ NO_CLOBBER=no_clobber
 	
 	;Name & cache
 	fc -> SetName, name
-	if keyword_set(cache) then fc -> Cache, NO_CLOBBER=no_clobber
+	if Keyword_Set(cache) then fc -> Cache, NO_CLOBBER=no_clobber
 	
 	;Attributes
-	fc['CATDESC']    = 'Cyclotron frequency: f = q * |B| / m.'
-	fc['PLOT_TITLE'] = 'Cyclotron frequency'
-	fc['TITLE']      = 'fc!C(Hz)'
-	fc['UNITS']      = 'Hz'
+	fc['CATDESC']       = 'Cyclotron frequency: f = q * |B| / m.'
+	fc['PLOT_TITLE']    = 'Cyclotron frequency'
+	fc['TITLE']         = 'fc!C(Hz)'
+	fc['UNITS']         = 'Hz'
+	fc['SI_CONVERSION'] = '>'
 	
 	;Cleanup variables
 	return, fc

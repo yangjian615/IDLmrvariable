@@ -61,6 +61,13 @@
 ;                   Data quality level. Options are: {'l1a' | 'ql' | 'l2'}
 ;       NO_LOAD:    in, optional, type=boolean, default=0
 ;                   If set, data will not be loaded from source CDF files.
+;       OUTPUT_DIR: in, optional, type=string, default=pwd
+;                   A directory in which to save the figure. If neither `OUTPUT_DIR`
+;                       nor `OUTPUT_EXT` are defined, no file is generated.
+;       OUTPUT_EXT: in, optional, type=string, default=pwd
+;                   File extensions for the output figure. Options include: 'eps', 'gif',
+;                       'jpg', 'ps', 'pdf', 'png', 'tiff'. If neither `OUTPUT_DIR` nor
+;                       `OUTPUT_EXT` are defined, no file is generated.
 ;       TRANGE:     in, optional, type=string/strarr(2), default=MrVar_GetTRange()
 ;                   The start and end times of the data interval to be plotted, formatted
 ;                       as 'YYYY-MM-DDThh:mm:ss'
@@ -81,6 +88,8 @@ FUNCTION MrMMS_Plot_EDI_Amb, sc, mode, $
 FGM_INSTR=fgm_instr, $
 LEVEL=level, $
 NO_LOAD=no_load, $
+OUTPUT_DIR=output_dir, $
+OUTPUT_EXT=output_ext, $
 TRANGE=trange
 	Compile_Opt idl2
 	
@@ -103,13 +112,14 @@ TRANGE=trange
 ; Variable Names ///////////////////////////
 ;-------------------------------------------
 	;EDI
-	instr      = 'edi'
-	coords     = 'gse'
+	instr   = 'edi'
+	coords  = 'gse'
+	optdesc = ['amb', 'amb-pm2']
 	
 	;FGM
-	fgm_instr  = 'dfg'
-	fgm_level  = 'l2pre'
-	fgm_mode   = mode eq 'brst' ? mode : 'srvy'
+	fgm_instr  = mode EQ 'brst' ? 'fgm' : 'dfg'
+	fgm_level  = mode EQ 'brst' ? 'l2'  : 'l2pre'
+	fgm_mode   = mode EQ 'brst' ? mode : 'srvy'
 	fgm_coords = coords EQ 'dbcs'  ? 'dmpa' : coords
 	
 	;EDP
@@ -118,14 +128,15 @@ TRANGE=trange
 	edp_coords = coords EQ 'dbcs'  ? 'dsl'  : coords
 
 	;Source names
-	IF fgm_level EQ 'l2pre' THEN BEGIN
-		fgm_b_vname     = StrJoin( [sc, fgm_instr,        fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
-		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'mag', fgm_mode, fgm_level, fgm_coords], '_' )
-	ENDIF ELSE BEGIN
+	;   - Different version of L2Pre use different naming conventions
+	IF fgm_level EQ 'l2' THEN BEGIN ;fgm_level EQ 'l2pre' ||
 		fgm_b_vname     = StrJoin( [sc, fgm_instr, 'b',    fgm_coords, fgm_mode, fgm_level], '_' )
 		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'bvec', fgm_coords, fgm_mode, fgm_level], '_' )
 		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'bmag', fgm_coords, fgm_mode, fgm_level], '_' )
+	ENDIF ELSE BEGIN
+		fgm_b_vname     = StrJoin( [sc, fgm_instr,        fgm_mode, fgm_level, fgm_coords], '_' )
+		fgm_bvec_vname  = StrJoin( [sc, fgm_instr, 'vec', fgm_mode, fgm_level, fgm_coords], '_' )
+		fgm_bmag_vname  = StrJoin( [sc, fgm_instr, 'mag', fgm_mode, fgm_level, fgm_coords], '_' )
 	ENDELSE
 	e_vname       = StrJoin( [sc, edp_instr, 'dce',  edp_coords, edp_mode, level], '_' )
 	
@@ -138,8 +149,8 @@ TRANGE=trange
 	;Derived names
 	f0_vname       = StrJoin( [sc, instr, 'flux',   '0', mode, level], '_' )
 	f180_vname     = StrJoin( [sc, instr, 'flux', '180', mode, level], '_' )
-	psd0_vname     = StrJoin( [sc, instr, 'psd',   '0', mode, level], '_' )
-	psd180_vname   = StrJoin( [sc, instr, 'psd', '180', mode, level], '_' )
+	psd0_vname     = StrJoin( [sc, instr, 'psd',    '0', mode, level], '_' )
+	psd180_vname   = StrJoin( [sc, instr, 'psd',  '180', mode, level], '_' )
 	phi0_vname     = sc + '_' + instr + '_' + 'phi'   + channels + '_' + 'fac' + '_' +   '0' + '_' + mode + '_' + level
 	theta0_vname   = sc + '_' + instr + '_' + 'theta' + channels + '_' + 'fac' + '_' +   '0' + '_' + mode + '_' + level
 	phi180_vname   = sc + '_' + instr + '_' + 'phi'   + channels + '_' + 'fac' + '_' + '180' + '_' + mode + '_' + level
@@ -156,6 +167,9 @@ TRANGE=trange
 		                     INSTR     = fgm_instr, $
 		                     LEVEL     = fgm_level, $
 		                     VARFORMAT = fgm_b_vname
+		
+		IF fgm_level NE 'l2' && ~MrVar_IsCached(fgm_b_vname) $
+			THEN Message, 'FGM L2PRE variable name incorrect. Try swapping naming conventions.'
 
 		;EDP
 		MrMMS_Load_Data, sc, edp_instr, edp_mode, level, $
@@ -163,17 +177,19 @@ TRANGE=trange
 		                 VARFORMAT = e_vname
 
 		;EDI
-		oEDI = MrMMS_EDI_Dist(sc, mode)
+		oEDI = MrMMS_EDI_Dist(sc, mode, optdesc)
 	ENDIF
 	
 	;Determine which EDI file was loaded
-	fnames = MrMMS_Get_FileNames(sc, 'edi', mode, level)
+	fnames = MrMMS_Get_FileNames(sc, 'edi', mode, level, OPTDESC=optdesc)
 	MrMMS_Parse_Filename, fnames, OPTDESC=optdesc
 	iUniq = Uniq(optdesc, Sort(optdesc))
 	IF N_Elements(iUniq) NE 1 THEN BEGIN
 		MrPrintF, 'LogWarn', 'More than one EDI file type found.'
-		MrPrintF, 'LogWarn', '   ' + '[' + StrJoin(optdesc, ', ') + ']'
+		MrPrintF, 'LogWarn', '   ' + '[' + StrJoin(optdesc[iUniq], ', ') + ']'
+		MrPrintF, 'LogWarn', '   Choosing "' + optdesc[0] + '".'
 	ENDIF
+	optdesc = optdesc[0]
 
 ;-------------------------------------------
 ; EDI: PAD & GPD ///////////////////////////
@@ -306,9 +322,13 @@ TRANGE=trange
 	;FLUX RANGE
 	oFlux0     = MrVar_Get(f0_vname)
 	oFlux180   = MrVar_Get(f180_vname)
-	flux_range = [ Min( [oFlux0.min, oFlux180.min] ), Max( [oFlux0.max, oFlux180.max] ) ]
-	
+	i0         = oFlux0   -> Where(0, /GREATER, COUNT=n0)
+	i180       = oFlux180 -> Where(0, /GREATER, COUNT=n180)
+	flux_range = [ Min( [oFlux0[i0].min, oFlux180[i180].min] ), $
+	               Max( [oFlux0[i0].max, oFlux180[i180].max] ) ]
+
 	;FLUX 0
+	iGood = oFlux0 -> Where(0, /GREATER, COUNT=nGood)
 	oFlux0['AXIS_RANGE'] = flux_range
 	oFlux0['LOG']        = 1B
 	oFlux0['PLOT_TITLE'] = 'Electron Flux Parallel to B'
@@ -361,6 +381,9 @@ TRANGE=trange
 ;-------------------------------------------
 ; Plot Data ////////////////////////////////
 ;-------------------------------------------
+	trange = MrVar_GetTRange('SSM')
+	IF trange[1] - trange[0] LE 60.0 THEN trange -= Floor(trange[0])
+
 	;Plot data
 	win = MrVar_PlotTS( [ fgm_b_vname, e_vname, f0_vname, psd0_vname, f180_vname, psd180_vname, $
 	                      phi0_vname[0], gpd_vname, theta0_vname[0], pad_vname ], $
@@ -377,7 +400,31 @@ TRANGE=trange
 	win[0] -> SetLayout, [1,1]
 	win    -> TrimLayout
 	win    -> SetProperty, OXMARGIN=[13, 14]
+	win    -> SetGlobal, XRANGE=trange
 	win    -> Refresh
 
+;-------------------------------------------
+; Save Figure //////////////////////////////
+;-------------------------------------------
+	IF N_Elements(output_dir) GT 0 || N_Elements(output_ext) GT 0 THEN BEGIN
+		;Defaults
+		IF N_Elements(output_dir) EQ 0 THEN BEGIN
+			CD, CURRENT=output_dir
+		ENDIF ELSE IF ~File_Test(output_dir, /DIRECTORY) THEN BEGIN
+			MrPrintF, 'LogText', 'Creating directory: "' + output_dir + '".'
+			File_MKDir, output_dir
+		ENDIF
+		
+		;File name
+		fname   = StrJoin( [sc, instr, mode, level, optdesc], '_' )
+		fname   = FilePath( fname, ROOT_DIR=output_dir )
+		
+		;Save the figure
+		fout = MrVar_PlotTS_Save( win, fname, output_ext )
+	ENDIF
+
+;-------------------------------------------
+; Done /////////////////////////////////////
+;-------------------------------------------
 	RETURN, win
 END
